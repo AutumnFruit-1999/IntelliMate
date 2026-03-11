@@ -1,0 +1,61 @@
+server:
+  port: ${JAVACLAW_PORT:3007}
+
+spring:
+  application:
+    name: javaclaw-gateway
+
+  # R2DBC reactive datasource (runtime queries)
+  r2dbc:
+    url: r2dbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:javaclaw}?sslMode=DISABLED
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:NyD0+oFDoOB+9cdVtnMonWFf4ZkDpTTs}
+    pool:
+      initial-size: 5
+      max-size: 20
+      max-idle-time: 30m
+
+  flyway:
+    enabled: true
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:javaclaw}?useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
+    user: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:NyD0+oFDoOB+9cdVtnMonWFf4ZkDpTTs}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:sk-8b71fb8815884080b52bd3b670b3b599}
+      chat:
+        options:
+          model: ${JAVACLAW_AGENT_MODEL:qwen-plus}
+
+javaclaw:
+  server:
+    port: ${JAVACLAW_PORT:3007}
+    host: 0.0.0.0
+  security:
+    auth-token: ${JAVACLAW_AUTH_TOKEN:}
+    dm-pairing-enabled: false
+  agent:
+    name: ${JAVACLAW_AGENT_NAME:javaclaw}
+    model: ${JAVACLAW_AGENT_MODEL:qwen-max}
+    max-turns: 128
+    timeout-seconds: 300
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.atm.javaclaw: DEBUG
+    org.springframework.data.r2dbc: DEBUG
+    org.springframework.web.reactive: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
