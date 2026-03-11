@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { WsClient } from "../lib/wsClient";
 import { createRequest, type EventFrame, type ResponseFrame } from "../lib/protocol";
 import { useChatStore } from "../stores/chatStore";
+import { useAgentStore } from "../stores/agentStore";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/ws`;
@@ -74,10 +75,13 @@ export function useWebSocket() {
     const store = useChatStore.getState();
     if (store.isWaiting) return;
 
+    const agentName = useAgentStore.getState().activeAgent ?? "";
+
     const req = createRequest("conversation.message", {
       text,
       channelId: "webchat",
       contextType: "dm",
+      agentName,
     });
 
     store.addUserMessage(text, req.id);

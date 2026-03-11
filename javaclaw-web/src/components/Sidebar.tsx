@@ -1,6 +1,8 @@
 import { useChatStore } from "../stores/chatStore";
+import { useAgentStore } from "../stores/agentStore";
 import ConnectionStatus from "./ConnectionStatus";
-import { RotateCcw, Info, Cpu, HelpCircle, X, Brain, User, BookOpen } from "lucide-react";
+import AgentList from "./AgentList";
+import { RotateCcw, Info, HelpCircle, X, Brain, User, BookOpen } from "lucide-react";
 import type { ContextTab } from "./AgentConfigModal";
 
 interface SidebarProps {
@@ -8,15 +10,26 @@ interface SidebarProps {
   open: boolean;
   onClose: () => void;
   onOpenConfig: (tab: ContextTab) => void;
+  onCreateAgent: () => void;
+  onSelectAgent: (name: string) => void;
 }
 
-export default function Sidebar({ onSend, open, onClose, onOpenConfig }: SidebarProps) {
+export default function Sidebar({
+  onSend,
+  open,
+  onClose,
+  onOpenConfig,
+  onCreateAgent,
+  onSelectAgent,
+}: SidebarProps) {
   const wsSessionId = useChatStore((s) => s.wsSessionId);
+  const agents = useAgentStore((s) => s.agents);
+  const activeAgent = useAgentStore((s) => s.activeAgent);
+  const removeAgent = useAgentStore((s) => s.removeAgent);
 
   const commands = [
     { icon: <RotateCcw size={16} />, label: "重置会话", cmd: "/reset" },
     { icon: <Info size={16} />, label: "会话状态", cmd: "/status" },
-    { icon: <Cpu size={16} />, label: "切换模型", cmd: "/model" },
     { icon: <HelpCircle size={16} />, label: "帮助", cmd: "/help" },
   ];
 
@@ -49,6 +62,20 @@ export default function Sidebar({ onSend, open, onClose, onOpenConfig }: Sidebar
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <AgentList
+            agents={agents}
+            activeAgent={activeAgent}
+            onSelect={(name) => {
+              onSelectAgent(name);
+              onClose();
+            }}
+            onCreateClick={() => {
+              onCreateAgent();
+              onClose();
+            }}
+            onDelete={removeAgent}
+          />
+
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               快捷命令

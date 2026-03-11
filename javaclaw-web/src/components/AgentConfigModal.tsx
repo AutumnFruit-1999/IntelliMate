@@ -58,7 +58,7 @@ export default function AgentConfigModal({
   const [activeTab, setActiveTab] = useState<ContextTab>(initialTab);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const { config, draft, loading, saving, dirty, error, fetchConfig, updateField, saveConfig, reset } =
+  const { config, draft, loading, saving, dirty, error, fetchConfig, updateField, saveConfig, resetConfig } =
     useAgentStore();
 
   useEffect(() => {
@@ -67,9 +67,9 @@ export default function AgentConfigModal({
       setSaveSuccess(false);
       fetchConfig(agentName);
     } else {
-      reset();
+      resetConfig();
     }
-  }, [open, agentName, initialTab, fetchConfig, reset]);
+  }, [open, agentName, initialTab, fetchConfig, resetConfig]);
 
   const handleClose = useCallback(() => {
     if (dirty && !window.confirm("有未保存的修改，确定关闭吗？")) {

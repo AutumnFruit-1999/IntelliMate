@@ -77,11 +77,18 @@ public class MessagePipeline {
         String userText = (String) params.getOrDefault("text", "");
         String channelId = (String) params.getOrDefault("channelId", "webchat");
         String contextType = (String) params.getOrDefault("contextType", "dm");
-        String contextId = (String) params.getOrDefault("contextId", wsSessionId);
+        String baseContextId = (String) params.getOrDefault("contextId", wsSessionId);
+
+        String agentName = (String) params.getOrDefault("agentName", "");
+        if (agentName.isBlank()) {
+            agentName = properties.getAgent().getName();
+        }
+
+        String contextId = baseContextId + "::" + agentName;
 
         SessionKey sessionKey = new SessionKey(channelId, contextType, contextId);
         SessionMetadata metadata = new SessionMetadata(
-                properties.getAgent().getName(), null,
+                agentName, null,
                 channelId, contextType, contextId
         );
 
