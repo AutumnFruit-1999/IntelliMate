@@ -20,6 +20,7 @@ public class AgentEntity {
     private Integer maxTurns;
     private Integer timeoutSeconds;
     private String toolsEnabled;
+    private String mcpToolsEnabled;
     private String configJson;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -45,6 +46,8 @@ public class AgentEntity {
     public void setTimeoutSeconds(Integer timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
     public String getToolsEnabled() { return toolsEnabled; }
     public void setToolsEnabled(String toolsEnabled) { this.toolsEnabled = toolsEnabled; }
+    public String getMcpToolsEnabled() { return mcpToolsEnabled; }
+    public void setMcpToolsEnabled(String mcpToolsEnabled) { this.mcpToolsEnabled = mcpToolsEnabled; }
     public String getConfigJson() { return configJson; }
     public void setConfigJson(String configJson) { this.configJson = configJson; }
     public LocalDateTime getCreatedAt() { return createdAt; }

@@ -23,22 +23,17 @@ public class RunQueueManager {
 
     private final ConcurrentMap<Long, Mono<Void>> sessionChains = new ConcurrentHashMap<>();
 
-    /**
-     * Enqueue a streaming run for the given session. Returns a Flux that emits
-     * tokens as they arrive from the LLM, while ensuring sequential execution
-     * per session.
-     */
-    public synchronized Flux<String> enqueue(Long sessionId, Supplier<Flux<String>> runSupplier) {
+    public synchronized Flux<AgentEvent> enqueue(Long sessionId, Supplier<Flux<AgentEvent>> runSupplier) {
         Mono<Void> previous = sessionChains.getOrDefault(sessionId, Mono.empty());
 
-        Sinks.Many<String> replaySink = Sinks.many().replay().all();
+        Sinks.Many<AgentEvent> replaySink = Sinks.many().replay().all();
 
         Mono<Void> run = previous
                 .onErrorComplete()
                 .then(Mono.defer(() -> {
                     log.debug("Starting agent run for session={}", sessionId);
                     return runSupplier.get()
-                            .doOnNext(token -> replaySink.tryEmitNext(token))
+                            .doOnNext(event -> replaySink.tryEmitNext(event))
                             .doOnComplete(() -> replaySink.tryEmitComplete())
                             .doOnError(e -> replaySink.tryEmitError(e))
                             .then();

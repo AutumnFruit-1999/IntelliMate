@@ -1,5 +1,6 @@
 package com.atm.javaclaw.gateway.pipeline;
 
+import com.atm.javaclaw.agent.runtime.AgentEvent;
 import com.atm.javaclaw.agent.runtime.AgentRunRequest;
 import com.atm.javaclaw.agent.runtime.AgentRuntime;
 import com.atm.javaclaw.core.config.JavaClawProperties;
@@ -19,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -30,16 +32,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Orchestrates the full message processing pipeline with streaming support:
- * 1. Parse incoming request
- * 2. Resolve/create session
- * 3. Load conversation history
- * 4. Dispatch to AgentRuntime (streaming)
- * 5. Emit chunk events as tokens arrive
- * 6. Persist complete transcript + audit log
- * 7. Emit done event + response frame
- */
 @Component
 public class MessagePipeline {
 
@@ -106,7 +98,9 @@ public class MessagePipeline {
                 });
     }
 
-    private Flux<GatewayFrame> processMessageStreaming(SessionEntity session, String userText, String requestId, String wsSessionId) {
+    private Flux<GatewayFrame> processMessageStreaming(
+            SessionEntity session, String userText, String requestId, String wsSessionId) {
+
         TranscriptMessageEntity userMsg = new TranscriptMessageEntity();
         userMsg.setRole("user");
         userMsg.setContent(userText);
@@ -128,18 +122,14 @@ public class MessagePipeline {
                             resolved.agent(),
                             userText,
                             messages,
-                            resolved.toolsEnabled()
+                            resolved.toolsEnabled(),
+                            resolved.mcpToolsEnabled()
                     );
 
                     StringBuilder fullResponse = new StringBuilder();
 
-                    Flux<GatewayFrame> chunks = agentRuntime.dispatch(runRequest)
-                            .doOnNext(fullResponse::append)
-                            .map(token -> new EventFrame(
-                                    "agent.chunk",
-                                    Map.of("text", token, "requestId", requestId),
-                                    seqGenerator.incrementAndGet()
-                            ));
+                    Flux<GatewayFrame> events = agentRuntime.dispatch(runRequest)
+                            .concatMap(event -> mapAgentEvent(event, requestId, fullResponse));
 
                     Flux<GatewayFrame> tail = Flux.defer(() -> {
                         String completeText = fullResponse.toString();
@@ -153,17 +143,70 @@ public class MessagePipeline {
                                 .then(auditService.log("agent_response", "agent", session.getId(),
                                         "length=" + completeText.length()))
                                 .thenMany(Flux.just(
-                                        new EventFrame(
-                                                "agent.done",
-                                                Map.of("text", completeText, "requestId", requestId),
-                                                seqGenerator.incrementAndGet()
-                                        ),
                                         ResponseFrame.success(requestId, Map.of("text", completeText))
                                 ));
                     });
 
-                    return Flux.concat(chunks, tail);
+                    return Flux.concat(events, tail);
                 });
+    }
+
+    private Flux<GatewayFrame> mapAgentEvent(
+            AgentEvent event, String requestId, StringBuilder fullResponse) {
+
+        return switch (event) {
+            case AgentEvent.TurnStart ts -> Flux.just(new EventFrame(
+                    "agent.turn_start",
+                    Map.of("turn", ts.turn(),
+                           "maxTurns", ts.maxTurns(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            case AgentEvent.TextChunk tc -> {
+                fullResponse.append(tc.text());
+                yield Flux.just(new EventFrame(
+                        "agent.chunk",
+                        Map.of("text", tc.text(), "requestId", requestId),
+                        seqGenerator.incrementAndGet()
+                ));
+            }
+
+            case AgentEvent.ToolCall tc -> Flux.just(new EventFrame(
+                    "agent.tool_call",
+                    Map.of("toolCallId", tc.toolCallId(),
+                           "name", tc.name(),
+                           "arguments", tc.arguments(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            case AgentEvent.ToolResult tr -> Flux.just(new EventFrame(
+                    "agent.tool_result",
+                    Map.of("toolCallId", tr.toolCallId(),
+                           "name", tr.name(),
+                           "result", tr.result(),
+                           "success", tr.success(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            case AgentEvent.Done done -> {
+                fullResponse.delete(0, fullResponse.length());
+                fullResponse.append(done.fullText());
+                yield Flux.just(new EventFrame(
+                        "agent.done",
+                        Map.of("text", done.fullText(),
+                               "totalTurns", done.totalTurns(),
+                               "requestId", requestId),
+                        seqGenerator.incrementAndGet()
+                ));
+            }
+
+            case AgentEvent.Error err -> Flux.just(
+                    ResponseFrame.failure(requestId, err.message())
+            );
+        };
     }
 
     private List<Message> convertToAiMessages(List<TranscriptMessageEntity> history) {
@@ -172,6 +215,14 @@ public class MessagePipeline {
             switch (msg.getRole()) {
                 case "user" -> messages.add(new UserMessage(msg.getContent()));
                 case "assistant" -> messages.add(new AssistantMessage(msg.getContent()));
+                case "tool" -> {
+                    String toolCallId = msg.getToolCallId() != null ? msg.getToolCallId() : "";
+                    String toolName = msg.getToolName() != null ? msg.getToolName() : "";
+                    String content = msg.getContent() != null ? msg.getContent() : "";
+                    messages.add(new ToolResponseMessage(List.of(
+                            new ToolResponseMessage.ToolResponse(toolCallId, toolName, content)
+                    )));
+                }
                 default -> log.debug("Skipping message with role: {}", msg.getRole());
             }
         }

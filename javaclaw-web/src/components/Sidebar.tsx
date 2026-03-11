@@ -2,14 +2,14 @@ import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import ConnectionStatus from "./ConnectionStatus";
 import AgentList from "./AgentList";
-import { RotateCcw, Info, HelpCircle, X, Brain, User, BookOpen } from "lucide-react";
-import type { ContextTab } from "./AgentConfigModal";
+import { RotateCcw, Info, HelpCircle, X, Bot, Settings } from "lucide-react";
 
 interface SidebarProps {
   onSend: (text: string) => void;
   open: boolean;
   onClose: () => void;
-  onOpenConfig: (tab: ContextTab) => void;
+  onOpenAgentManager: () => void;
+  onOpenToolManager: () => void;
   onCreateAgent: () => void;
   onSelectAgent: (name: string) => void;
 }
@@ -18,7 +18,8 @@ export default function Sidebar({
   onSend,
   open,
   onClose,
-  onOpenConfig,
+  onOpenAgentManager,
+  onOpenToolManager,
   onCreateAgent,
   onSelectAgent,
 }: SidebarProps) {
@@ -31,12 +32,6 @@ export default function Sidebar({
     { icon: <RotateCcw size={16} />, label: "重置会话", cmd: "/reset" },
     { icon: <Info size={16} />, label: "会话状态", cmd: "/status" },
     { icon: <HelpCircle size={16} />, label: "帮助", cmd: "/help" },
-  ];
-
-  const configItems: { icon: React.ReactNode; label: string; tab: ContextTab }[] = [
-    { icon: <Brain size={16} />, label: "SOUL 性格设定", tab: "soul" },
-    { icon: <User size={16} />, label: "USER 用户信息", tab: "user" },
-    { icon: <BookOpen size={16} />, label: "AGENTS 工作规范", tab: "agents" },
   ];
 
   return (
@@ -99,22 +94,29 @@ export default function Sidebar({
 
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-              智能体配置
+              管理
             </p>
             <div className="space-y-1">
-              {configItems.map((item) => (
-                <button
-                  key={item.tab}
-                  onClick={() => {
-                    onOpenConfig(item.tab);
-                    onClose();
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
-                >
-                  {item.icon}
-                  {item.label}
-                </button>
-              ))}
+              <button
+                onClick={() => {
+                  onOpenAgentManager();
+                  onClose();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+              >
+                <Bot size={16} />
+                Agent 配置
+              </button>
+              <button
+                onClick={() => {
+                  onOpenToolManager();
+                  onClose();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+              >
+                <Settings size={16} />
+                工具管理
+              </button>
             </div>
           </div>
 

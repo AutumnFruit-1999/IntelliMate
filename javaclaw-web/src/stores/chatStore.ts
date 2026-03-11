@@ -2,6 +2,15 @@ import { create } from "zustand";
 import type { ConnectionState } from "../lib/wsClient";
 import type { ResponseFrame } from "../lib/protocol";
 
+export interface ToolCallInfo {
+  toolCallId: string;
+  name: string;
+  arguments: string;
+  result?: string;
+  success?: boolean;
+  status: "calling" | "done" | "error";
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -9,6 +18,10 @@ export interface ChatMessage {
   streaming: boolean;
   timestamp: number;
   requestId?: string;
+  toolCalls?: ToolCallInfo[];
+  currentTurn?: number;
+  maxTurns?: number;
+  totalTurns?: number;
 }
 
 interface ChatState {
@@ -21,11 +34,22 @@ interface ChatState {
   setWsSessionId: (id: string) => void;
   addUserMessage: (text: string, requestId: string) => void;
   appendChunk: (requestId: string, chunk: string) => void;
-  finishStreaming: (requestId: string, fullText: string) => void;
+  finishStreaming: (requestId: string, fullText: string, totalTurns?: number) => void;
   addResponse: (response: ResponseFrame) => void;
   addSystemMessage: (text: string) => void;
   clearMessages: () => void;
   timeoutRequest: (requestId: string) => void;
+  setTurnStart: (requestId: string, turn: number, maxTurns: number) => void;
+  addToolCall: (
+    requestId: string,
+    info: { toolCallId: string; name: string; arguments: string },
+  ) => void;
+  updateToolResult: (
+    requestId: string,
+    toolCallId: string,
+    result: string,
+    success: boolean,
+  ) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -73,12 +97,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  finishStreaming: (requestId, fullText) => {
+  finishStreaming: (requestId, fullText, totalTurns) => {
     set((state) => ({
       isWaiting: false,
       messages: state.messages.map((msg) =>
         msg.id === `assistant-${requestId}`
-          ? { ...msg, content: fullText, streaming: false }
+          ? {
+              ...msg,
+              content: fullText,
+              streaming: false,
+              ...(totalTurns != null ? { totalTurns } : {}),
+            }
           : msg,
       ),
     }));
@@ -89,7 +118,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const existing = get().messages.find((m) => m.id === bubbleId);
 
     if (response.ok && response.payload) {
-      const text = (response.payload as Record<string, unknown>).text as string | undefined;
+      const text = (response.payload as Record<string, unknown>).text as
+        | string
+        | undefined;
 
       if (existing && existing.streaming && !existing.content && text) {
         set((state) => ({
@@ -168,5 +199,53 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       }));
     }
+  },
+
+  setTurnStart: (requestId, turn, maxTurns) => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === `assistant-${requestId}`
+          ? { ...msg, currentTurn: turn, maxTurns }
+          : msg,
+      ),
+    }));
+  },
+
+  addToolCall: (requestId, info) => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === `assistant-${requestId}`
+          ? {
+              ...msg,
+              toolCalls: [
+                ...(msg.toolCalls ?? []),
+                { ...info, status: "calling" as const },
+              ],
+            }
+          : msg,
+      ),
+    }));
+  },
+
+  updateToolResult: (requestId, toolCallId, result, success) => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === `assistant-${requestId}`
+          ? {
+              ...msg,
+              toolCalls: msg.toolCalls?.map((tc) =>
+                tc.toolCallId === toolCallId
+                  ? {
+                      ...tc,
+                      result,
+                      success,
+                      status: (success ? "done" : "error") as ToolCallInfo["status"],
+                    }
+                  : tc,
+              ),
+            }
+          : msg,
+      ),
+    }));
   },
 }));

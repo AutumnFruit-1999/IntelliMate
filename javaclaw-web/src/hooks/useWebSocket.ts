@@ -1,16 +1,22 @@
 import { useEffect, useRef, useCallback } from "react";
 import { WsClient } from "../lib/wsClient";
-import { createRequest, type EventFrame, type ResponseFrame } from "../lib/protocol";
+import {
+  createRequest,
+  type EventFrame,
+  type ResponseFrame,
+} from "../lib/protocol";
 import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/ws`;
-const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 300_000;
 
 export function useWebSocket() {
   const clientRef = useRef<WsClient | null>(null);
-  const timeoutTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const timeoutTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
 
   useEffect(() => {
     const token = import.meta.env.VITE_AUTH_TOKEN ?? "";
@@ -37,8 +43,37 @@ export function useWebSocket() {
           }
           case "agent.done": {
             const requestId = event.payload.requestId as string;
-            store.finishStreaming(requestId, event.payload.text as string);
+            store.finishStreaming(
+              requestId,
+              event.payload.text as string,
+              event.payload.totalTurns as number | undefined,
+            );
             clearRequestTimeout(requestId);
+            break;
+          }
+          case "agent.turn_start": {
+            store.setTurnStart(
+              event.payload.requestId as string,
+              event.payload.turn as number,
+              event.payload.maxTurns as number,
+            );
+            break;
+          }
+          case "agent.tool_call": {
+            store.addToolCall(event.payload.requestId as string, {
+              toolCallId: event.payload.toolCallId as string,
+              name: event.payload.name as string,
+              arguments: event.payload.arguments as string,
+            });
+            break;
+          }
+          case "agent.tool_result": {
+            store.updateToolResult(
+              event.payload.requestId as string,
+              event.payload.toolCallId as string,
+              event.payload.result as string,
+              event.payload.success as boolean,
+            );
             break;
           }
         }

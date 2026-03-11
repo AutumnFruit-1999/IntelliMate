@@ -91,16 +91,38 @@ public class AgentController {
     public Mono<Map<String, Object>> updateAgent(@PathVariable String name,
                                                   @RequestBody Map<String, Object> body) {
         return agentRepository.findByName(name)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent not found: " + name)))
+                .switchIfEmpty(Mono.defer(() -> createDefaultEntity(name)))
                 .flatMap(entity -> {
                     if (body.containsKey("model")) entity.setModel((String) body.get("model"));
                     if (body.containsKey("systemPrompt")) entity.setSystemPrompt((String) body.get("systemPrompt"));
                     if (body.containsKey("maxTurns")) entity.setMaxTurns((Integer) body.get("maxTurns"));
                     if (body.containsKey("timeoutSeconds")) entity.setTimeoutSeconds((Integer) body.get("timeoutSeconds"));
+                    if (body.containsKey("toolsEnabled")) {
+                        Object val = body.get("toolsEnabled");
+                        entity.setToolsEnabled(val instanceof String s ? s : (val != null ? val.toString() : null));
+                    }
+                    if (body.containsKey("mcpToolsEnabled")) {
+                        Object val = body.get("mcpToolsEnabled");
+                        entity.setMcpToolsEnabled(val instanceof String s ? s : (val != null ? val.toString() : null));
+                    }
                     entity.setUpdatedAt(LocalDateTime.now());
                     return agentRepository.save(entity);
                 })
                 .map(saved -> Map.<String, Object>of("success", true));
+    }
+
+    private Mono<AgentEntity> createDefaultEntity(String name) {
+        JavaClawProperties.Agent defaults = properties.getAgent();
+        AgentEntity entity = new AgentEntity();
+        entity.setName(name);
+        entity.setModel(defaults.getModel());
+        entity.setMaxTurns(defaults.getMaxTurns());
+        entity.setTimeoutSeconds(defaults.getTimeoutSeconds());
+        entity.setDeleted(0);
+        entity.setCreatedAt(LocalDateTime.now());
+        entity.setUpdatedAt(LocalDateTime.now());
+        log.info("Auto-creating agent record for update: name={}", name);
+        return agentRepository.save(entity);
     }
 
     @PutMapping("/agent/{name}/context")
@@ -167,6 +189,7 @@ public class AgentController {
         dto.put("hasSoul", entity.getSoulMd() != null && !entity.getSoulMd().isBlank());
         dto.put("hasUser", entity.getUserMd() != null && !entity.getUserMd().isBlank());
         dto.put("hasAgents", entity.getAgentsMd() != null && !entity.getAgentsMd().isBlank());
+        dto.put("toolsEnabled", entity.getToolsEnabled());
         dto.put("isDefault", false);
         return dto;
     }
@@ -178,6 +201,8 @@ public class AgentController {
         dto.put("soulMd", entity.getSoulMd());
         dto.put("userMd", entity.getUserMd());
         dto.put("agentsMd", entity.getAgentsMd());
+        dto.put("toolsEnabled", entity.getToolsEnabled());
+        dto.put("mcpToolsEnabled", entity.getMcpToolsEnabled());
         return dto;
     }
 
@@ -189,6 +214,8 @@ public class AgentController {
         dto.put("soulMd", defaults.getSoulMd());
         dto.put("userMd", defaults.getUserMd());
         dto.put("agentsMd", defaults.getAgentsMd());
+        dto.put("toolsEnabled", (String) null);
+        dto.put("mcpToolsEnabled", (String) null);
         return dto;
     }
 }

@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import ChatPanel from "./components/ChatPanel";
-import AgentConfigModal, { type ContextTab } from "./components/AgentConfigModal";
+import AgentConfigModal from "./components/AgentConfigModal";
+import ToolManagerModal from "./components/ToolManagerModal";
 import CreateAgentModal from "./components/CreateAgentModal";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useAgentStore } from "./stores/agentStore";
@@ -18,10 +19,8 @@ export default function App() {
     return false;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [configModal, setConfigModal] = useState<{ open: boolean; tab: ContextTab }>({
-    open: false,
-    tab: "soul",
-  });
+  const [agentManagerOpen, setAgentManagerOpen] = useState(false);
+  const [toolManagerOpen, setToolManagerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const { sendMessage } = useWebSocket();
@@ -40,10 +39,6 @@ export default function App() {
   }, [darkMode]);
 
   const toggleDark = useCallback(() => setDarkMode((d) => !d), []);
-
-  const openConfig = useCallback((tab: ContextTab) => {
-    setConfigModal({ open: true, tab });
-  }, []);
 
   const handleSelectAgent = useCallback(
     (name: string) => {
@@ -69,7 +64,8 @@ export default function App() {
         onSend={sendMessage}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        onOpenConfig={openConfig}
+        onOpenAgentManager={() => setAgentManagerOpen(true)}
+        onOpenToolManager={() => setToolManagerOpen(true)}
         onCreateAgent={() => setCreateModalOpen(true)}
         onSelectAgent={handleSelectAgent}
       />
@@ -83,10 +79,12 @@ export default function App() {
         <ChatPanel onSend={sendMessage} />
       </div>
       <AgentConfigModal
-        open={configModal.open}
-        onClose={() => setConfigModal((s) => ({ ...s, open: false }))}
-        agentName={activeAgent ?? "javaclaw"}
-        initialTab={configModal.tab}
+        open={agentManagerOpen}
+        onClose={() => setAgentManagerOpen(false)}
+      />
+      <ToolManagerModal
+        open={toolManagerOpen}
+        onClose={() => setToolManagerOpen(false)}
       />
       <CreateAgentModal
         open={createModalOpen}

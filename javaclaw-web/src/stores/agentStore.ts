@@ -3,6 +3,7 @@ import {
   fetchAgents,
   fetchAgentConfig,
   updateAgentContext,
+  updateAgentApi,
   createAgentApi,
   deleteAgentApi,
   type AgentSummary,
@@ -18,6 +19,8 @@ interface AgentState {
 
   config: AgentConfig | null;
   draft: Record<ContextField, string>;
+  toolsEnabledDraft: string | null;
+  mcpToolsEnabledDraft: string | null;
   loading: boolean;
   saving: boolean;
   dirty: boolean;
@@ -30,7 +33,11 @@ interface AgentState {
 
   fetchConfig: (name: string) => Promise<void>;
   updateField: (field: ContextField, value: string) => void;
+  setToolsEnabled: (value: string | null) => void;
+  setMcpToolsEnabled: (value: string | null) => void;
   saveConfig: () => Promise<void>;
+  saveToolsEnabled: () => Promise<void>;
+  saveMcpToolsEnabled: () => Promise<void>;
   resetConfig: () => void;
 }
 
@@ -44,6 +51,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   config: null,
   draft: { ...EMPTY_DRAFT },
+  toolsEnabledDraft: null,
+  mcpToolsEnabledDraft: null,
   loading: false,
   saving: false,
   dirty: false,
@@ -99,6 +108,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           userMd: config.userMd ?? "",
           agentsMd: config.agentsMd ?? "",
         },
+        toolsEnabledDraft: config.toolsEnabled,
+        mcpToolsEnabledDraft: config.mcpToolsEnabled,
         loading: false,
         dirty: false,
       });
@@ -112,6 +123,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       draft: { ...s.draft, [field]: value },
       dirty: true,
     }));
+  },
+
+  setToolsEnabled: (value) => {
+    set({ toolsEnabledDraft: value, dirty: true });
+  },
+
+  setMcpToolsEnabled: (value) => {
+    set({ mcpToolsEnabledDraft: value, dirty: true });
   },
 
   saveConfig: async () => {
@@ -135,7 +154,41 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
+  saveToolsEnabled: async () => {
+    const { config, toolsEnabledDraft } = get();
+    if (!config) return;
+    set({ saving: true, error: null });
+    try {
+      await updateAgentApi(config.name, { toolsEnabled: toolsEnabledDraft });
+      set((s) => ({
+        saving: false,
+        dirty: false,
+        config: s.config ? { ...s.config, toolsEnabled: toolsEnabledDraft } : null,
+      }));
+      await get().fetchAgentList();
+    } catch (e) {
+      set({ saving: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  saveMcpToolsEnabled: async () => {
+    const { config, mcpToolsEnabledDraft } = get();
+    if (!config) return;
+    set({ saving: true, error: null });
+    try {
+      await updateAgentApi(config.name, { mcpToolsEnabled: mcpToolsEnabledDraft });
+      set((s) => ({
+        saving: false,
+        dirty: false,
+        config: s.config ? { ...s.config, mcpToolsEnabled: mcpToolsEnabledDraft } : null,
+      }));
+      await get().fetchAgentList();
+    } catch (e) {
+      set({ saving: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
   resetConfig: () => {
-    set({ config: null, draft: { ...EMPTY_DRAFT }, loading: false, saving: false, dirty: false, error: null });
+    set({ config: null, draft: { ...EMPTY_DRAFT }, toolsEnabledDraft: null, mcpToolsEnabledDraft: null, loading: false, saving: false, dirty: false, error: null });
   },
 }));

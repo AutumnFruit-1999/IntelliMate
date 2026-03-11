@@ -29,6 +29,9 @@ spring:
       chat:
         options:
           model: ${JAVACLAW_AGENT_MODEL:qwen-plus}
+    mcp:
+      client:
+        enabled: false
 
 javaclaw:
   server:
