@@ -38,6 +38,7 @@ interface AgentState {
   saveConfig: () => Promise<void>;
   saveToolsEnabled: () => Promise<void>;
   saveMcpToolsEnabled: () => Promise<void>;
+  saveModel: (modelId: string) => Promise<void>;
   resetConfig: () => void;
 }
 
@@ -181,6 +182,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         saving: false,
         dirty: false,
         config: s.config ? { ...s.config, mcpToolsEnabled: mcpToolsEnabledDraft } : null,
+      }));
+      await get().fetchAgentList();
+    } catch (e) {
+      set({ saving: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  saveModel: async (modelId: string) => {
+    const { config } = get();
+    if (!config) return;
+    set({ saving: true, error: null });
+    try {
+      await updateAgentApi(config.name, { model: modelId });
+      set((s) => ({
+        saving: false,
+        config: s.config ? { ...s.config, model: modelId } : null,
       }));
       await get().fetchAgentList();
     } catch (e) {

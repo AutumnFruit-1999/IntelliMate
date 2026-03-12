@@ -64,6 +64,7 @@ public class JavaClawProperties {
         private String authToken;
         private List<String> allowlist = new ArrayList<>();
         private boolean dmPairingEnabled = false;
+        private String cryptoKey;
 
         public String getAuthToken() { return authToken; }
         public void setAuthToken(String authToken) { this.authToken = authToken; }
@@ -71,6 +72,8 @@ public class JavaClawProperties {
         public void setAllowlist(List<String> allowlist) { this.allowlist = allowlist; }
         public boolean isDmPairingEnabled() { return dmPairingEnabled; }
         public void setDmPairingEnabled(boolean dmPairingEnabled) { this.dmPairingEnabled = dmPairingEnabled; }
+        public String getCryptoKey() { return cryptoKey; }
+        public void setCryptoKey(String cryptoKey) { this.cryptoKey = cryptoKey; }
     }
 
     public static class Agent {

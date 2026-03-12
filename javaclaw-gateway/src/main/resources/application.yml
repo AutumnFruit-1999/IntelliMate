@@ -39,6 +39,7 @@ javaclaw:
     host: 0.0.0.0
   security:
     auth-token: ${JAVACLAW_AUTH_TOKEN:}
+    crypto-key: ${JAVACLAW_CRYPTO_KEY:}
     dm-pairing-enabled: false
   agent:
     name: ${JAVACLAW_AGENT_NAME:javaclaw}

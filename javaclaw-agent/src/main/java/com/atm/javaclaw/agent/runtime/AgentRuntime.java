@@ -1,5 +1,7 @@
 package com.atm.javaclaw.agent.runtime;
 
+import com.atm.javaclaw.agent.model.ChatModelRegistry;
+import com.atm.javaclaw.agent.model.ResolvedModel;
 import com.atm.javaclaw.agent.tools.ToolsEngine;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -33,16 +35,16 @@ public class AgentRuntime {
     private static final Logger log = LoggerFactory.getLogger(AgentRuntime.class);
     private static final int MAX_CONTENT_LENGTH = 500;
 
-    private final ChatModel chatModel;
+    private final ChatModelRegistry chatModelRegistry;
     private final ToolsEngine toolsEngine;
     private final RunQueueManager runQueueManager;
     private final ObjectMapper objectMapper;
 
-    public AgentRuntime(ChatModel chatModel,
+    public AgentRuntime(ChatModelRegistry chatModelRegistry,
                         ToolsEngine toolsEngine,
                         RunQueueManager runQueueManager,
                         ObjectMapper objectMapper) {
-        this.chatModel = chatModel;
+        this.chatModelRegistry = chatModelRegistry;
         this.toolsEngine = toolsEngine;
         this.runQueueManager = runQueueManager;
         this.objectMapper = objectMapper;
@@ -58,8 +60,10 @@ public class AgentRuntime {
         int maxTurns = request.agent().getMaxTurns();
         Duration timeout = Duration.ofSeconds(request.agent().getTimeoutSeconds());
 
-        log.info("Agent '{}' tools: {} total ({} builtin, {} custom, {} mcp), toolsSpec='{}', mcpSpec='{}'",
-                request.agent().getName(), tools.length,
+        ResolvedModel resolved = chatModelRegistry.resolveByModelName(request.agent().getModel());
+        log.info("Agent '{}' model='{}' (resolved modelId='{}'), tools: {} total ({} builtin, {} custom, {} mcp), toolsSpec='{}', mcpSpec='{}'",
+                request.agent().getName(), request.agent().getModel(), resolved.modelId(),
+                tools.length,
                 toolsEngine.getBuiltinCount(), toolsEngine.getDynamicCount(), toolsEngine.getMcpCount(),
                 request.toolsEnabled(), request.mcpToolsEnabled());
 
@@ -72,15 +76,17 @@ public class AgentRuntime {
 
         ToolCallingChatOptions chatOptions = ToolCallingChatOptions.builder()
                 .toolCallbacks(tools)
+                .model(resolved.modelId())
                 .internalToolExecutionEnabled(false)
                 .build();
 
         logRequestParams(request, systemPrompt, tools);
 
-        return executeLoopTurn(conversationHistory, chatOptions, maxTurns, timeout, 1, new StringBuilder());
+        return executeLoopTurn(resolved.chatModel(), conversationHistory, chatOptions, maxTurns, timeout, 1, new StringBuilder());
     }
 
     private Flux<AgentEvent> executeLoopTurn(
+            ChatModel chatModel,
             List<Message> history,
             ToolCallingChatOptions options,
             int maxTurns,
@@ -120,7 +126,7 @@ public class AgentRuntime {
             ChatResponse lastWithToolCalls = findToolCallResponse(allChunks);
 
             if (lastWithToolCalls != null) {
-                return processToolCalls(history, options, lastWithToolCalls, maxTurns, timeout, turn, fullText);
+                return processToolCalls(chatModel, history, options, lastWithToolCalls, maxTurns, timeout, turn, fullText);
             }
 
             return Flux.just(new AgentEvent.Done(fullText.toString(), turn));
@@ -144,6 +150,7 @@ public class AgentRuntime {
     }
 
     private Flux<AgentEvent> processToolCalls(
+            ChatModel chatModel,
             List<Message> history,
             ToolCallingChatOptions options,
             ChatResponse toolCallResponse,
@@ -196,7 +203,7 @@ public class AgentRuntime {
                     return Flux.concat(Flux.just(callEvent), resultEvent.flux());
                 })
                 .concatWith(Flux.defer(() ->
-                        executeLoopTurn(history, options, maxTurns, timeout, turn + 1, fullText)
+                        executeLoopTurn(chatModel, history, options, maxTurns, timeout, turn + 1, fullText)
                 ));
     }
 

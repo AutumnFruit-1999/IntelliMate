@@ -19,7 +19,14 @@ import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
         DashScopeImageAutoConfiguration.class,
         DashScopeRerankAutoConfiguration.class,
         DashScopeAudioSpeechAutoConfiguration.class,
-        DashScopeAudioTranscriptionAutoConfiguration.class
+        DashScopeAudioTranscriptionAutoConfiguration.class,
+        org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration.class,
+        org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration.class,
+        org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration.class,
+        org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration.class,
+        org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration.class,
+        org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration.class,
+        org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration.class
 })
 @ComponentScan(basePackages = "com.atm.javaclaw")
 @EnableR2dbcRepositories(basePackages = "com.atm.javaclaw.gateway.repository")

@@ -105,13 +105,13 @@ public class CommandHandler {
 
     private Flux<GatewayFrame> handleHelp(String requestId) {
         String help = """
-                可用指令：
-                  /clear           — 清除当前对话记录
-                  /reset           — 重置会话（清除后端上下文）
-                  /status          — 查看当前会话状态
-                  /model <名称>    — 切换 LLM 模型
-                  /approve <code>  — 审批 DM 配对请求
-                  /help            — 显示此帮助""";
+                可用指令：\n
+                  /clear           : 清除当前对话记录\n
+                  /reset           — 重置会话（清除后端上下文）\n
+                  /status          — 查看当前会话状态\n
+                  /model <名称>    — 切换 LLM 模型\n
+                  /approve <code>  — 审批 DM 配对请求\n
+                  /help            — 显示此帮助""" ;
         return Flux.just(ResponseFrame.success(requestId, Map.of("text", help)));
     }
 
