@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Bot, Plus, Cpu, Settings2, ArrowLeft } from "lucide-react";
+import { Plus, ArrowLeft } from "lucide-react";
 import { useAgentStore } from "../stores/agentStore";
 
 interface AgentCardGridProps {
@@ -48,22 +48,17 @@ export default function AgentCardGrid({
               className="group relative bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all"
             >
               <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
-                  <Bot size={20} className="text-blue-500" />
-                </div>
-                <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800">
+                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                  {agent.name}
+                </h3>
+                <span className="shrink-0 ml-2 px-2 py-0.5 text-[10px] font-medium rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800">
                   {agent.isDefault ? "默认" : "自定义"}
                 </span>
               </div>
 
-              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1 truncate">
-                {agent.name}
-              </h3>
-
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 mb-3">
-                <Cpu size={12} />
-                <span className="truncate">{agent.model}</span>
-              </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-3 truncate">
+                {agent.model}
+              </p>
 
               <div className="flex flex-wrap gap-1.5">
                 {agent.hasSoul && (
@@ -81,10 +76,6 @@ export default function AgentCardGrid({
                     AGENTS
                   </span>
                 )}
-              </div>
-
-              <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Settings2 size={14} className="text-slate-400" />
               </div>
             </div>
           ))}
