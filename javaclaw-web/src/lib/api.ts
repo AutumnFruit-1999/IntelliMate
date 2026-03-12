@@ -225,9 +225,117 @@ export function testMcpServer(id: number): Promise<McpTestResult> {
   return request<McpTestResult>(`/api/mcp-servers/${id}/test`, { method: "POST" });
 }
 
+export function reconnectMcpServers(): Promise<{ success: boolean; connected: number; failed: number; totalTools: number }> {
+  return request("/api/mcp-servers/reconnect", { method: "POST" });
+}
+
 export function testMcpServerConfig(data: McpServerCreate): Promise<McpTestResult> {
   return request<McpTestResult>("/api/mcp-servers/test-config", {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+// ─── Model Management ───
+
+export interface ModelItem {
+  id: number;
+  modelId: string;
+  displayName: string;
+  description: string | null;
+}
+
+export interface ModelGroup {
+  providerId: number;
+  providerName: string;
+  providerType: string;
+  models: ModelItem[];
+}
+
+export function fetchModelGroups(): Promise<ModelGroup[]> {
+  return request<ModelGroup[]>("/api/models");
+}
+
+export interface ModelProviderDto {
+  id: number;
+  name: string;
+  type: string;
+  baseUrl: string | null;
+  apiKeyMasked: string;
+  enabled: number;
+  sortOrder: number;
+}
+
+export interface ModelProviderCreate {
+  name: string;
+  type: string;
+  baseUrl?: string | null;
+  apiKey: string;
+}
+
+export interface ModelDefinitionDto {
+  id: number;
+  providerId: number;
+  modelId: string;
+  displayName: string;
+  description: string | null;
+  maxTokens: number | null;
+  enabled: number;
+  sortOrder: number;
+}
+
+export interface ModelDefinitionCreate {
+  providerId: number;
+  modelId: string;
+  displayName: string;
+  description?: string | null;
+  maxTokens?: number | null;
+}
+
+export function fetchModelProviders(): Promise<ModelProviderDto[]> {
+  return request<ModelProviderDto[]>("/api/model-providers");
+}
+
+export function createModelProvider(data: ModelProviderCreate): Promise<ModelProviderDto> {
+  return request<ModelProviderDto>("/api/model-providers", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateModelProvider(id: number, data: Partial<ModelProviderCreate> & { enabled?: number }): Promise<ModelProviderDto> {
+  return request<ModelProviderDto>(`/api/model-providers/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteModelProvider(id: number): Promise<{ success: boolean }> {
+  return request(`/api/model-providers/${id}`, { method: "DELETE" });
+}
+
+export function testModelProvider(id: number): Promise<{ success: boolean; error?: string }> {
+  return request(`/api/model-providers/${id}/test`, { method: "POST" });
+}
+
+export function fetchModelDefinitions(providerId: number): Promise<ModelDefinitionDto[]> {
+  return request<ModelDefinitionDto[]>(`/api/model-providers/${providerId}/models`);
+}
+
+export function createModelDefinition(data: ModelDefinitionCreate): Promise<ModelDefinitionDto> {
+  return request<ModelDefinitionDto>("/api/model-definitions", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateModelDefinition(id: number, data: Partial<ModelDefinitionCreate> & { enabled?: number }): Promise<ModelDefinitionDto> {
+  return request<ModelDefinitionDto>(`/api/model-definitions/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteModelDefinition(id: number): Promise<{ success: boolean }> {
+  return request(`/api/model-definitions/${id}`, { method: "DELETE" });
 }

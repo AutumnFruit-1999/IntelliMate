@@ -1,10 +1,13 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, ChevronDown, ChevronRight, RefreshCw, WifiOff } from "lucide-react";
 import {
   fetchToolsMetadata,
+  fetchMcpServers,
+  reconnectMcpServers,
   type ToolsMetadata,
   type ToolGroupInfo,
   type ToolInfo,
+  type McpServer,
 } from "../lib/api";
 
 interface McpToolsTabProps {
@@ -17,18 +20,37 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [dbServers, setDbServers] = useState<McpServer[]>([]);
+  const [reconnecting, setReconnecting] = useState(false);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     setLoading(true);
-    fetchToolsMetadata()
-      .then((data) => {
+    Promise.all([fetchToolsMetadata(), fetchMcpServers()])
+      .then(([data, servers]) => {
         setMeta(data);
+        setDbServers(servers);
         const mcpGroups = data.groups.filter((g) => g.name.startsWith("MCP:"));
         setExpandedGroups(new Set(mcpGroups.map((g) => g.name)));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleReconnect = useCallback(async () => {
+    setReconnecting(true);
+    try {
+      await reconnectMcpServers();
+      loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReconnecting(false);
+    }
+  }, [loadData]);
 
   const mcpGroups = useMemo<ToolGroupInfo[]>(() => {
     if (!meta) return [];
@@ -147,6 +169,35 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
   }
 
   if (mcpGroups.length === 0) {
+    const enabledServers = dbServers.filter((s) => s.enabled === 1);
+    if (enabledServers.length > 0) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center py-12 space-y-3">
+          <WifiOff size={32} className="text-amber-400" />
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            已配置 {enabledServers.length} 个 MCP 服务，但当前未连接
+          </p>
+          <div className="text-xs text-slate-400 dark:text-slate-500 space-y-0.5 text-center">
+            {enabledServers.map((s) => (
+              <p key={s.id}>{s.name} ({s.transportType})</p>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={handleReconnect}
+            disabled={reconnecting}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {reconnecting ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <RefreshCw size={14} />
+            )}
+            {reconnecting ? "重新连接中..." : "重新连接"}
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-12 space-y-2">
         <p className="text-sm">暂无可用的 MCP 工具</p>

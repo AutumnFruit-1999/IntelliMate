@@ -127,6 +127,31 @@ public class McpServerController {
                 .map(entity -> Map.<String, Object>of("success", true, "deletedName", entity.getName()));
     }
 
+    @PostMapping("/reconnect")
+    public Mono<Map<String, Object>> reconnectAll() {
+        return repository.findAllByEnabled(1)
+                .collectList()
+                .flatMap(servers -> Mono.fromCallable(() -> {
+                    int success = 0, failed = 0;
+                    for (McpServerEntity server : servers) {
+                        try {
+                            mcpToolProvider.connectServerSync(server);
+                            success++;
+                        } catch (Exception e) {
+                            log.warn("Reconnect failed for MCP server '{}': {}", server.getName(), e.getMessage());
+                            failed++;
+                        }
+                    }
+                    toolsEngine.refresh();
+                    return Map.<String, Object>of(
+                            "success", true,
+                            "connected", success,
+                            "failed", failed,
+                            "totalTools", toolsEngine.getMcpCount()
+                    );
+                }).subscribeOn(Schedulers.boundedElastic()));
+    }
+
     @PostMapping("/{id}/test")
     public Mono<Map<String, Object>> test(@PathVariable Long id) {
         return repository.findById(id)
