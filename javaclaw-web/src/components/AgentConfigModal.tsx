@@ -4,6 +4,7 @@ import { useAgentStore } from "../stores/agentStore";
 import AgentContextEditor from "./AgentContextEditor";
 import ToolsTab from "./ToolsTab";
 import McpToolsTab from "./McpToolsTab";
+import ModelSelector from "./ModelSelector";
 
 export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp";
 
@@ -11,9 +12,8 @@ interface AgentConfigModalProps {
   open: boolean;
   onClose: () => void;
   initialTab?: ContextTab;
+  initialAgent?: string;
 }
-
-const MODELS = ["qwen-plus", "qwen-max", "qwen-turbo", "qwen-long"];
 
 const CONTEXT_TABS: {
   key: Exclude<ContextTab, "tools">;
@@ -64,6 +64,7 @@ export default function AgentConfigModal({
   open,
   onClose,
   initialTab = "soul",
+  initialAgent,
 }: AgentConfigModalProps) {
   const [activeTab, setActiveTab] = useState<ContextTab>(initialTab);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -71,7 +72,7 @@ export default function AgentConfigModal({
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newModel, setNewModel] = useState(MODELS[0]);
+  const [newModel, setNewModel] = useState("qwen-plus");
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -105,14 +106,16 @@ export default function AgentConfigModal({
       setActiveTab(initialTab);
       setSaveSuccess(false);
       setShowCreateForm(false);
-      fetchAgentList();
-      const initial = activeAgent ?? agents[0]?.name ?? null;
-      setSelectedAgent(initial);
-      if (initial) fetchConfig(initial);
+      fetchAgentList().then(() => {
+        const agentsList = useAgentStore.getState().agents;
+        const target = initialAgent ?? activeAgent ?? agentsList[0]?.name ?? null;
+        setSelectedAgent(target);
+        if (target) fetchConfig(target);
+      });
     } else {
       resetConfig();
     }
-  }, [open]);
+  }, [open, initialAgent]);
 
   const switchAgent = useCallback(
     (name: string) => {
@@ -169,7 +172,7 @@ export default function AgentConfigModal({
     try {
       await createAgent(trimmed, newModel);
       setNewName("");
-      setNewModel(MODELS[0]);
+      setNewModel("qwen-plus");
       setShowCreateForm(false);
       setSelectedAgent(trimmed);
       fetchConfig(trimmed);
@@ -268,17 +271,10 @@ export default function AgentConfigModal({
                   placeholder="名称"
                   className="w-full px-2 py-1.5 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500/40"
                 />
-                <select
+                <ModelSelector
                   value={newModel}
-                  onChange={(e) => setNewModel(e.target.value)}
-                  className="w-full px-2 py-1.5 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/40"
-                >
-                  {MODELS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(m) => setNewModel(m)}
+                />
                 {createError && (
                   <p className="text-[11px] text-red-500">{createError}</p>
                 )}
@@ -318,14 +314,27 @@ export default function AgentConfigModal({
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-                Agent 配置
-              </h2>
+            <div className="flex items-center gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+                  Agent 配置
+                </h2>
+                {config && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                    {config.name}
+                  </p>
+                )}
+              </div>
               {config && (
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                  {config.name} &middot; {config.model}
-                </p>
+                <ModelSelector
+                  value={config.model}
+                  onChange={async (modelId) => {
+                    if (modelId !== config.model) {
+                      const { saveModel } = useAgentStore.getState();
+                      await saveModel(modelId);
+                    }
+                  }}
+                />
               )}
             </div>
             <button

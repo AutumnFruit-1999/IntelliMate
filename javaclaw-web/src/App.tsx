@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import ChatPanel from "./components/ChatPanel";
+import AgentCardGrid from "./components/AgentCardGrid";
 import AgentConfigModal from "./components/AgentConfigModal";
 import ToolManagerModal from "./components/ToolManagerModal";
 import ModelManagerModal from "./components/ModelManagerModal";
@@ -9,6 +10,8 @@ import CreateAgentModal from "./components/CreateAgentModal";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useAgentStore } from "./stores/agentStore";
 import { useChatStore } from "./stores/chatStore";
+
+type ViewMode = "chat" | "agents";
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -20,7 +23,8 @@ export default function App() {
     return false;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [agentManagerOpen, setAgentManagerOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("chat");
+  const [agentConfigTarget, setAgentConfigTarget] = useState<string | null>(null);
   const [toolManagerOpen, setToolManagerOpen] = useState(false);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -51,6 +55,7 @@ export default function App() {
         setActiveAgent(name);
         useChatStore.getState().setCurrentAgent(name);
       }
+      setViewMode("chat");
     },
     [activeAgent, setActiveAgent],
   );
@@ -59,9 +64,18 @@ export default function App() {
     async (name: string, model: string) => {
       await createAgent(name, model);
       useChatStore.getState().setCurrentAgent(name);
+      setViewMode("chat");
     },
     [createAgent],
   );
+
+  const handleOpenAgentManager = useCallback(() => {
+    setViewMode("agents");
+  }, []);
+
+  const handleAgentCardClick = useCallback((name: string) => {
+    setAgentConfigTarget(name);
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-slate-900">
@@ -69,7 +83,7 @@ export default function App() {
         onSend={sendMessage}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        onOpenAgentManager={() => setAgentManagerOpen(true)}
+        onOpenAgentManager={handleOpenAgentManager}
         onOpenToolManager={() => setToolManagerOpen(true)}
         onOpenModelManager={() => setModelManagerOpen(true)}
         onCreateAgent={() => setCreateModalOpen(true)}
@@ -82,11 +96,20 @@ export default function App() {
           onMenuClick={() => setSidebarOpen(true)}
           agentName={activeAgent}
         />
-        <ChatPanel onSend={sendMessage} />
+        {viewMode === "chat" ? (
+          <ChatPanel onSend={sendMessage} />
+        ) : (
+          <AgentCardGrid
+            onSelectAgent={handleAgentCardClick}
+            onCreateAgent={() => setCreateModalOpen(true)}
+            onBack={() => setViewMode("chat")}
+          />
+        )}
       </div>
       <AgentConfigModal
-        open={agentManagerOpen}
-        onClose={() => setAgentManagerOpen(false)}
+        open={agentConfigTarget !== null}
+        onClose={() => setAgentConfigTarget(null)}
+        initialAgent={agentConfigTarget ?? undefined}
       />
       <ToolManagerModal
         open={toolManagerOpen}
