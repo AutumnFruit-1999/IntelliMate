@@ -2,7 +2,7 @@ import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import ConnectionStatus from "./ConnectionStatus";
 import AgentList from "./AgentList";
-import { RotateCcw, Info, HelpCircle, X, Bot, Settings } from "lucide-react";
+import { HelpCircle, X, Bot, Settings, Cpu } from "lucide-react";
 
 interface SidebarProps {
   onSend: (text: string) => void;
@@ -10,6 +10,7 @@ interface SidebarProps {
   onClose: () => void;
   onOpenAgentManager: () => void;
   onOpenToolManager: () => void;
+  onOpenModelManager: () => void;
   onCreateAgent: () => void;
   onSelectAgent: (name: string) => void;
 }
@@ -20,6 +21,7 @@ export default function Sidebar({
   onClose,
   onOpenAgentManager,
   onOpenToolManager,
+  onOpenModelManager,
   onCreateAgent,
   onSelectAgent,
 }: SidebarProps) {
@@ -29,8 +31,6 @@ export default function Sidebar({
   const removeAgent = useAgentStore((s) => s.removeAgent);
 
   const commands = [
-    { icon: <RotateCcw size={16} />, label: "重置会话", cmd: "/reset" },
-    { icon: <Info size={16} />, label: "会话状态", cmd: "/status" },
     { icon: <HelpCircle size={16} />, label: "帮助", cmd: "/help" },
   ];
 
@@ -116,6 +116,16 @@ export default function Sidebar({
               >
                 <Settings size={16} />
                 工具管理
+              </button>
+              <button
+                onClick={() => {
+                  onOpenModelManager();
+                  onClose();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+              >
+                <Cpu size={16} />
+                模型管理
               </button>
             </div>
           </div>
