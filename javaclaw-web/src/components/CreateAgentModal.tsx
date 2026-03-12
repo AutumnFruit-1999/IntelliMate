@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { X, Loader2 } from "lucide-react";
+import ModelSelector from "./ModelSelector";
 
 interface CreateAgentModalProps {
   open: boolean;
@@ -7,11 +8,9 @@ interface CreateAgentModalProps {
   onCreate: (name: string, model: string) => Promise<void>;
 }
 
-const MODELS = ["qwen-plus", "qwen-max", "qwen-turbo", "qwen-long"];
-
 export default function CreateAgentModal({ open, onClose, onCreate }: CreateAgentModalProps) {
   const [name, setName] = useState("");
-  const [model, setModel] = useState(MODELS[0]);
+  const [model, setModel] = useState("qwen-plus");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +28,7 @@ export default function CreateAgentModal({ open, onClose, onCreate }: CreateAgen
     try {
       await onCreate(name.trim(), model);
       setName("");
-      setModel(MODELS[0]);
+      setModel("qwen-plus");
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -52,7 +51,7 @@ export default function CreateAgentModal({ open, onClose, onCreate }: CreateAgen
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={handleBackdrop}
     >
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-5xl max-h-[90vh] md:max-h-[85vh] bg-white dark:bg-slate-900 rounded-xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
           <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
             新建智能体
@@ -83,15 +82,7 @@ export default function CreateAgentModal({ open, onClose, onCreate }: CreateAgen
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
               模型
             </label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-            >
-              {MODELS.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+            <ModelSelector value={model} onChange={(m) => setModel(m)} />
           </div>
 
           {error && (
