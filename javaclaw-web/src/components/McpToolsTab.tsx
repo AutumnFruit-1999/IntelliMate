@@ -222,7 +222,7 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 min-h-[400px]">
       {/* Quick Presets */}
       <div>
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">

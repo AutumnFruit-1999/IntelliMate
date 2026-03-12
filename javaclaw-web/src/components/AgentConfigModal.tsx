@@ -187,7 +187,7 @@ export default function AgentConfigModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4" style={{ minHeight: "400px" }}>
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 size={24} className="animate-spin text-slate-400" />
