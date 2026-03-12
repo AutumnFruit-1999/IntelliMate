@@ -94,7 +94,7 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
   }
 
   return (
-    <div className="space-y-4 min-h-[400px]">
+    <div className="space-y-4">
       <div>
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
           当前模型

@@ -145,7 +145,7 @@ export default function AgentConfigModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={handleBackdropClick}
     >
-      <div className="flex flex-col w-full max-w-5xl max-h-[90vh] md:max-h-[85vh] bg-white dark:bg-slate-900 rounded-xl shadow-2xl overflow-hidden">
+      <div className="flex flex-col w-full max-w-5xl h-[90vh] md:h-[85vh] bg-white dark:bg-slate-900 rounded-xl shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
           <div>
@@ -187,7 +187,7 @@ export default function AgentConfigModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4" style={{ minHeight: "400px" }}>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 size={24} className="animate-spin text-slate-400" />
