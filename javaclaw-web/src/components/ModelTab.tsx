@@ -21,8 +21,10 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
   const [saving, setSaving] = useState(false);
   const [selectedModel, setSelectedModel] = useState(currentModel);
 
-  useEffect(() => {
+  const loadProviders = useCallback(() => {
     setLoading(true);
+    setExpandedId(null);
+    setModels([]);
     fetchModelProviders()
       .then((data) => {
         setProviders(data.filter((p) => p.enabled === 1));
@@ -30,6 +32,10 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadProviders();
+  }, [loadProviders, currentModel]);
 
   useEffect(() => {
     setSelectedModel(currentModel);
