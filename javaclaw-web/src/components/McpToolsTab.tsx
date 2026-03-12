@@ -22,7 +22,13 @@ function parseDiscoveredTools(raw: string | null): { name: string; description: 
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed)) {
+      return parsed.map((item: unknown) =>
+        typeof item === "string"
+          ? { name: item, description: "" }
+          : { name: (item as Record<string, string>).name ?? "", description: (item as Record<string, string>).description ?? "" }
+      );
+    }
   } catch { /* ignore */ }
   return [];
 }
