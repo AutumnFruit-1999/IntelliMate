@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-03-12 — fix.md 第 7、8 项修复
+
+| 类型 | Bugfix / Refactor |
+|------|-------------------|
+| 描述 | 修复 fix.md 第 7 项（移除 Agent 卡片上 SVG 渲染异常的图标）和第 8 项（Agent 配置弹窗重构）。 |
+
+### Fix 7: 移除 Agent 卡片 SVG 图标
+
+**前端改动：**
+- `AgentCardGrid.tsx`：移除卡片中的 `Bot` 图标（蓝色圆形容器）和 `Settings2` hover 图标，这两个 lucide-react SVG 图标在部分环境下渲染为 `http://www.w3.org/2000/svg` 文本。卡片改为直接展示 Agent 名称和信息
+
+### Fix 8: Agent 配置弹窗重构
+
+**前端改动：**
+- `AgentConfigModal.tsx`：
+  - 移除左侧 `w-52` Agent 列表面板（选择功能已由 AgentCardGrid 承担）
+  - 移除顶部 `ModelSelector` 下拉框
+  - 新增"模型管理"标签页（`ContextTab` 扩展为包含 `"model"`）
+  - 弹窗改为 `flex-col` 纵向布局，所有标签页面板统一使用 `flex-1 min-h-0 overflow-y-auto px-6 py-4` 容器
+  - "模型管理"tab 不显示保存按钮（选择即保存）
+- 新建 `ModelTab.tsx`：模型管理标签页组件
+  - 先列出所有已启用的厂商（Provider）卡片
+  - 点击厂商展开该厂商下的可用模型列表
+  - 点击模型即选中并保存，当前选中模型高亮显示
+  - 数据来源复用 `modelStore` 和 `/api/model-providers` API
+- `McpToolsTab.tsx`：改为从 `fetchMcpServers()` 获取已配置的 DB 服务列表，按 MCP 服务分组展示其 `toolsDiscovered` 中的工具供选择，不再依赖 live `fetchToolsMetadata()` 加载
+
+---
+
 ## 2026-03-12 — fix.md 六项问题批量修复
 
 | 类型 | Bugfix / Enhancement |
