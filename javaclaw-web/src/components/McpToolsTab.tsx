@@ -1,12 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { Loader2, ChevronDown, ChevronRight, RefreshCw, WifiOff } from "lucide-react";
 import {
-  fetchToolsMetadata,
   fetchMcpServers,
   reconnectMcpServers,
-  type ToolsMetadata,
-  type ToolGroupInfo,
-  type ToolInfo,
   type McpServer,
 } from "../lib/api";
 
@@ -15,22 +11,37 @@ interface McpToolsTabProps {
   onChange: (value: string | null) => void;
 }
 
+interface McpGroup {
+  serverId: number;
+  serverName: string;
+  transportType: string;
+  tools: { name: string; description: string }[];
+}
+
+function parseDiscoveredTools(raw: string | null): { name: string; description: string }[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  } catch { /* ignore */ }
+  return [];
+}
+
 export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabProps) {
-  const [meta, setMeta] = useState<ToolsMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [dbServers, setDbServers] = useState<McpServer[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
   const [reconnecting, setReconnecting] = useState(false);
 
   const loadData = useCallback(() => {
     setLoading(true);
-    Promise.all([fetchToolsMetadata(), fetchMcpServers()])
-      .then(([data, servers]) => {
-        setMeta(data);
+    setError(null);
+    fetchMcpServers()
+      .then((servers) => {
         setDbServers(servers);
-        const mcpGroups = data.groups.filter((g) => g.name.startsWith("MCP:"));
-        setExpandedGroups(new Set(mcpGroups.map((g) => g.name)));
+        const enabledIds = servers.filter((s) => s.enabled === 1).map((s) => s.id);
+        setExpandedGroups(new Set(enabledIds));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -52,37 +63,34 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
     }
   }, [loadData]);
 
-  const mcpGroups = useMemo<ToolGroupInfo[]>(() => {
-    if (!meta) return [];
-    return meta.groups.filter((g) => g.name.startsWith("MCP:"));
-  }, [meta]);
+  const mcpGroups = useMemo<McpGroup[]>(() => {
+    return dbServers
+      .filter((s) => s.enabled === 1)
+      .map((s) => ({
+        serverId: s.id,
+        serverName: s.name,
+        transportType: s.transportType,
+        tools: parseDiscoveredTools(s.toolsDiscovered),
+      }));
+  }, [dbServers]);
 
-  const mcpToolNames = useMemo<string[]>(() => {
-    return mcpGroups.flatMap((g) => g.tools);
+  const allToolNames = useMemo<string[]>(() => {
+    return mcpGroups.flatMap((g) => g.tools.map((t) => t.name));
   }, [mcpGroups]);
-
-  const mcpToolMap = useMemo<Map<string, ToolInfo>>(() => {
-    if (!meta) return new Map();
-    const map = new Map<string, ToolInfo>();
-    for (const t of meta.tools) {
-      if (t.source === "mcp") map.set(t.name, t);
-    }
-    return map;
-  }, [meta]);
 
   const selectedTools = useMemo(() => {
     if (!mcpToolsEnabled || mcpToolsEnabled.trim() === "") {
       return new Set<string>();
     }
     if (mcpToolsEnabled.toLowerCase() === "full") {
-      return new Set(mcpToolNames);
+      return new Set(allToolNames);
     }
     try {
       const parsed = JSON.parse(mcpToolsEnabled);
       if (Array.isArray(parsed)) return new Set<string>(parsed);
     } catch { /* not JSON */ }
     return new Set<string>();
-  }, [mcpToolsEnabled, mcpToolNames]);
+  }, [mcpToolsEnabled, allToolNames]);
 
   const mode = useMemo<"none" | "full" | "custom">(() => {
     if (!mcpToolsEnabled || mcpToolsEnabled.trim() === "") return "none";
@@ -113,20 +121,21 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
         onChange(null);
         return;
       }
-      if (next.size === mcpToolNames.length && mcpToolNames.every((n) => next.has(n))) {
+      if (next.size === allToolNames.length && allToolNames.every((n) => next.has(n))) {
         onChange("full");
         return;
       }
       onChange(JSON.stringify([...next]));
     },
-    [selectedTools, mcpToolNames, onChange],
+    [selectedTools, allToolNames, onChange],
   );
 
   const handleGroupToggle = useCallback(
-    (group: ToolGroupInfo) => {
-      const allSelected = group.tools.every((t) => selectedTools.has(t));
+    (group: McpGroup) => {
+      const groupToolNames = group.tools.map((t) => t.name);
+      const allSelected = groupToolNames.every((t) => selectedTools.has(t));
       const next = new Set(selectedTools);
-      for (const t of group.tools) {
+      for (const t of groupToolNames) {
         if (allSelected) next.delete(t);
         else next.add(t);
       }
@@ -134,20 +143,20 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
         onChange(null);
         return;
       }
-      if (next.size === mcpToolNames.length && mcpToolNames.every((n) => next.has(n))) {
+      if (next.size === allToolNames.length && allToolNames.every((n) => next.has(n))) {
         onChange("full");
         return;
       }
       onChange(JSON.stringify([...next]));
     },
-    [selectedTools, mcpToolNames, onChange],
+    [selectedTools, allToolNames, onChange],
   );
 
-  const toggleGroupExpand = useCallback((groupName: string) => {
+  const toggleGroupExpand = useCallback((serverId: number) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
-      if (next.has(groupName)) next.delete(groupName);
-      else next.add(groupName);
+      if (next.has(serverId)) next.delete(serverId);
+      else next.add(serverId);
       return next;
     });
   }, []);
@@ -160,48 +169,48 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
     );
   }
 
-  if (error || !meta) {
+  if (error) {
     return (
       <div className="flex-1 flex items-center justify-center text-red-500 text-sm">
-        {error ?? "无法加载工具信息"}
+        {error}
       </div>
     );
   }
 
   if (mcpGroups.length === 0) {
-    const enabledServers = dbServers.filter((s) => s.enabled === 1);
-    if (enabledServers.length > 0) {
-      return (
-        <div className="flex-1 flex flex-col items-center justify-center py-12 space-y-3">
-          <WifiOff size={32} className="text-amber-400" />
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            已配置 {enabledServers.length} 个 MCP 服务，但当前未连接
-          </p>
-          <div className="text-xs text-slate-400 dark:text-slate-500 space-y-0.5 text-center">
-            {enabledServers.map((s) => (
-              <p key={s.id}>{s.name} ({s.transportType})</p>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={handleReconnect}
-            disabled={reconnecting}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {reconnecting ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <RefreshCw size={14} />
-            )}
-            {reconnecting ? "重新连接中..." : "重新连接"}
-          </button>
-        </div>
-      );
-    }
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-12 space-y-2">
-        <p className="text-sm">暂无可用的 MCP 工具</p>
-        <p className="text-xs">请先在「工具管理 → MCP 服务」中添加并连接 MCP 服务器</p>
+        <p className="text-sm">暂无已配置的 MCP 服务</p>
+        <p className="text-xs">请先在「工具管理 → MCP 服务」中添加 MCP 服务器</p>
+      </div>
+    );
+  }
+
+  const hasAnyTools = mcpGroups.some((g) => g.tools.length > 0);
+
+  if (!hasAnyTools) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center py-12 space-y-3">
+        <WifiOff size={32} className="text-amber-400" />
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          已配置 {mcpGroups.length} 个 MCP 服务，但尚未发现工具
+        </p>
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          请先测试连接以发现可用工具
+        </p>
+        <button
+          type="button"
+          onClick={handleReconnect}
+          disabled={reconnecting}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {reconnecting ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} />
+          )}
+          {reconnecting ? "重新连接中..." : "重新连接"}
+        </button>
       </div>
     );
   }
@@ -238,32 +247,33 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
           </button>
           {mode === "custom" && (
             <span className="px-3 py-1.5 text-xs rounded-lg border border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-600">
-              自定义选择（{selectedTools.size}/{mcpToolNames.length}）
+              自定义选择（{selectedTools.size}/{allToolNames.length}）
             </span>
           )}
         </div>
       </div>
 
-      {/* MCP Tool Groups */}
+      {/* MCP Server Groups */}
       <div>
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">
-          MCP 工具列表
+          MCP 服务工具列表
         </h3>
         <div className="space-y-2">
           {mcpGroups.map((group) => {
-            const expanded = expandedGroups.has(group.name);
-            const allSelected = group.tools.every((t) => selectedTools.has(t));
+            const expanded = expandedGroups.has(group.serverId);
+            const groupToolNames = group.tools.map((t) => t.name);
+            const allSelected = groupToolNames.length > 0 && groupToolNames.every((t) => selectedTools.has(t));
             const someSelected =
-              !allSelected && group.tools.some((t) => selectedTools.has(t));
+              !allSelected && groupToolNames.some((t) => selectedTools.has(t));
 
             return (
               <div
-                key={group.name}
+                key={group.serverId}
                 className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden"
               >
                 <div
                   className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50 cursor-pointer select-none"
-                  onClick={() => toggleGroupExpand(group.name)}
+                  onClick={() => toggleGroupExpand(group.serverId)}
                 >
                   <div className="flex items-center gap-2">
                     {expanded ? (
@@ -272,47 +282,55 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
                       <ChevronRight size={14} className="text-slate-400" />
                     )}
                     <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                      {group.displayName}
+                      {group.serverName}
+                    </span>
+                    <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                      {group.transportType}
                     </span>
                     <span className="text-xs text-slate-400">
-                      ({group.tools.length})
+                      ({group.tools.length} 个工具)
                     </span>
                   </div>
-                  <label
-                    className="flex items-center"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      ref={(el) => {
-                        if (el) el.indeterminate = someSelected;
-                      }}
-                      onChange={() => handleGroupToggle(group)}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                  </label>
+                  {groupToolNames.length > 0 && (
+                    <label
+                      className="flex items-center"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someSelected;
+                        }}
+                        onChange={() => handleGroupToggle(group)}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </label>
+                  )}
                 </div>
                 {expanded && (
                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {group.tools.map((toolName) => {
-                      const tool = mcpToolMap.get(toolName);
-                      return (
+                    {group.tools.length === 0 ? (
+                      <div className="px-3 py-3 text-xs text-slate-400 text-center">
+                        未发现工具，请先测试连接
+                      </div>
+                    ) : (
+                      group.tools.map((tool) => (
                         <label
-                          key={toolName}
+                          key={tool.name}
                           className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer"
                         >
                           <input
                             type="checkbox"
-                            checked={selectedTools.has(toolName)}
-                            onChange={() => handleToolToggle(toolName)}
+                            checked={selectedTools.has(tool.name)}
+                            onChange={() => handleToolToggle(tool.name)}
                             className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                           />
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-mono text-slate-700 dark:text-slate-200">
-                              {toolName}
+                              {tool.name}
                             </span>
-                            {tool?.description && (
+                            {tool.description && (
                               <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">
                                 {tool.description.length > 60
                                   ? tool.description.slice(0, 60) + "..."
@@ -321,14 +339,34 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
                             )}
                           </div>
                         </label>
-                      );
-                    })}
+                      ))
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
         </div>
+      </div>
+
+      {/* Reconnect button */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleReconnect}
+          disabled={reconnecting}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
+        >
+          {reconnecting ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <RefreshCw size={12} />
+          )}
+          {reconnecting ? "连接中..." : "刷新连接"}
+        </button>
+        <span className="text-xs text-slate-400 dark:text-slate-500">
+          重新连接 MCP 服务以更新工具列表
+        </span>
       </div>
 
       {/* Current Value */}
