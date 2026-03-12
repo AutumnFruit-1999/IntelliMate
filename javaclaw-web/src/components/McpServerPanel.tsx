@@ -1,8 +1,11 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Plus, Pencil, Trash2, Loader2, Server, ToggleLeft, ToggleRight, Zap, Wifi, WifiOff, ChevronDown, ChevronRight } from "lucide-react";
 import { useToolStore } from "../stores/toolStore";
 import type { McpServer } from "../lib/api";
 import McpServerEditor from "./McpServerEditor";
+import Pagination from "./Pagination";
+
+const PAGE_SIZE = 10;
 
 function getDisplayUrl(server: McpServer): string {
   if (server.transportType === "STDIO") {
@@ -40,6 +43,17 @@ export default function McpServerPanel() {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(mcpServers.length / PAGE_SIZE)), [mcpServers.length]);
+  const pagedServers = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return mcpServers.slice(start, start + PAGE_SIZE);
+  }, [mcpServers, currentPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage]);
 
   useEffect(() => {
     fetchMcpServers();
@@ -145,7 +159,7 @@ export default function McpServerPanel() {
         </div>
       ) : (
         <div className="space-y-2">
-          {mcpServers.map((server) => {
+          {pagedServers.map((server) => {
             const tools = parseDiscoveredTools(server.toolsDiscovered);
             const isExpanded = expandedTools.has(server.id);
             const COLLAPSE_THRESHOLD = 5;
@@ -269,6 +283,7 @@ export default function McpServerPanel() {
               </div>
             );
           })}
+          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
       )}
     </div>

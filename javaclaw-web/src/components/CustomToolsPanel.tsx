@@ -1,13 +1,27 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Plus, Pencil, Trash2, Loader2, Globe, ToggleLeft, ToggleRight } from "lucide-react";
 import { useToolStore } from "../stores/toolStore";
 import type { ToolDefinition } from "../lib/api";
 import CustomToolEditor from "./CustomToolEditor";
+import Pagination from "./Pagination";
+
+const PAGE_SIZE = 10;
 
 export default function CustomToolsPanel() {
   const { definitions, loading, error, fetchDefinitions, deleteDefinition, updateDefinition } = useToolStore();
   const [editing, setEditing] = useState<ToolDefinition | null | "new">(null);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(definitions.length / PAGE_SIZE)), [definitions.length]);
+  const pagedDefinitions = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return definitions.slice(start, start + PAGE_SIZE);
+  }, [definitions, currentPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage]);
 
   useEffect(() => {
     fetchDefinitions();
@@ -75,7 +89,7 @@ export default function CustomToolsPanel() {
         </div>
       ) : (
         <div className="space-y-2">
-          {definitions.map((tool) => (
+          {pagedDefinitions.map((tool) => (
             <div
               key={tool.id}
               className="flex items-center justify-between px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
@@ -132,6 +146,7 @@ export default function CustomToolsPanel() {
               </div>
             </div>
           ))}
+          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
       )}
     </div>
