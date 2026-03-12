@@ -51,7 +51,7 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
       setExpandedId(providerId);
       setModelsLoading(true);
       fetchModelDefinitions(providerId)
-        .then((data) => setModels(data.filter((m) => m.enabled === 1)))
+        .then((data) => setModels(data))
         .catch(() => setModels([]))
         .finally(() => setModelsLoading(false));
     },
