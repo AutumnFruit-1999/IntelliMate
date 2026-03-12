@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-03-12 — Agent 配置弹窗固定高度
+
+| 类型 | Bugfix |
+|------|--------|
+| 描述 | Agent 配置弹窗切换标签页时窗口大小不一致（内容少的标签页弹窗变矮）。将 `max-h` 改为 `h` 固定高度，弹窗始终保持一致大小。 |
+
+**前端改动：**
+- `AgentConfigModal.tsx`：`max-h-[90vh] md:max-h-[85vh]` 改为 `h-[90vh] md:h-[85vh]`，移除 body 容器的 `minHeight: 400px`
+- `ToolsTab.tsx`、`McpToolsTab.tsx`、`ModelTab.tsx`：移除 `min-h-[400px]`（固定高度弹窗中 flex-1 自动填满）
+
+---
+
 ## 2026-03-12 — fix.md 第 9-12 项修复
 
 | 类型 | Bugfix / Refactor |
