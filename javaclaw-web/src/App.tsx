@@ -4,6 +4,7 @@ import Sidebar from "./components/Sidebar";
 import ChatPanel from "./components/ChatPanel";
 import AgentConfigModal from "./components/AgentConfigModal";
 import ToolManagerModal from "./components/ToolManagerModal";
+import ModelManagerModal from "./components/ModelManagerModal";
 import CreateAgentModal from "./components/CreateAgentModal";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useAgentStore } from "./stores/agentStore";
@@ -21,6 +22,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [agentManagerOpen, setAgentManagerOpen] = useState(false);
   const [toolManagerOpen, setToolManagerOpen] = useState(false);
+  const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const { sendMessage } = useWebSocket();
@@ -30,7 +32,10 @@ export default function App() {
   const createAgent = useAgentStore((s) => s.createAgent);
 
   useEffect(() => {
-    fetchAgentList();
+    fetchAgentList().then(() => {
+      const agent = useAgentStore.getState().activeAgent;
+      if (agent) useChatStore.getState().setCurrentAgent(agent);
+    });
   }, [fetchAgentList]);
 
   useEffect(() => {
@@ -44,7 +49,7 @@ export default function App() {
     (name: string) => {
       if (name !== activeAgent) {
         setActiveAgent(name);
-        useChatStore.getState().clearMessages();
+        useChatStore.getState().setCurrentAgent(name);
       }
     },
     [activeAgent, setActiveAgent],
@@ -53,7 +58,7 @@ export default function App() {
   const handleCreateAgent = useCallback(
     async (name: string, model: string) => {
       await createAgent(name, model);
-      useChatStore.getState().clearMessages();
+      useChatStore.getState().setCurrentAgent(name);
     },
     [createAgent],
   );
@@ -66,6 +71,7 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
         onOpenAgentManager={() => setAgentManagerOpen(true)}
         onOpenToolManager={() => setToolManagerOpen(true)}
+        onOpenModelManager={() => setModelManagerOpen(true)}
         onCreateAgent={() => setCreateModalOpen(true)}
         onSelectAgent={handleSelectAgent}
       />
@@ -85,6 +91,10 @@ export default function App() {
       <ToolManagerModal
         open={toolManagerOpen}
         onClose={() => setToolManagerOpen(false)}
+      />
+      <ModelManagerModal
+        open={modelManagerOpen}
+        onClose={() => setModelManagerOpen(false)}
       />
       <CreateAgentModal
         open={createModalOpen}

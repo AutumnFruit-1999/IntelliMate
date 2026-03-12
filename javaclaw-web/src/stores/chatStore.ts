@@ -25,11 +25,15 @@ export interface ChatMessage {
 }
 
 interface ChatState {
-  messages: ChatMessage[];
+  messagesByAgent: Record<string, ChatMessage[]>;
+  currentAgent: string;
   connectionState: ConnectionState;
   wsSessionId: string | null;
   isWaiting: boolean;
 
+  messages: ChatMessage[];
+
+  setCurrentAgent: (agent: string) => void;
   setConnectionState: (state: ConnectionState) => void;
   setWsSessionId: (id: string) => void;
   addUserMessage: (text: string, requestId: string) => void;
@@ -52,11 +56,38 @@ interface ChatState {
   ) => void;
 }
 
+function getAgentMessages(state: ChatState): ChatMessage[] {
+  return state.messagesByAgent[state.currentAgent] ?? [];
+}
+
+function updateAgentMessages(
+  state: ChatState,
+  updater: (msgs: ChatMessage[]) => ChatMessage[],
+): Partial<ChatState> {
+  const agent = state.currentAgent;
+  const current = state.messagesByAgent[agent] ?? [];
+  const updated = updater(current);
+  const newByAgent = { ...state.messagesByAgent, [agent]: updated };
+  return { messagesByAgent: newByAgent, messages: updated };
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
-  messages: [],
+  messagesByAgent: {},
+  currentAgent: "",
   connectionState: "disconnected",
   wsSessionId: null,
   isWaiting: false,
+  messages: [],
+
+  setCurrentAgent: (agent) => {
+    const state = get();
+    if (agent === state.currentAgent) return;
+    set({
+      currentAgent: agent,
+      messages: state.messagesByAgent[agent] ?? [],
+      isWaiting: false,
+    });
+  },
 
   setConnectionState: (connectionState) => set({ connectionState }),
 
@@ -65,8 +96,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addUserMessage: (text, requestId) => {
     set((state) => ({
       isWaiting: true,
-      messages: [
-        ...state.messages,
+      ...updateAgentMessages(state, (msgs) => [
+        ...msgs,
         {
           id: crypto.randomUUID(),
           role: "user",
@@ -83,52 +114,65 @@ export const useChatStore = create<ChatState>((set, get) => ({
           timestamp: Date.now(),
           requestId,
         },
-      ],
+      ]),
     }));
   },
 
   appendChunk: (requestId, chunk) => {
-    set((state) => ({
-      messages: state.messages.map((msg) =>
+    set((state) => updateAgentMessages(state, (msgs) =>
+      msgs.map((msg) =>
         msg.id === `assistant-${requestId}` && msg.streaming
           ? { ...msg, content: msg.content + chunk }
           : msg,
       ),
-    }));
+    ));
   },
 
   finishStreaming: (requestId, fullText, totalTurns) => {
     set((state) => ({
       isWaiting: false,
-      messages: state.messages.map((msg) =>
-        msg.id === `assistant-${requestId}`
-          ? {
-              ...msg,
-              content: fullText,
-              streaming: false,
-              ...(totalTurns != null ? { totalTurns } : {}),
-            }
-          : msg,
+      ...updateAgentMessages(state, (msgs) =>
+        msgs.map((msg) =>
+          msg.id === `assistant-${requestId}`
+            ? {
+                ...msg,
+                content: fullText,
+                streaming: false,
+                ...(totalTurns != null ? { totalTurns } : {}),
+              }
+            : msg,
+        ),
       ),
     }));
   },
 
   addResponse: (response) => {
     const bubbleId = `assistant-${response.id}`;
-    const existing = get().messages.find((m) => m.id === bubbleId);
+    const msgs = getAgentMessages(get());
+    const existing = msgs.find((m) => m.id === bubbleId);
 
     if (response.ok && response.payload) {
-      const text = (response.payload as Record<string, unknown>).text as
-        | string
-        | undefined;
+      const payload = response.payload as Record<string, unknown>;
+      const text = payload.text as string | undefined;
+      const command = payload.command as string | undefined;
+
+      if (command === "clear" || command === "reset") {
+        set((state) => ({
+          isWaiting: false,
+          ...updateAgentMessages(state, () => []),
+        }));
+        return;
+      }
 
       if (existing && existing.streaming && !existing.content && text) {
         set((state) => ({
           isWaiting: false,
-          messages: state.messages.map((msg) =>
-            msg.id === bubbleId
-              ? { ...msg, content: text, streaming: false }
-              : msg,
+          ...updateAgentMessages(state, (m) =>
+            m.map((msg) =>
+              msg.id === bubbleId
+                ? { ...msg, content: text, streaming: false }
+                : msg,
+            ),
           ),
         }));
         return;
@@ -137,8 +181,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (existing && existing.streaming) {
         set((state) => ({
           isWaiting: false,
-          messages: state.messages.map((msg) =>
-            msg.id === bubbleId ? { ...msg, streaming: false } : msg,
+          ...updateAgentMessages(state, (m) =>
+            m.map((msg) =>
+              msg.id === bubbleId ? { ...msg, streaming: false } : msg,
+            ),
           ),
         }));
         return;
@@ -157,10 +203,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (existing && existing.streaming) {
         set((state) => ({
           isWaiting: false,
-          messages: state.messages.map((msg) =>
-            msg.id === bubbleId
-              ? { ...msg, content: `Error: ${errorText}`, streaming: false }
-              : msg,
+          ...updateAgentMessages(state, (m) =>
+            m.map((msg) =>
+              msg.id === bubbleId
+                ? { ...msg, content: `Error: ${errorText}`, streaming: false }
+                : msg,
+            ),
           ),
         }));
       } else {
@@ -170,50 +218,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   addSystemMessage: (text) => {
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          id: crypto.randomUUID(),
-          role: "system",
-          content: text,
-          streaming: false,
-          timestamp: Date.now(),
-        },
-      ],
-    }));
+    set((state) => updateAgentMessages(state, (msgs) => [
+      ...msgs,
+      {
+        id: crypto.randomUUID(),
+        role: "system",
+        content: text,
+        streaming: false,
+        timestamp: Date.now(),
+      },
+    ]));
   },
 
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => set((state) => updateAgentMessages(state, () => [])),
 
   timeoutRequest: (requestId) => {
     const bubbleId = `assistant-${requestId}`;
-    const existing = get().messages.find((m) => m.id === bubbleId);
+    const msgs = getAgentMessages(get());
+    const existing = msgs.find((m) => m.id === bubbleId);
     if (existing && existing.streaming) {
       set((state) => ({
         isWaiting: false,
-        messages: state.messages.map((msg) =>
-          msg.id === bubbleId
-            ? { ...msg, content: "请求超时，请重试。", streaming: false }
-            : msg,
+        ...updateAgentMessages(state, (m) =>
+          m.map((msg) =>
+            msg.id === bubbleId
+              ? { ...msg, content: "请求超时，请重试。", streaming: false }
+              : msg,
+          ),
         ),
       }));
     }
   },
 
   setTurnStart: (requestId, turn, maxTurns) => {
-    set((state) => ({
-      messages: state.messages.map((msg) =>
+    set((state) => updateAgentMessages(state, (msgs) =>
+      msgs.map((msg) =>
         msg.id === `assistant-${requestId}`
           ? { ...msg, currentTurn: turn, maxTurns }
           : msg,
       ),
-    }));
+    ));
   },
 
   addToolCall: (requestId, info) => {
-    set((state) => ({
-      messages: state.messages.map((msg) =>
+    set((state) => updateAgentMessages(state, (msgs) =>
+      msgs.map((msg) =>
         msg.id === `assistant-${requestId}`
           ? {
               ...msg,
@@ -224,12 +273,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
           : msg,
       ),
-    }));
+    ));
   },
 
   updateToolResult: (requestId, toolCallId, result, success) => {
-    set((state) => ({
-      messages: state.messages.map((msg) =>
+    set((state) => updateAgentMessages(state, (msgs) =>
+      msgs.map((msg) =>
         msg.id === `assistant-${requestId}`
           ? {
               ...msg,
@@ -246,6 +295,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
           : msg,
       ),
-    }));
+    ));
   },
 }));
