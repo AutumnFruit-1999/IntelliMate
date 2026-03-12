@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-03-12 — fix.md 第 9-12 项修复
+
+| 类型 | Bugfix / Refactor |
+|------|-------------------|
+| 描述 | 修复 fix.md 第 9-12 项：MCP 工具名不显示、标签页面板高度不一致、Agent 模型管理数据不同步、外部模型管理页面布局不统一。 |
+
+### Fix 9: MCP 工具页面工具名不显示
+
+**前端改动：**
+- `McpToolsTab.tsx`：`parseDiscoveredTools()` 兼容后端 `toolsDiscovered` 字段的两种存储格式（字符串数组 `["name", ...]` 和对象数组 `[{name, description}, ...]`），修复工具名渲染为空白的问题
+
+### Fix 10: 标签页面板高度统一
+
+**前端改动：**
+- `AgentConfigModal.tsx`：body 容器添加 `minHeight: 400px`
+- `ToolsTab.tsx`、`McpToolsTab.tsx`、`ModelTab.tsx`：根容器统一添加 `min-h-[400px]`，确保所有标签页切换时视觉高度一致
+
+### Fix 11: Agent 模型管理与外部模型管理数据同步
+
+**前端改动：**
+- `ModelTab.tsx`：提取 `loadProviders()` 为独立函数，以 `currentModel` 为依赖项触发重新拉取，确保切换 Agent 或外部修改模型后数据同步更新
+
+### Fix 12: 外部模型管理页面布局统一
+
+**前端改动：**
+- `ModelManagerModal.tsx`：从水平 master-detail 布局（左侧厂商列表 + 右侧详情）改为纵向 `flex-col` 布局（Header + Body），厂商列表改为可展开的卡片式。结构与 `AgentConfigModal`、`ToolManagerModal` 完全一致
+
+---
+
 ## 2026-03-12 — fix.md 第 7、8 项修复
 
 | 类型 | Bugfix / Refactor |
