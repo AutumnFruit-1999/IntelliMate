@@ -27,8 +27,6 @@ public class FileWriteTool {
             Files.createDirectories(filePath.getParent());
             Files.writeString(filePath, content);
             return "Successfully wrote " + content.length() + " characters to " + path;
-        } catch (ToolExecutionException e) {
-            throw e;
         } catch (Exception e) {
             throw new ToolExecutionException("file_write", "Failed to write file: " + path, e);
         }

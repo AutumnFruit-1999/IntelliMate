@@ -16,7 +16,8 @@ public sealed interface AgentEvent {
     record ToolCall(
             String toolCallId,
             String name,
-            String arguments
+            String arguments,
+            int turn
     ) implements AgentEvent {}
 
     /** Result of a tool execution. */
@@ -24,7 +25,8 @@ public sealed interface AgentEvent {
             String toolCallId,
             String name,
             String result,
-            boolean success
+            boolean success,
+            int turn
     ) implements AgentEvent {}
 
     /** Agent Loop completed normally. */
@@ -32,4 +34,18 @@ public sealed interface AgentEvent {
 
     /** Agent Loop encountered an error. */
     record Error(String message) implements AgentEvent {}
+
+    /** A tool call requires human approval before execution. */
+    record ApprovalRequired(
+            String toolCallId,
+            String toolName,
+            String arguments
+    ) implements AgentEvent {}
+
+    /** User's approval response for a pending tool call. */
+    record ApprovalResponse(
+            String toolCallId,
+            boolean approved,
+            String modifiedArguments
+    ) implements AgentEvent {}
 }

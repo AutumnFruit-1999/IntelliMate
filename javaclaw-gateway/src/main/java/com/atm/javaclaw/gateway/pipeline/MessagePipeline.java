@@ -61,6 +61,10 @@ public class MessagePipeline {
 
     @SuppressWarnings("unchecked")
     public Flux<GatewayFrame> processRequest(RequestFrame request, String wsSessionId) {
+        if ("conversation.approve_tool".equals(request.method())) {
+            return processApprovalResponse(request);
+        }
+
         if (!"conversation.message".equals(request.method())) {
             return Flux.just(ResponseFrame.failure(request.id(), "Unknown method: " + request.method()));
         }
@@ -110,7 +114,7 @@ public class MessagePipeline {
                 .then(auditService.log("user_message", wsSessionId, session.getId(),
                         userText.length() > 200 ? userText.substring(0, 200) + "..." : userText))
                 .then(Mono.zip(
-                        sessionManager.getHistory(session.getId(), 50).collectList(),
+                        sessionManager.getHistory(session.getId(), properties.getAgent().getHistoryLimit()).collectList(),
                         agentConfigService.resolve(session.getAgentName())
                 ))
                 .flatMapMany(tuple -> {
@@ -123,7 +127,8 @@ public class MessagePipeline {
                             userText,
                             messages,
                             resolved.toolsEnabled(),
-                            resolved.mcpToolsEnabled()
+                            resolved.mcpToolsEnabled(),
+                            resolved.skillsEnabled()
                     );
 
                     StringBuilder fullResponse = new StringBuilder();
@@ -149,6 +154,25 @@ public class MessagePipeline {
 
                     return Flux.concat(events, tail);
                 });
+    }
+
+    @SuppressWarnings("unchecked")
+    private Flux<GatewayFrame> processApprovalResponse(RequestFrame request) {
+        try {
+            Map<String, Object> params = (Map<String, Object>) request.params();
+            Long sessionId = ((Number) params.get("sessionId")).longValue();
+            String toolCallId = (String) params.get("toolCallId");
+            boolean approved = Boolean.TRUE.equals(params.get("approved"));
+            String modifiedArguments = (String) params.getOrDefault("modifiedArguments", null);
+
+            log.info("Processing approval response: sessionId={}, toolCallId={}, approved={}", sessionId, toolCallId, approved);
+            agentRuntime.resolveApproval(sessionId, toolCallId, approved, modifiedArguments);
+
+            return Flux.just(ResponseFrame.success(request.id(), Map.of("status", "ok")));
+        } catch (Exception e) {
+            log.error("Failed to process approval response: {}", e.getMessage(), e);
+            return Flux.just(ResponseFrame.failure(request.id(), "Invalid approval request: " + e.getMessage()));
+        }
     }
 
     private Flux<GatewayFrame> mapAgentEvent(
@@ -177,6 +201,7 @@ public class MessagePipeline {
                     Map.of("toolCallId", tc.toolCallId(),
                            "name", tc.name(),
                            "arguments", tc.arguments(),
+                           "turn", tc.turn(),
                            "requestId", requestId),
                     seqGenerator.incrementAndGet()
             ));
@@ -187,6 +212,7 @@ public class MessagePipeline {
                            "name", tr.name(),
                            "result", tr.result(),
                            "success", tr.success(),
+                           "turn", tr.turn(),
                            "requestId", requestId),
                     seqGenerator.incrementAndGet()
             ));
@@ -206,6 +232,17 @@ public class MessagePipeline {
             case AgentEvent.Error err -> Flux.just(
                     ResponseFrame.failure(requestId, err.message())
             );
+
+            case AgentEvent.ApprovalRequired ar -> Flux.just(new EventFrame(
+                    "agent.approval_required",
+                    Map.of("toolCallId", ar.toolCallId(),
+                           "name", ar.toolName(),
+                           "arguments", ar.arguments(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            case AgentEvent.ApprovalResponse ignored -> Flux.empty();
         };
     }
 

@@ -9,6 +9,7 @@ export interface ToolCallInfo {
   result?: string;
   success?: boolean;
   status: "calling" | "done" | "error";
+  turn?: number;
 }
 
 export interface ChatMessage {
@@ -46,7 +47,7 @@ interface ChatState {
   setTurnStart: (requestId: string, turn: number, maxTurns: number) => void;
   addToolCall: (
     requestId: string,
-    info: { toolCallId: string; name: string; arguments: string },
+    info: { toolCallId: string; name: string; arguments: string; turn?: number },
   ) => void;
   updateToolResult: (
     requestId: string,

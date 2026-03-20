@@ -21,6 +21,7 @@ public class ChatModelRegistry {
     private final ChatModelFactory factory;
 
     private final Map<Long, ChatModel> providerModels = new ConcurrentHashMap<>();
+    private final Map<Long, ProviderType> providerTypes = new ConcurrentHashMap<>();
     private final Map<Long, ModelConfig> definitionIndex = new ConcurrentHashMap<>();
     private final Map<String, ModelConfig> legacyNameIndex = new ConcurrentHashMap<>();
 
@@ -32,6 +33,7 @@ public class ChatModelRegistry {
         try {
             ChatModel model = factory.create(config);
             providerModels.put(config.id(), model);
+            providerTypes.put(config.id(), config.type());
             log.info("Registered provider '{}' (id={}, type={})", config.name(), config.id(), config.type());
         } catch (Exception e) {
             log.error("Failed to register provider '{}': {}", config.name(), e.getMessage(), e);
@@ -58,7 +60,8 @@ public class ChatModelRegistry {
         if (chatModel == null) {
             throw new IllegalStateException("No ChatModel registered for provider id: " + mc.providerId());
         }
-        return new ResolvedModel(chatModel, mc.modelId());
+        ProviderType type = providerTypes.getOrDefault(mc.providerId(), ProviderType.OPENAI_COMPATIBLE);
+        return new ResolvedModel(chatModel, mc.modelId(), type);
     }
 
     /**
@@ -70,19 +73,22 @@ public class ChatModelRegistry {
         if (mc != null) {
             ChatModel chatModel = providerModels.get(mc.providerId());
             if (chatModel != null) {
-                return new ResolvedModel(chatModel, mc.modelId());
+                ProviderType type = providerTypes.getOrDefault(mc.providerId(), ProviderType.OPENAI_COMPATIBLE);
+                return new ResolvedModel(chatModel, mc.modelId(), type);
             }
         }
         if (!providerModels.isEmpty()) {
             var entry = providerModels.entrySet().iterator().next();
             log.warn("Model '{}' not found in registry, falling back to provider id={}", modelName, entry.getKey());
-            return new ResolvedModel(entry.getValue(), modelName);
+            ProviderType type = providerTypes.getOrDefault(entry.getKey(), ProviderType.OPENAI_COMPATIBLE);
+            return new ResolvedModel(entry.getValue(), modelName, type);
         }
         throw new IllegalStateException("No model providers registered. Cannot resolve model: " + modelName);
     }
 
     public void refreshAll(List<ProviderConfig> providers, List<ModelConfig> definitions) {
         providerModels.clear();
+        providerTypes.clear();
         definitionIndex.clear();
         legacyNameIndex.clear();
 

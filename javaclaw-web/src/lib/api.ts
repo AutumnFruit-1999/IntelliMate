@@ -17,6 +17,7 @@ export interface AgentConfig {
   agentsMd: string | null;
   toolsEnabled: string | null;
   mcpToolsEnabled: string | null;
+  skillsEnabled: string | null;
 }
 
 export interface ToolInfo {
@@ -338,4 +339,155 @@ export function updateModelDefinition(id: number, data: Partial<ModelDefinitionC
 
 export function deleteModelDefinition(id: number): Promise<{ success: boolean }> {
   return request(`/api/model-definitions/${id}`, { method: "DELETE" });
+}
+
+// ─── Skill Definitions ───
+
+export interface SkillDefinition {
+  id: number;
+  name: string;
+  displayName: string | null;
+  description: string;
+  content: string | null;
+  tags: string | null;
+  metadata: string | null;
+  hasScripts: number;
+  hasReferences: number;
+  enabled: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillDefinitionCreate {
+  name: string;
+  displayName?: string;
+  description: string;
+  content?: string;
+  tags?: string;
+  metadata?: object;
+}
+
+export function fetchSkillDefinitions(): Promise<SkillDefinition[]> {
+  return request<SkillDefinition[]>("/api/skills");
+}
+
+export function fetchSkillDefinition(id: number): Promise<SkillDefinition> {
+  return request<SkillDefinition>(`/api/skills/${id}`);
+}
+
+export function createSkillDefinition(data: SkillDefinitionCreate): Promise<SkillDefinition> {
+  return request<SkillDefinition>("/api/skills", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateSkillDefinition(
+  id: number,
+  data: Partial<SkillDefinitionCreate> & { enabled?: number },
+): Promise<SkillDefinition> {
+  return request<SkillDefinition>(`/api/skills/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteSkillDefinition(id: number): Promise<{ success: boolean; deletedName: string }> {
+  return request(`/api/skills/${id}`, { method: "DELETE" });
+}
+
+export async function exportSkillMdApi(id: number): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/skills/${id}/export`);
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+  return res.text();
+}
+
+export async function exportSkillZip(id: number, skillName: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/skills/${id}/export/zip`);
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${skillName}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export interface SkillFiles {
+  scripts: string[];
+  references: string[];
+  assets: string[];
+}
+
+export function fetchSkillFiles(id: number): Promise<SkillFiles> {
+  return request<SkillFiles>(`/api/skills/${id}/files`);
+}
+
+export async function uploadSkillFile(
+  id: number,
+  type: "scripts" | "references" | "assets",
+  file: File,
+): Promise<{ success: boolean; filename: string; type: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/skills/${id}/files/${type}`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`API ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+// ─── Skill Versions ───
+
+export interface SkillVersion {
+  id: number;
+  skillId: number;
+  version: number;
+  content: string | null;
+  description: string | null;
+  changeNote: string | null;
+  createdAt: string;
+}
+
+export function fetchSkillVersions(id: number): Promise<SkillVersion[]> {
+  return request<SkillVersion[]>(`/api/skills/${id}/versions`);
+}
+
+export function fetchSkillVersion(id: number, version: number): Promise<SkillVersion> {
+  return request<SkillVersion>(`/api/skills/${id}/versions/${version}`);
+}
+
+export function rollbackSkillVersion(id: number, version: number): Promise<SkillDefinition> {
+  return request<SkillDefinition>(`/api/skills/${id}/rollback/${version}`, { method: "POST" });
+}
+
+// ─── Skill Stats ───
+
+export interface SkillUsageStats {
+  skillName: string;
+  totalActivations: number;
+  lastActivatedAt: string;
+}
+
+export function fetchSkillStats(): Promise<SkillUsageStats[]> {
+  return request<SkillUsageStats[]>("/api/skills/stats");
+}
+
+export function fetchSingleSkillStats(id: number): Promise<{ skillName: string; totalActivations: number }> {
+  return request(`/api/skills/${id}/stats`);
+}
+
+export function deleteSkillFile(
+  id: number,
+  type: string,
+  filename: string,
+): Promise<{ success: boolean; deletedFile: string; type: string }> {
+  return request(`/api/skills/${id}/files/${type}/${encodeURIComponent(filename)}`, {
+    method: "DELETE",
+  });
 }

@@ -21,6 +21,7 @@ interface AgentState {
   draft: Record<ContextField, string>;
   toolsEnabledDraft: string | null;
   mcpToolsEnabledDraft: string | null;
+  skillsEnabledDraft: string | null;
   loading: boolean;
   saving: boolean;
   dirty: boolean;
@@ -35,9 +36,11 @@ interface AgentState {
   updateField: (field: ContextField, value: string) => void;
   setToolsEnabled: (value: string | null) => void;
   setMcpToolsEnabled: (value: string | null) => void;
+  setSkillsEnabled: (value: string | null) => void;
   saveConfig: () => Promise<void>;
   saveToolsEnabled: () => Promise<void>;
   saveMcpToolsEnabled: () => Promise<void>;
+  saveSkillsEnabled: () => Promise<void>;
   saveModel: (modelId: string) => Promise<void>;
   resetConfig: () => void;
 }
@@ -54,6 +57,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   draft: { ...EMPTY_DRAFT },
   toolsEnabledDraft: null,
   mcpToolsEnabledDraft: null,
+  skillsEnabledDraft: null,
   loading: false,
   saving: false,
   dirty: false,
@@ -111,6 +115,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         },
         toolsEnabledDraft: config.toolsEnabled,
         mcpToolsEnabledDraft: config.mcpToolsEnabled,
+        skillsEnabledDraft: config.skillsEnabled,
         loading: false,
         dirty: false,
       });
@@ -132,6 +137,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   setMcpToolsEnabled: (value) => {
     set({ mcpToolsEnabledDraft: value, dirty: true });
+  },
+
+  setSkillsEnabled: (value) => {
+    set({ skillsEnabledDraft: value, dirty: true });
   },
 
   saveConfig: async () => {
@@ -189,6 +198,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
+  saveSkillsEnabled: async () => {
+    const { config, skillsEnabledDraft } = get();
+    if (!config) return;
+    set({ saving: true, error: null });
+    try {
+      await updateAgentApi(config.name, { skillsEnabled: skillsEnabledDraft });
+      set((s) => ({
+        saving: false,
+        dirty: false,
+        config: s.config ? { ...s.config, skillsEnabled: skillsEnabledDraft } : null,
+      }));
+      await get().fetchAgentList();
+    } catch (e) {
+      set({ saving: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
   saveModel: async (modelId: string) => {
     const { config } = get();
     if (!config) return;
@@ -206,6 +232,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   resetConfig: () => {
-    set({ config: null, draft: { ...EMPTY_DRAFT }, toolsEnabledDraft: null, mcpToolsEnabledDraft: null, loading: false, saving: false, dirty: false, error: null });
+    set({ config: null, draft: { ...EMPTY_DRAFT }, toolsEnabledDraft: null, mcpToolsEnabledDraft: null, skillsEnabledDraft: null, loading: false, saving: false, dirty: false, error: null });
   },
 }));

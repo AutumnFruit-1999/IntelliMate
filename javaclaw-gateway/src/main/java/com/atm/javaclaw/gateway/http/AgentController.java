@@ -105,6 +105,10 @@ public class AgentController {
                         Object val = body.get("mcpToolsEnabled");
                         entity.setMcpToolsEnabled(val instanceof String s ? s : (val != null ? val.toString() : null));
                     }
+                    if (body.containsKey("skillsEnabled")) {
+                        Object val = body.get("skillsEnabled");
+                        entity.setSkillsEnabled(val instanceof String s ? s : (val != null ? val.toString() : null));
+                    }
                     entity.setUpdatedAt(LocalDateTime.now());
                     return agentRepository.save(entity);
                 })
@@ -203,6 +207,7 @@ public class AgentController {
         dto.put("agentsMd", entity.getAgentsMd());
         dto.put("toolsEnabled", entity.getToolsEnabled());
         dto.put("mcpToolsEnabled", entity.getMcpToolsEnabled());
+        dto.put("skillsEnabled", entity.getSkillsEnabled());
         return dto;
     }
 
@@ -216,6 +221,7 @@ public class AgentController {
         dto.put("agentsMd", defaults.getAgentsMd());
         dto.put("toolsEnabled", (String) null);
         dto.put("mcpToolsEnabled", (String) null);
+        dto.put("skillsEnabled", (String) null);
         return dto;
     }
 }

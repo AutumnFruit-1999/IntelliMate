@@ -31,14 +31,18 @@ public class AgentConfigService {
      */
     public Mono<ResolvedAgentConfig> resolve(String agentName) {
         if (agentName == null || agentName.isBlank()) {
-            return Mono.just(new ResolvedAgentConfig(properties.getAgent(), null, null));
+            return Mono.just(new ResolvedAgentConfig(properties.getAgent(), null, null, null));
         }
 
         return agentRepository.findByName(agentName)
-                .map(entity -> new ResolvedAgentConfig(toAgentConfig(entity), entity.getToolsEnabled(), entity.getMcpToolsEnabled()))
-                .defaultIfEmpty(new ResolvedAgentConfig(properties.getAgent(), null, null))
-                .doOnNext(cfg -> log.debug("Resolved agent config: name={}, model={}, tools={}, mcpTools={}",
-                        cfg.agent().getName(), cfg.agent().getModel(), cfg.toolsEnabled(), cfg.mcpToolsEnabled()));
+                .map(entity -> new ResolvedAgentConfig(
+                        toAgentConfig(entity),
+                        entity.getToolsEnabled(),
+                        entity.getMcpToolsEnabled(),
+                        entity.getSkillsEnabled()))
+                .defaultIfEmpty(new ResolvedAgentConfig(properties.getAgent(), null, null, null))
+                .doOnNext(cfg -> log.debug("Resolved agent config: name={}, model={}, tools={}, mcpTools={}, skills={}",
+                        cfg.agent().getName(), cfg.agent().getModel(), cfg.toolsEnabled(), cfg.mcpToolsEnabled(), cfg.skillsEnabled()));
     }
 
     private JavaClawProperties.Agent toAgentConfig(AgentEntity entity) {

@@ -4,9 +4,10 @@ import { useAgentStore } from "../stores/agentStore";
 import AgentContextEditor from "./AgentContextEditor";
 import ToolsTab from "./ToolsTab";
 import McpToolsTab from "./McpToolsTab";
+import SkillsTab from "./SkillsTab";
 import ModelTab from "./ModelTab";
 
-export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp" | "model";
+export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp" | "skills" | "model";
 
 interface AgentConfigModalProps {
   open: boolean;
@@ -16,7 +17,7 @@ interface AgentConfigModalProps {
 }
 
 const CONTEXT_TABS: {
-  key: Exclude<ContextTab, "tools" | "mcp" | "model">;
+  key: Exclude<ContextTab, "tools" | "mcp" | "skills" | "model">;
   label: string;
   field: "soulMd" | "userMd" | "agentsMd";
   title: string;
@@ -58,6 +59,7 @@ const ALL_TABS: { key: ContextTab; label: string }[] = [
   { key: "agents", label: "AGENTS" },
   { key: "tools", label: "工具选择" },
   { key: "mcp", label: "MCP 工具" },
+  { key: "skills", label: "Skills" },
   { key: "model", label: "模型管理" },
 ];
 
@@ -77,6 +79,7 @@ export default function AgentConfigModal({
     draft,
     toolsEnabledDraft,
     mcpToolsEnabledDraft,
+    skillsEnabledDraft,
     loading,
     saving,
     dirty,
@@ -85,9 +88,11 @@ export default function AgentConfigModal({
     updateField,
     setToolsEnabled,
     setMcpToolsEnabled,
+    setSkillsEnabled,
     saveConfig,
     saveToolsEnabled,
     saveMcpToolsEnabled,
+    saveSkillsEnabled,
     resetConfig,
   } = useAgentStore();
 
@@ -115,6 +120,8 @@ export default function AgentConfigModal({
       await saveToolsEnabled();
     } else if (activeTab === "mcp") {
       await saveMcpToolsEnabled();
+    } else if (activeTab === "skills") {
+      await saveSkillsEnabled();
     } else if (activeTab === "model") {
       return;
     } else {
@@ -122,7 +129,7 @@ export default function AgentConfigModal({
     }
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
-  }, [activeTab, saveConfig, saveToolsEnabled, saveMcpToolsEnabled]);
+  }, [activeTab, saveConfig, saveToolsEnabled, saveMcpToolsEnabled, saveSkillsEnabled]);
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => {
@@ -135,6 +142,7 @@ export default function AgentConfigModal({
 
   const isToolsTab = activeTab === "tools";
   const isMcpTab = activeTab === "mcp";
+  const isSkillsTab = activeTab === "skills";
   const isModelTab = activeTab === "model";
   const contextTab = CONTEXT_TABS.find((t) => t.key === activeTab);
 
@@ -205,6 +213,11 @@ export default function AgentConfigModal({
             <McpToolsTab
               mcpToolsEnabled={mcpToolsEnabledDraft}
               onChange={setMcpToolsEnabled}
+            />
+          ) : isSkillsTab ? (
+            <SkillsTab
+              skillsEnabled={skillsEnabledDraft}
+              onChange={setSkillsEnabled}
             />
           ) : isModelTab ? (
             <ModelTab currentModel={config?.model ?? ""} />

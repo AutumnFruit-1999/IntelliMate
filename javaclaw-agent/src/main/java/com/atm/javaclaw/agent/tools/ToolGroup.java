@@ -10,7 +10,8 @@ public enum ToolGroup {
 
     FS("文件系统", Set.of("readFile", "writeFile", "editFile")),
     RUNTIME("运行时", Set.of("exec")),
-    WEB("网络", Set.of("webSearch", "webFetch"));
+    WEB("网络", Set.of("webSearch", "webFetch")),
+    SKILLS("Skills", Set.of("getSkillContent"));
 
     private final String displayName;
     private final Set<String> toolNames;

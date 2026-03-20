@@ -13,6 +13,7 @@ import java.util.List;
  * @param history            conversation history as Spring AI messages
  * @param toolsEnabled       tool filtering spec for builtin+custom: null="full", or profile name, or JSON array
  * @param mcpToolsEnabled    MCP tool filtering spec: null=none, "full"=all, or JSON array of tool names
+ * @param skillsEnabled      skill filtering spec: null=none, "full"=all, or JSON array of skill names
  */
 public record AgentRunRequest(
         Long sessionId,
@@ -20,10 +21,11 @@ public record AgentRunRequest(
         String userMessage,
         List<org.springframework.ai.chat.messages.Message> history,
         String toolsEnabled,
-        String mcpToolsEnabled
+        String mcpToolsEnabled,
+        String skillsEnabled
 ) {
     public AgentRunRequest(Long sessionId, JavaClawProperties.Agent agent,
                            String userMessage, List<org.springframework.ai.chat.messages.Message> history) {
-        this(sessionId, agent, userMessage, history, null, null);
+        this(sessionId, agent, userMessage, history, null, null, null);
     }
 }

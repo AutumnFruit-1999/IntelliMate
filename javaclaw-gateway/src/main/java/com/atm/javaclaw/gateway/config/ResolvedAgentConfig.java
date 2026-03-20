@@ -8,6 +8,7 @@ import com.atm.javaclaw.core.config.JavaClawProperties;
 public record ResolvedAgentConfig(
         JavaClawProperties.Agent agent,
         String toolsEnabled,
-        String mcpToolsEnabled
+        String mcpToolsEnabled,
+        String skillsEnabled
 ) {
 }

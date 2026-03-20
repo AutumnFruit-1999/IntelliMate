@@ -86,6 +86,22 @@ public class JavaClawProperties {
         private String userMd;
         private String agentsMd;
 
+        private int maxToolResultChars = 16_000;
+        private int maxContextTokens = 128_000;
+        private int toolExecutionTimeoutSeconds = 60;
+        private int maxParallelToolCalls = 8;
+        private int historyLimit = 50;
+        private int loopDetectorWindowSize = 8;
+        private int loopDetectorWarnThreshold = 3;
+        private int loopDetectorTerminateThreshold = 5;
+        private List<String> loopDetectorExcludedTools = new ArrayList<>();
+        private List<String> nonRetryableTools = new ArrayList<>();
+        private List<String> approvalRequiredTools = new ArrayList<>();
+        private boolean enableParallelToolCalls = true;
+        private int condenserKeepRecent = 20;
+        private int condenserSummaryLength = 200;
+        private int condenserMinTurnsBetween = 5;
+
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
         public String getModel() { return model; }
@@ -102,6 +118,36 @@ public class JavaClawProperties {
         public void setUserMd(String userMd) { this.userMd = userMd; }
         public String getAgentsMd() { return agentsMd; }
         public void setAgentsMd(String agentsMd) { this.agentsMd = agentsMd; }
+        public int getMaxToolResultChars() { return maxToolResultChars; }
+        public void setMaxToolResultChars(int maxToolResultChars) { this.maxToolResultChars = maxToolResultChars; }
+        public int getMaxContextTokens() { return maxContextTokens; }
+        public void setMaxContextTokens(int maxContextTokens) { this.maxContextTokens = maxContextTokens; }
+        public int getToolExecutionTimeoutSeconds() { return toolExecutionTimeoutSeconds; }
+        public void setToolExecutionTimeoutSeconds(int toolExecutionTimeoutSeconds) { this.toolExecutionTimeoutSeconds = toolExecutionTimeoutSeconds; }
+        public int getMaxParallelToolCalls() { return maxParallelToolCalls; }
+        public void setMaxParallelToolCalls(int maxParallelToolCalls) { this.maxParallelToolCalls = maxParallelToolCalls; }
+        public int getHistoryLimit() { return historyLimit; }
+        public void setHistoryLimit(int historyLimit) { this.historyLimit = historyLimit; }
+        public int getLoopDetectorWindowSize() { return loopDetectorWindowSize; }
+        public void setLoopDetectorWindowSize(int loopDetectorWindowSize) { this.loopDetectorWindowSize = loopDetectorWindowSize; }
+        public int getLoopDetectorWarnThreshold() { return loopDetectorWarnThreshold; }
+        public void setLoopDetectorWarnThreshold(int loopDetectorWarnThreshold) { this.loopDetectorWarnThreshold = loopDetectorWarnThreshold; }
+        public int getLoopDetectorTerminateThreshold() { return loopDetectorTerminateThreshold; }
+        public void setLoopDetectorTerminateThreshold(int loopDetectorTerminateThreshold) { this.loopDetectorTerminateThreshold = loopDetectorTerminateThreshold; }
+        public List<String> getLoopDetectorExcludedTools() { return loopDetectorExcludedTools; }
+        public void setLoopDetectorExcludedTools(List<String> loopDetectorExcludedTools) { this.loopDetectorExcludedTools = loopDetectorExcludedTools; }
+        public List<String> getNonRetryableTools() { return nonRetryableTools; }
+        public void setNonRetryableTools(List<String> nonRetryableTools) { this.nonRetryableTools = nonRetryableTools; }
+        public List<String> getApprovalRequiredTools() { return approvalRequiredTools; }
+        public void setApprovalRequiredTools(List<String> approvalRequiredTools) { this.approvalRequiredTools = approvalRequiredTools; }
+        public boolean isEnableParallelToolCalls() { return enableParallelToolCalls; }
+        public void setEnableParallelToolCalls(boolean enableParallelToolCalls) { this.enableParallelToolCalls = enableParallelToolCalls; }
+        public int getCondenserKeepRecent() { return condenserKeepRecent; }
+        public void setCondenserKeepRecent(int condenserKeepRecent) { this.condenserKeepRecent = condenserKeepRecent; }
+        public int getCondenserSummaryLength() { return condenserSummaryLength; }
+        public void setCondenserSummaryLength(int condenserSummaryLength) { this.condenserSummaryLength = condenserSummaryLength; }
+        public int getCondenserMinTurnsBetween() { return condenserMinTurnsBetween; }
+        public void setCondenserMinTurnsBetween(int condenserMinTurnsBetween) { this.condenserMinTurnsBetween = condenserMinTurnsBetween; }
     }
 
     public static class ChannelConfig {

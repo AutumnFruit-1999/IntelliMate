@@ -28,7 +28,7 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GatewayWebSocketHandler.class);
     private static final Duration PING_INTERVAL = Duration.ofSeconds(30);
-    private static final int MAX_MISSED_PONGS = 3;
+    private static final int MAX_MISSED_PONGS = 30;
 
     private final ProtocolCodec codec;
     private final SecurityService securityService;

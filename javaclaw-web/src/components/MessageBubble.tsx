@@ -1,6 +1,7 @@
-import type { ChatMessage } from "../stores/chatStore";
+import { useMemo } from "react";
+import type { ChatMessage, ToolCallInfo } from "../stores/chatStore";
 import StreamingText from "./StreamingText";
-import ToolCallCard from "./ToolCallCard";
+import ToolCallGroup from "./ToolCallGroup";
 import { Bot, User } from "lucide-react";
 
 interface MessageBubbleProps {
@@ -34,6 +35,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   const showTurnIndicator =
     !isUser && message.streaming && message.currentTurn != null && message.currentTurn > 1;
 
+  const toolCallGroups = useMemo(() => {
+    if (!hasToolCalls) return [];
+    return groupByTurn(message.toolCalls!);
+  }, [hasToolCalls, message.toolCalls]);
+
   return (
     <div className={`flex gap-3 my-4 ${isUser ? "flex-row-reverse" : ""}`}>
       <div
@@ -53,10 +59,14 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           />
         )}
 
-        {hasToolCalls && (
+        {toolCallGroups.length > 0 && (
           <div className="mb-2">
-            {message.toolCalls!.map((tc) => (
-              <ToolCallCard key={tc.toolCallId} info={tc} />
+            {toolCallGroups.map((group) => (
+              <ToolCallGroup
+                key={group.key}
+                calls={group.calls}
+                turn={group.turn}
+              />
             ))}
           </div>
         )}
@@ -86,4 +96,39 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       </div>
     </div>
   );
+}
+
+interface ToolCallGroupData {
+  key: string;
+  turn?: number;
+  calls: ToolCallInfo[];
+}
+
+function groupByTurn(toolCalls: ToolCallInfo[]): ToolCallGroupData[] {
+  const groups: ToolCallGroupData[] = [];
+  let currentTurn: number | undefined;
+  let currentCalls: ToolCallInfo[] = [];
+
+  for (const tc of toolCalls) {
+    if (tc.turn !== currentTurn && currentCalls.length > 0) {
+      groups.push({
+        key: `turn-${currentTurn ?? "none"}-${groups.length}`,
+        turn: currentTurn,
+        calls: currentCalls,
+      });
+      currentCalls = [];
+    }
+    currentTurn = tc.turn;
+    currentCalls.push(tc);
+  }
+
+  if (currentCalls.length > 0) {
+    groups.push({
+      key: `turn-${currentTurn ?? "none"}-${groups.length}`,
+      turn: currentTurn,
+      calls: currentCalls,
+    });
+  }
+
+  return groups;
 }

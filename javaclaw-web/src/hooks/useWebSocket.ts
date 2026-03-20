@@ -64,6 +64,7 @@ export function useWebSocket() {
               toolCallId: event.payload.toolCallId as string,
               name: event.payload.name as string,
               arguments: event.payload.arguments as string,
+              turn: event.payload.turn as number | undefined,
             });
             break;
           }

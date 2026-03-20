@@ -5,6 +5,7 @@ import ChatPanel from "./components/ChatPanel";
 import AgentCardGrid from "./components/AgentCardGrid";
 import AgentConfigModal from "./components/AgentConfigModal";
 import ToolManagerModal from "./components/ToolManagerModal";
+import SkillManagerModal from "./components/SkillManagerModal";
 import ModelManagerModal from "./components/ModelManagerModal";
 import CreateAgentModal from "./components/CreateAgentModal";
 import { useWebSocket } from "./hooks/useWebSocket";
@@ -26,6 +27,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
   const [agentConfigTarget, setAgentConfigTarget] = useState<string | null>(null);
   const [toolManagerOpen, setToolManagerOpen] = useState(false);
+  const [skillManagerOpen, setSkillManagerOpen] = useState(false);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
@@ -85,6 +87,7 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
         onOpenAgentManager={handleOpenAgentManager}
         onOpenToolManager={() => setToolManagerOpen(true)}
+        onOpenSkillManager={() => setSkillManagerOpen(true)}
         onOpenModelManager={() => setModelManagerOpen(true)}
         onCreateAgent={() => setCreateModalOpen(true)}
         onSelectAgent={handleSelectAgent}
@@ -114,6 +117,10 @@ export default function App() {
       <ToolManagerModal
         open={toolManagerOpen}
         onClose={() => setToolManagerOpen(false)}
+      />
+      <SkillManagerModal
+        open={skillManagerOpen}
+        onClose={() => setSkillManagerOpen(false)}
       />
       <ModelManagerModal
         open={modelManagerOpen}

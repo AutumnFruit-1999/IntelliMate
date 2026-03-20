@@ -17,8 +17,9 @@ public class ExecTool {
 
     private static final Logger log = LoggerFactory.getLogger(ExecTool.class);
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
+    private static final int MAX_OUTPUT_CHARS = 8_000;
 
-    @Tool(description = "Execute a shell command on the host machine and return the output")
+    @Tool(description = "Execute a shell command on the host machine and return the output. Output exceeding 8000 chars will be truncated (head+tail preserved).")
     public String exec(
             @ToolParam(description = "Shell command to execute") String command,
             @ToolParam(description = "Working directory (optional)", required = false) String workingDirectory,
@@ -47,15 +48,26 @@ public class ExecTool {
             boolean finished = process.waitFor(timeout, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
-                return "Command timed out after " + timeout + " seconds.\nPartial output:\n" + output;
+                return "Command timed out after " + timeout + " seconds.\nPartial output:\n"
+                        + truncateOutput(output.toString());
             }
 
             int exitCode = process.exitValue();
-            return "Exit code: " + exitCode + "\n" + output;
+            return "Exit code: " + exitCode + "\n" + truncateOutput(output.toString());
         } catch (ToolExecutionException e) {
             throw e;
         } catch (Exception e) {
             throw new ToolExecutionException("exec", "Failed to execute command: " + command, e);
         }
+    }
+
+    private static String truncateOutput(String output) {
+        if (output.length() <= MAX_OUTPUT_CHARS) {
+            return output;
+        }
+        int half = MAX_OUTPUT_CHARS / 2;
+        return output.substring(0, half)
+                + "\n... [" + output.length() + " chars total, truncated] ...\n"
+                + output.substring(output.length() - half);
     }
 }

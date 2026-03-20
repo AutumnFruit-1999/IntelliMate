@@ -46,6 +46,23 @@ javaclaw:
     model: ${JAVACLAW_AGENT_MODEL:qwen-max}
     max-turns: 128
     timeout-seconds: 300
+    max-tool-result-chars: 16000
+    max-context-tokens: 128000
+    tool-execution-timeout-seconds: 60
+    max-parallel-tool-calls: 8
+    history-limit: 50
+    loop-detector-window-size: 8
+    loop-detector-warn-threshold: 3
+    loop-detector-terminate-threshold: 5
+    loop-detector-excluded-tools: []
+    non-retryable-tools: []
+    approval-required-tools: []
+    enable-parallel-tool-calls: true
+    condenser-keep-recent: 20
+    condenser-summary-length: 200
+    condenser-min-turns-between: 5
+  skills:
+    dir: ${JAVACLAW_SKILLS_DIR:/Users/user/Documents/code/GitHub/JavaClaw/skills/}
 
 management:
   endpoints:
