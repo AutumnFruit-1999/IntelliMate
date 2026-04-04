@@ -2,7 +2,7 @@ import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import ConnectionStatus from "./ConnectionStatus";
 import AgentList from "./AgentList";
-import { HelpCircle, X, Bot, Settings, Sparkles, Cpu } from "lucide-react";
+import { HelpCircle, X, Bot, Settings, Sparkles, Cpu, ClipboardList } from "lucide-react";
 
 interface SidebarProps {
   onSend: (text: string) => void;
@@ -12,6 +12,7 @@ interface SidebarProps {
   onOpenToolManager: () => void;
   onOpenSkillManager: () => void;
   onOpenModelManager: () => void;
+  onOpenPlanHistory: () => void;
   onCreateAgent: () => void;
   onSelectAgent: (name: string) => void;
 }
@@ -24,6 +25,7 @@ export default function Sidebar({
   onOpenToolManager,
   onOpenSkillManager,
   onOpenModelManager,
+  onOpenPlanHistory,
   onCreateAgent,
   onSelectAgent,
 }: SidebarProps) {
@@ -138,6 +140,16 @@ export default function Sidebar({
               >
                 <Cpu size={16} />
                 模型管理
+              </button>
+              <button
+                onClick={() => {
+                  onOpenPlanHistory();
+                  onClose();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+              >
+                <ClipboardList size={16} />
+                任务历史
               </button>
             </div>
           </div>

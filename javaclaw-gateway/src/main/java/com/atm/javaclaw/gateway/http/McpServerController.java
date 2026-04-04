@@ -68,7 +68,6 @@ public class McpServerController {
                         entity.setServerUrl((String) body.get("serverUrl"));
                         entity.setTransportType((String) body.getOrDefault("transportType", "SSE"));
                         entity.setAuthConfig(toJsonString(body.get("authConfig")));
-                        entity.setAgentName((String) body.get("agentName"));
                         entity.setEnabled(1);
                         entity.setCreatedAt(LocalDateTime.now());
                         entity.setUpdatedAt(LocalDateTime.now());
@@ -95,7 +94,6 @@ public class McpServerController {
                     if (body.containsKey("serverUrl")) entity.setServerUrl((String) body.get("serverUrl"));
                     if (body.containsKey("transportType")) entity.setTransportType((String) body.get("transportType"));
                     if (body.containsKey("authConfig")) entity.setAuthConfig(toJsonString(body.get("authConfig")));
-                    if (body.containsKey("agentName")) entity.setAgentName((String) body.get("agentName"));
                     if (body.containsKey("enabled")) {
                         Object val = body.get("enabled");
                         entity.setEnabled(val instanceof Boolean b ? (b ? 1 : 0) : ((Number) val).intValue());

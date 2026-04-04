@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { X, Loader2, Check } from "lucide-react";
 import { useAgentStore } from "../stores/agentStore";
 import AgentContextEditor from "./AgentContextEditor";
@@ -71,6 +71,7 @@ export default function AgentConfigModal({
 }: AgentConfigModalProps) {
   const [activeTab, setActiveTab] = useState<ContextTab>(initialTab);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const loadedAgentRef = useRef<string | null>(null);
 
   const activeAgent = useAgentStore((s) => s.activeAgent);
 
@@ -102,11 +103,16 @@ export default function AgentConfigModal({
     if (open && agentName) {
       setActiveTab(initialTab);
       setSaveSuccess(false);
-      fetchConfig(agentName);
+      // 只有当 agent 真正变化时才重新加载配置，避免其他状态变化导致的重复加载
+      if (loadedAgentRef.current !== agentName) {
+        loadedAgentRef.current = agentName;
+        fetchConfig(agentName);
+      }
     } else if (!open) {
+      loadedAgentRef.current = null;
       resetConfig();
     }
-  }, [open, agentName]);
+  }, [open, agentName, initialTab, fetchConfig, resetConfig]);
 
   const handleClose = useCallback(() => {
     if (dirty && !window.confirm("有未保存的修改，确定关闭吗？")) {

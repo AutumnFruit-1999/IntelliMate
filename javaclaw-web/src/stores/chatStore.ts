@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ConnectionState } from "../lib/wsClient";
 import type { ResponseFrame } from "../lib/protocol";
+import { generateId } from "../lib/protocol";
 
 export interface ToolCallInfo {
   toolCallId: string;
@@ -31,6 +32,7 @@ interface ChatState {
   connectionState: ConnectionState;
   wsSessionId: string | null;
   isWaiting: boolean;
+  pendingForcePlan: { text: string } | null;
 
   messages: ChatMessage[];
 
@@ -43,6 +45,7 @@ interface ChatState {
   addResponse: (response: ResponseFrame) => void;
   addSystemMessage: (text: string) => void;
   clearMessages: () => void;
+  clearPendingForcePlan: () => void;
   timeoutRequest: (requestId: string) => void;
   setTurnStart: (requestId: string, turn: number, maxTurns: number) => void;
   addToolCall: (
@@ -78,6 +81,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   connectionState: "disconnected",
   wsSessionId: null,
   isWaiting: false,
+  pendingForcePlan: null,
   messages: [],
 
   setCurrentAgent: (agent) => {
@@ -100,7 +104,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ...updateAgentMessages(state, (msgs) => [
         ...msgs,
         {
-          id: crypto.randomUUID(),
+          id: generateId(),
           role: "user",
           content: text,
           streaming: false,
@@ -165,6 +169,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
 
+      if (command === "plan" && payload.forcePlan) {
+        const planText = (text ?? "") as string;
+        set((state) => ({
+          isWaiting: false,
+          pendingForcePlan: { text: planText },
+          ...updateAgentMessages(state, (m) =>
+            m.filter((msg) => msg.id !== bubbleId),
+          ),
+        }));
+        return;
+      }
+
       if (existing && existing.streaming && !existing.content && text) {
         set((state) => ({
           isWaiting: false,
@@ -222,7 +238,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => updateAgentMessages(state, (msgs) => [
       ...msgs,
       {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: "system",
         content: text,
         streaming: false,
@@ -232,6 +248,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearMessages: () => set((state) => updateAgentMessages(state, () => [])),
+
+  clearPendingForcePlan: () => set({ pendingForcePlan: null }),
 
   timeoutRequest: (requestId) => {
     const bubbleId = `assistant-${requestId}`;

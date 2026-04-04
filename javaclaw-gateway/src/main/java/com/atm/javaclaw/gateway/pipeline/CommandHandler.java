@@ -44,6 +44,7 @@ public class CommandHandler {
             case "/status" -> handleStatus(session, requestId);
             case "/model" -> handleModel(session, arg, requestId);
             case "/approve" -> handleApprove(arg, requestId);
+            case "/plan" -> handlePlan(session, arg, requestId);
             case "/help" -> handleHelp(requestId);
             default -> Flux.just(ResponseFrame.failure(requestId,
                     "Unknown command: " + command + ". Type /help for available commands."));
@@ -103,6 +104,16 @@ public class CommandHandler {
                 .flux();
     }
 
+    private Flux<GatewayFrame> handlePlan(SessionEntity session, String arg, String requestId) {
+        if (arg.isBlank()) {
+            return Flux.just(ResponseFrame.success(requestId,
+                    Map.of("text", "用法：/plan <任务描述> — 强制以 Plan 模式处理任务",
+                           "command", "plan", "forcePlan", true)));
+        }
+        return Flux.just(ResponseFrame.success(requestId,
+                Map.of("text", arg, "command", "plan", "forcePlan", true)));
+    }
+
     private Flux<GatewayFrame> handleHelp(String requestId) {
         String help = """
                 可用指令：\n
@@ -110,6 +121,7 @@ public class CommandHandler {
                   /reset           — 重置会话（清除后端上下文）\n
                   /status          — 查看当前会话状态\n
                   /model <名称>    — 切换 LLM 模型\n
+                  /plan <描述>     — 强制以 Plan 模式处理任务\n
                   /approve <code>  — 审批 DM 配对请求\n
                   /help            — 显示此帮助""" ;
         return Flux.just(ResponseFrame.success(requestId, Map.of("text", help)));

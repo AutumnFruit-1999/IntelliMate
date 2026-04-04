@@ -22,13 +22,24 @@ export interface ResponseFrame {
 
 export type GatewayFrame = EventFrame | RequestFrame | ResponseFrame;
 
+export function generateId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export function createRequest(
   method: string,
   params: Record<string, unknown>,
 ): RequestFrame {
   return {
     type: "request",
-    id: crypto.randomUUID(),
+    id: generateId(),
     method,
     params,
   };
@@ -49,4 +60,61 @@ export function isEventFrame(frame: GatewayFrame): frame is EventFrame {
 
 export function isResponseFrame(frame: GatewayFrame): frame is ResponseFrame {
   return frame.type === "response";
+}
+
+export function createPlanApprove(
+  planId: number,
+  approved: boolean,
+  modifications?: Array<{
+    type: "edit" | "add" | "remove";
+    stepIndex?: number;
+    title?: string;
+    description?: string;
+  }>,
+): RequestFrame {
+  return createRequest("plan.approve", { planId, approved, modifications });
+}
+
+export function createPlanPause(planId: number): RequestFrame {
+  return createRequest("plan.pause", { planId });
+}
+
+export function createPlanResume(planId: number): RequestFrame {
+  return createRequest("plan.resume", { planId });
+}
+
+export function createPlanCancel(planId: number): RequestFrame {
+  return createRequest("plan.cancel", { planId });
+}
+
+export function createPlanSkipStep(
+  planId: number,
+  stepIndex: number,
+): RequestFrame {
+  return createRequest("plan.skip_step", { planId, stepIndex });
+}
+
+export function createPlanModifyStep(
+  planId: number,
+  stepIndex: number,
+  title?: string,
+  description?: string,
+): RequestFrame {
+  return createRequest("plan.modify_step", { planId, stepIndex, title, description });
+}
+
+export function createPlanAddStep(
+  planId: number,
+  afterIndex: number,
+  title: string,
+  description: string,
+): RequestFrame {
+  return createRequest("plan.add_step", { planId, afterIndex, title, description });
+}
+
+export function createPlanReorderSteps(
+  planId: number,
+  newOrder: number[],
+): RequestFrame {
+  return createRequest("plan.reorder_steps", { planId, newOrder });
 }

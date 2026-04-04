@@ -101,6 +101,9 @@ public class JavaClawProperties {
         private int condenserKeepRecent = 20;
         private int condenserSummaryLength = 200;
         private int condenserMinTurnsBetween = 5;
+        private int planMaxSteps = 20;
+        private int planStepTimeoutSeconds = 120;
+        private int planApprovalTimeoutSeconds = 600;
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -148,6 +151,12 @@ public class JavaClawProperties {
         public void setCondenserSummaryLength(int condenserSummaryLength) { this.condenserSummaryLength = condenserSummaryLength; }
         public int getCondenserMinTurnsBetween() { return condenserMinTurnsBetween; }
         public void setCondenserMinTurnsBetween(int condenserMinTurnsBetween) { this.condenserMinTurnsBetween = condenserMinTurnsBetween; }
+        public int getPlanMaxSteps() { return planMaxSteps; }
+        public void setPlanMaxSteps(int planMaxSteps) { this.planMaxSteps = planMaxSteps; }
+        public int getPlanStepTimeoutSeconds() { return planStepTimeoutSeconds; }
+        public void setPlanStepTimeoutSeconds(int planStepTimeoutSeconds) { this.planStepTimeoutSeconds = planStepTimeoutSeconds; }
+        public int getPlanApprovalTimeoutSeconds() { return planApprovalTimeoutSeconds; }
+        public void setPlanApprovalTimeoutSeconds(int planApprovalTimeoutSeconds) { this.planApprovalTimeoutSeconds = planApprovalTimeoutSeconds; }
     }
 
     public static class ChannelConfig {

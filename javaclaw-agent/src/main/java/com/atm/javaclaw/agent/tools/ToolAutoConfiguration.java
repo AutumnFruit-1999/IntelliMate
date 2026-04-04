@@ -20,12 +20,16 @@ public class ToolAutoConfiguration {
             FileEditTool fileEditTool,
             WebSearchTool webSearchTool,
             WebFetchTool webFetchTool,
-            @Autowired(required = false) GetSkillContentTool getSkillContentTool
+            @Autowired(required = false) GetSkillContentTool getSkillContentTool,
+            @Autowired(required = false) UpdatePlanTool updatePlanTool
     ) {
         List<Object> tools = new ArrayList<>(List.of(
                 execTool, fileReadTool, fileWriteTool, fileEditTool, webSearchTool, webFetchTool));
         if (getSkillContentTool != null) {
             tools.add(getSkillContentTool);
+        }
+        if (updatePlanTool != null) {
+            tools.add(updatePlanTool);
         }
         return MethodToolCallbackProvider.builder()
                 .toolObjects(tools.toArray())

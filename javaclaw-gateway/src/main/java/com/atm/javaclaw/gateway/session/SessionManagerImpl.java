@@ -75,6 +75,18 @@ public class SessionManagerImpl implements SessionManager {
     }
 
     @Override
+    public Flux<TranscriptMessageEntity> getPlanHistory(Long sessionId, Long planId, int limit) {
+        return transcriptRepository.findRecentBySessionIdAndPlanId(sessionId, planId, limit)
+                .sort(Comparator.comparing(TranscriptMessageEntity::getCreatedAt));
+    }
+
+    @Override
+    public Flux<TranscriptMessageEntity> getChatHistory(Long sessionId, int limit) {
+        return transcriptRepository.findRecentBySessionIdNoPlan(sessionId, limit)
+                .sort(Comparator.comparing(TranscriptMessageEntity::getCreatedAt));
+    }
+
+    @Override
     public Mono<Void> resetSession(Long sessionId) {
         return transcriptRepository.deleteBySessionId(sessionId)
                 .doOnSuccess(v -> log.info("Reset session: id={}", sessionId));

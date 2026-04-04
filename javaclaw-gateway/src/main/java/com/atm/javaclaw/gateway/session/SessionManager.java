@@ -18,5 +18,9 @@ public interface SessionManager {
 
     Flux<TranscriptMessageEntity> getHistory(Long sessionId, int limit);
 
+    Flux<TranscriptMessageEntity> getPlanHistory(Long sessionId, Long planId, int limit);
+
+    Flux<TranscriptMessageEntity> getChatHistory(Long sessionId, int limit);
+
     Mono<Void> resetSession(Long sessionId);
 }

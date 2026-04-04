@@ -22,9 +22,9 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -49,22 +49,32 @@ public class McpToolProviderImpl implements McpToolProvider {
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
         try {
-            repository.findAllByEnabled(1)
+            List<McpServerEntity> servers = repository.findAll()
                     .collectList()
-                    .doOnNext(servers -> {
-                        for (McpServerEntity server : servers) {
-                            try {
-                                connectServerSync(server);
-                            } catch (Exception e) {
-                                log.warn("Failed to connect MCP server '{}' on startup: {}",
-                                        server.getName(), e.getMessage());
-                            }
-                        }
-                        toolsEngine.refresh();
-                        log.info("MCP tool provider initialized: {} server(s), {} tool(s)",
-                                clients.size(), getAllCallbacks().length);
-                    })
+                    .subscribeOn(Schedulers.boundedElastic())
                     .block();
+
+            log.debug("MCP onApplicationReady: loading {} server(s) from repository", servers.size());
+
+            for (McpServerEntity server : servers) {
+                try {
+                    connectServerSync(server);
+                } catch (Exception e) {
+                    // 连接失败，禁用该服务器
+                    server.setEnabled(0);
+                    server.setUpdatedAt(java.time.LocalDateTime.now());
+                    repository.save(server).block();
+                    log.warn("Failed to connect MCP server '{}' on startup: {}",
+                            server.getName(), e.getMessage());
+                }
+            }
+
+            toolsEngine.refresh();
+            int toolCount = getAllCallbacks().length;
+            log.debug("MCP onApplicationReady: initialized {} connected server(s), {} tool callback(s)",
+                    clients.size(), toolCount);
+            log.info("MCP tool provider initialized: {} server(s), {} tool(s)",
+                    clients.size(), toolCount);
         } catch (Exception e) {
             log.warn("Failed to initialize MCP tool provider: {}", e.getMessage());
         }
@@ -72,6 +82,24 @@ public class McpToolProviderImpl implements McpToolProvider {
 
     @Override
     public ToolCallback[] getAllCallbacks() {
+        log.debug("getAllCallbacks: mcpToolCallbacks size={}, server names={}",
+                mcpToolCallbacks.size(), mcpToolCallbacks.keySet());
+
+        // 如果 Map 为空，可能是初始化未完成，尝试强制加载
+        if (mcpToolCallbacks.isEmpty() && !clients.isEmpty()) {
+            log.warn("mcpToolCallbacks is empty but clients is not, forcing reconnection...");
+            repository.findAll()
+                    .filter(server -> server.getEnabled() != null && server.getEnabled() == 1)
+                    .doOnNext(server -> {
+                        try {
+                            connectServerSync(server);
+                        } catch (Exception e) {
+                            log.warn("Failed to reconnect MCP server '{}': {}", server.getName(), e.getMessage());
+                        }
+                    })
+                    .subscribe();
+        }
+
         return mcpToolCallbacks.values().stream()
                 .flatMap(Arrays::stream)
                 .toArray(ToolCallback[]::new);
@@ -90,18 +118,24 @@ public class McpToolProviderImpl implements McpToolProvider {
     }
 
     public void connectServerSync(McpServerEntity server) {
-        disconnectServer(server.getName());
+        try {
+            disconnectServer(server.getName());
 
-        McpSyncClient client = createSyncClient(server);
-        client.initialize();
-        clients.put(server.getName(), client);
+            McpSyncClient client = createSyncClient(server);
+            client.initialize();
+            clients.put(server.getName(), client);
 
-        SyncMcpToolCallbackProvider provider = new SyncMcpToolCallbackProvider(List.of(client));
-        ToolCallback[] callbacks = provider.getToolCallbacks();
-        ToolCallback[] prefixed = prefixToolNames(server.getName(), callbacks);
-        mcpToolCallbacks.put(server.getName(), prefixed);
+            SyncMcpToolCallbackProvider provider = new SyncMcpToolCallbackProvider(List.of(client));
+            ToolCallback[] callbacks = provider.getToolCallbacks();
+            ToolCallback[] prefixed = prefixToolNames(server.getName(), callbacks);
+            mcpToolCallbacks.put(server.getName(), prefixed);
 
-        log.info("Connected MCP server '{}': {} tool(s) discovered", server.getName(), callbacks.length);
+
+            log.info("Connected MCP server '{}': {} tool(s) discovered", server.getName(), callbacks.length);
+        } catch (Exception e) {
+            log.debug("connectServerSync failed for server '{}': {}", server.getName(), e.getMessage(), e);
+            throw e;
+        }
     }
 
     public void disconnectServer(String serverName) {
@@ -197,7 +231,8 @@ public class McpToolProviderImpl implements McpToolProvider {
             return Map.of();
         }
         try {
-            return MAPPER.readValue(authConfigJson, new TypeReference<Map<String, String>>() {});
+            return MAPPER.readValue(authConfigJson, new TypeReference<Map<String, String>>() {
+            });
         } catch (Exception e) {
             log.warn("Failed to parse authConfig as headers map: {}", e.getMessage());
             return Map.of();
@@ -206,7 +241,8 @@ public class McpToolProviderImpl implements McpToolProvider {
 
     private StdioConfig parseStdioConfig(String serverUrl) {
         try {
-            Map<String, Object> map = MAPPER.readValue(serverUrl, new TypeReference<>() {});
+            Map<String, Object> map = MAPPER.readValue(serverUrl, new TypeReference<>() {
+            });
             String command = (String) map.get("command");
             @SuppressWarnings("unchecked")
             List<String> args = (List<String>) map.getOrDefault("args", List.of());
@@ -218,6 +254,9 @@ public class McpToolProviderImpl implements McpToolProvider {
         }
     }
 
-    public record McpDiscoveredTool(String name, String description) {}
-    private record StdioConfig(String command, List<String> args, Map<String, String> env) {}
+    public record McpDiscoveredTool(String name, String description) {
+    }
+
+    private record StdioConfig(String command, List<String> args, Map<String, String> env) {
+    }
 }

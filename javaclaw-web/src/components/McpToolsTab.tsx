@@ -15,19 +15,36 @@ interface McpGroup {
   serverId: number;
   serverName: string;
   transportType: string;
-  tools: { name: string; description: string }[];
+  tools: { name: string; description: string; fullName: string }[];
 }
 
-function parseDiscoveredTools(raw: string | null): { name: string; description: string }[] {
+function toPrefixedName(serverName: string, toolName: string): string {
+  const sanitized = serverName.replace(/[^a-zA-Z0-9]/g, "_");
+  return `mcp_${sanitized}_${toolName}`;
+}
+
+function parseDiscoveredTools(raw: string | null, serverName: string): { name: string; description: string; fullName: string }[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.map((item: unknown) =>
-        typeof item === "string"
-          ? { name: item, description: "" }
-          : { name: (item as Record<string, string>).name ?? "", description: (item as Record<string, string>).description ?? "" }
-      );
+      return parsed.map((item: unknown) => {
+        const rawName = typeof item === "string"
+          ? item
+          : (item as Record<string, string>).name ?? "";
+        const description = typeof item === "string"
+          ? ""
+          : (item as Record<string, string>).description ?? "";
+        // 后端返回的工具名已经带前缀（如 mcp_jina_search_web），直接使用
+        // 如果后端返回的是原始名（不含 mcp_ 前缀），则添加前缀
+        const fullName = rawName.startsWith("mcp_") ? rawName : toPrefixedName(serverName, rawName);
+        // 显示名：从 fullName 中提取原始工具名（去掉 mcp_serverName_ 前缀）
+        const prefix = toPrefixedName(serverName, "");
+        const name = rawName.startsWith("mcp_") && rawName.startsWith(prefix)
+          ? rawName.substring(prefix.length)
+          : rawName;
+        return { name, description, fullName };
+      });
     }
   } catch { /* ignore */ }
   return [];
@@ -76,12 +93,12 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
         serverId: s.id,
         serverName: s.name,
         transportType: s.transportType,
-        tools: parseDiscoveredTools(s.toolsDiscovered),
+        tools: parseDiscoveredTools(s.toolsDiscovered, s.name),
       }));
   }, [dbServers]);
 
   const allToolNames = useMemo<string[]>(() => {
-    return mcpGroups.flatMap((g) => g.tools.map((t) => t.name));
+    return mcpGroups.flatMap((g) => g.tools.map((t) => t.fullName));
   }, [mcpGroups]);
 
   const selectedTools = useMemo(() => {
@@ -116,12 +133,12 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
   );
 
   const handleToolToggle = useCallback(
-    (toolName: string) => {
+    (fullName: string) => {
       const next = new Set(selectedTools);
-      if (next.has(toolName)) {
-        next.delete(toolName);
+      if (next.has(fullName)) {
+        next.delete(fullName);
       } else {
-        next.add(toolName);
+        next.add(fullName);
       }
       if (next.size === 0) {
         onChange(null);
@@ -138,10 +155,10 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
 
   const handleGroupToggle = useCallback(
     (group: McpGroup) => {
-      const groupToolNames = group.tools.map((t) => t.name);
-      const allSelected = groupToolNames.every((t) => selectedTools.has(t));
+      const groupToolFullNames = group.tools.map((t) => t.fullName);
+      const allSelected = groupToolFullNames.every((t) => selectedTools.has(t));
       const next = new Set(selectedTools);
-      for (const t of groupToolNames) {
+      for (const t of groupToolFullNames) {
         if (allSelected) next.delete(t);
         else next.add(t);
       }
@@ -267,10 +284,10 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
         <div className="space-y-2">
           {mcpGroups.map((group) => {
             const expanded = expandedGroups.has(group.serverId);
-            const groupToolNames = group.tools.map((t) => t.name);
-            const allSelected = groupToolNames.length > 0 && groupToolNames.every((t) => selectedTools.has(t));
+            const groupToolFullNames = group.tools.map((t) => t.fullName);
+            const allSelected = groupToolFullNames.length > 0 && groupToolFullNames.every((t) => selectedTools.has(t));
             const someSelected =
-              !allSelected && groupToolNames.some((t) => selectedTools.has(t));
+              !allSelected && groupToolFullNames.some((t) => selectedTools.has(t));
 
             return (
               <div
@@ -297,7 +314,7 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
                       ({group.tools.length} 个工具)
                     </span>
                   </div>
-                  {groupToolNames.length > 0 && (
+                  {groupToolFullNames.length > 0 && (
                     <label
                       className="flex items-center"
                       onClick={(e) => e.stopPropagation()}
@@ -323,13 +340,13 @@ export default function McpToolsTab({ mcpToolsEnabled, onChange }: McpToolsTabPr
                     ) : (
                       group.tools.map((tool) => (
                         <label
-                          key={tool.name}
+                          key={tool.fullName}
                           className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer"
                         >
                           <input
                             type="checkbox"
-                            checked={selectedTools.has(tool.name)}
-                            onChange={() => handleToolToggle(tool.name)}
+                            checked={selectedTools.has(tool.fullName)}
+                            onChange={() => handleToolToggle(tool.fullName)}
                             className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                           />
                           <div className="flex-1 min-w-0">

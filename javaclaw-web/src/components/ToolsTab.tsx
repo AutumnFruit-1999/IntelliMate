@@ -192,7 +192,9 @@ export default function ToolsTab({ toolsEnabled, onChange }: ToolsTabProps) {
           工具列表
         </h3>
         <div className="space-y-2">
-          {meta.groups.map((group) => {
+          {meta.groups
+            .filter((group) => !group.name.startsWith("MCP:"))
+            .map((group) => {
             const expanded = expandedGroups.has(group.name);
             const allSelected = group.tools.every((t) => selectedTools.has(t));
             const someSelected =

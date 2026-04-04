@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useChatStore } from "../stores/chatStore";
 import MessageBubble from "./MessageBubble";
 import { ArrowDown } from "lucide-react";
@@ -9,6 +9,16 @@ export default function MessageList() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  const lastAssistantWithToolsId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+        return m.id;
+      }
+    }
+    return null;
+  }, [messages]);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,7 +56,11 @@ export default function MessageList() {
           </div>
         )}
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            isLastAssistantWithTools={msg.id === lastAssistantWithToolsId}
+          />
         ))}
         <div ref={bottomRef} />
       </div>

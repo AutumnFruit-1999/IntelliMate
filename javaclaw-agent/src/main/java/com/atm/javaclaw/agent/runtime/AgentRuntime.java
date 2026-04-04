@@ -3,10 +3,13 @@ package com.atm.javaclaw.agent.runtime;
 import com.atm.javaclaw.agent.model.ChatModelRegistry;
 import com.atm.javaclaw.agent.model.ProviderType;
 import com.atm.javaclaw.agent.model.ResolvedModel;
+import com.atm.javaclaw.agent.plan.PlanOperations;
 import com.atm.javaclaw.agent.skills.SkillContentProvider;
 import com.atm.javaclaw.agent.skills.SkillUsageRecorder;
+import com.atm.javaclaw.agent.tools.AgentSessionContext;
 import com.atm.javaclaw.agent.tools.ToolsEngine;
 import com.atm.javaclaw.core.config.JavaClawProperties;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +62,9 @@ public class AgentRuntime {
     private final ObjectMapper objectMapper;
     private final SkillContentProvider skillContentProvider;
     private final SkillUsageRecorder skillUsageRecorder;
+    private final AgentSessionContext agentSessionContext;
     private final JavaClawProperties properties;
+    private final PlanOperations planOperations;
 
     public AgentRuntime(ChatModelRegistry chatModelRegistry,
                         ToolsEngine toolsEngine,
@@ -67,14 +72,18 @@ public class AgentRuntime {
                         ObjectMapper objectMapper,
                         @Autowired(required = false) SkillContentProvider skillContentProvider,
                         @Autowired(required = false) SkillUsageRecorder skillUsageRecorder,
-                        JavaClawProperties properties) {
+                        AgentSessionContext agentSessionContext,
+                        JavaClawProperties properties,
+                        @Autowired(required = false) PlanOperations planOperations) {
         this.chatModelRegistry = chatModelRegistry;
         this.toolsEngine = toolsEngine;
         this.runQueueManager = runQueueManager;
         this.objectMapper = objectMapper;
         this.skillContentProvider = skillContentProvider;
         this.skillUsageRecorder = skillUsageRecorder;
+        this.agentSessionContext = agentSessionContext;
         this.properties = properties;
+        this.planOperations = planOperations;
     }
 
     public Flux<AgentEvent> dispatch(AgentRunRequest request) {
@@ -82,6 +91,20 @@ public class AgentRuntime {
     }
 
     private final ConcurrentMap<Long, ToolApprovalGate> sessionApprovalGates = new ConcurrentHashMap<>();
+    private final Set<Long> pausedPlanIds = ConcurrentHashMap.newKeySet();
+
+    public void signalPlanPaused(Long planId) {
+        if (planId != null) {
+            pausedPlanIds.add(planId);
+            log.info("Plan {} signalled as paused/cancelled", planId);
+        }
+    }
+
+    public void clearPlanPaused(Long planId) {
+        if (planId != null) {
+            pausedPlanIds.remove(planId);
+        }
+    }
 
     /**
      * Resolves a pending tool approval for a given session.
@@ -107,7 +130,8 @@ public class AgentRuntime {
         return skillsMono.flatMapMany(skillSummaries -> {
             JavaClawProperties.Agent agentConfig = request.agent();
             boolean parallelEnabled = agentConfig.isEnableParallelToolCalls();
-            String systemPrompt = buildSystemPrompt(agentConfig, skillSummaries, parallelEnabled);
+            String systemPrompt = buildSystemPrompt(agentConfig, skillSummaries, parallelEnabled,
+                    request.planContext(), request.forcePlan());
             ToolCallback[] tools = toolsEngine.getToolCallbacksFor(request.toolsEnabled(), request.mcpToolsEnabled());
             int maxTurns = agentConfig.getMaxTurns();
             Duration timeout = Duration.ofSeconds(agentConfig.getTimeoutSeconds());
@@ -165,8 +189,14 @@ public class AgentRuntime {
             return executeLoopTurn(resolved.chatModel(), conversationHistory, chatOptions, maxTurns, timeout, 1, new StringBuilder(),
                     agentConfig.getName(), request.sessionId(), skillsBasePath,
                     loopDetector, tracker, condenser, cache, approvalGate,
-                    toolTimeout, maxToolResultChars, maxParallel, nonRetryable)
-                    .doFinally(signal -> sessionApprovalGates.remove(request.sessionId()));
+                    toolTimeout, maxToolResultChars, maxParallel, nonRetryable,
+                    request.activePlanId())
+                    .doFinally(signal -> {
+                        sessionApprovalGates.remove(request.sessionId());
+                        if (request.activePlanId() != null) {
+                            pausedPlanIds.remove(request.activePlanId());
+                        }
+                    });
         });
     }
 
@@ -189,7 +219,17 @@ public class AgentRuntime {
             Duration toolTimeout,
             int maxToolResultChars,
             int maxParallel,
-            Set<String> nonRetryableTools) {
+            Set<String> nonRetryableTools,
+            Long activePlanId) {
+
+        if (activePlanId != null && pausedPlanIds.contains(activePlanId)) {
+            log.info("Plan {} is paused/cancelled, stopping agent loop at turn {}", activePlanId, turn);
+            String text = fullText.toString();
+            if (text.isEmpty()) {
+                text = "[计划已暂停，当前步骤完成后停止执行]";
+            }
+            return Flux.just(new AgentEvent.Done(text, turn));
+        }
 
         if (turn > maxTurns) {
             log.warn("Agent loop reached maxTurns={}", maxTurns);
@@ -269,7 +309,8 @@ public class AgentRuntime {
                 return processToolCalls(chatModel, history, options, merged, maxTurns, timeout, turn, fullText,
                         agentName, sessionId, skillsBasePath,
                         loopDetector, tracker, condenser, cache, approvalGate,
-                        toolTimeout, maxToolResultChars, maxParallel, nonRetryableTools);
+                        toolTimeout, maxToolResultChars, maxParallel, nonRetryableTools,
+                        activePlanId);
             }
 
             return Flux.just(new AgentEvent.Done(fullText.toString(), turn));
@@ -301,7 +342,7 @@ public class AgentRuntime {
             }
         }
 
-        if (allToolCalls.isEmpty() || lastToolCallChunk == null) {
+        if (allToolCalls.isEmpty()) {
             return null;
         }
 
@@ -338,14 +379,20 @@ public class AgentRuntime {
             Duration toolTimeout,
             int maxToolResultChars,
             int maxParallel,
-            Set<String> nonRetryableTools) {
+            Set<String> nonRetryableTools,
+            Long activePlanId) {
 
         AssistantMessage assistantMsg = toolCallResponse.getResult().getOutput();
         history.add(assistantMsg);
 
         List<AssistantMessage.ToolCall> toolCalls = assistantMsg.getToolCalls();
-        if (toolCalls == null || toolCalls.isEmpty()) {
+        if (toolCalls.isEmpty()) {
             return Flux.just(new AgentEvent.Done(fullText.toString(), turn));
+        }
+
+        Map<String, String> toolCallArgs = new LinkedHashMap<>();
+        for (AssistantMessage.ToolCall tc : toolCalls) {
+            toolCallArgs.put(tc.id(), tc.arguments());
         }
 
         if (toolCalls.size() > 1) {
@@ -374,7 +421,7 @@ public class AgentRuntime {
         // Phase 2a: Execute non-approval tools in parallel
         Mono<List<ToolExecutionResult>> directResultsMono = Flux.fromIterable(directCalls)
                 .flatMap(tc -> executeSingleTool(tc, agentName, sessionId, skillsBasePath,
-                        loopDetector, cache, approvalGate,
+                        loopDetector, cache,
                         toolTimeout, maxToolResultChars, nonRetryableTools), maxParallel)
                 .collectList();
 
@@ -397,15 +444,35 @@ public class AgentRuntime {
 
                     return Flux.concat(
                             Flux.just(approvalEvent),
-                            afterApproval.map(r -> (AgentEvent) new AgentEvent.ToolResult(r.id(), r.name(), r.result(), r.success(), turn))
+                            afterApproval.flatMapMany(r -> {
+                                AgentEvent toolResult = new AgentEvent.ToolResult(r.id(), r.name(), r.result(), r.success(), turn);
+                                if (r.success()) {
+                                    List<AgentEvent> planEvents = extractPlanEvents(r.name(), toolCallArgs.get(tc.id()), r.result());
+                                    if (!planEvents.isEmpty()) {
+                                        return Flux.concat(Flux.just(toolResult), Flux.fromIterable(planEvents));
+                                    }
+                                }
+                                return Flux.just(toolResult);
+                            })
                     );
                 });
 
         // Phase 3: Combine results, add to history, emit ToolResult events for direct calls
         Flux<AgentEvent> directResultEvents = directResultsMono.flatMapMany(results -> {
-            // Approval results are handled inline; collect direct results for history
             return Flux.fromIterable(results)
-                    .map(r -> (AgentEvent) new AgentEvent.ToolResult(r.id(), r.name(), r.result(), r.success(), turn));
+                    .concatMap(r -> {
+                        AgentEvent toolResult = new AgentEvent.ToolResult(r.id(), r.name(), r.result(), r.success(), turn);
+                        if (r.success()) {
+                            log.debug("Phase3: checking plan events for tool={}, id={}, hasArgs={}",
+                                    r.name(), r.id(), toolCallArgs.containsKey(r.id()));
+                            List<AgentEvent> planEvents = extractPlanEvents(r.name(), toolCallArgs.get(r.id()), r.result());
+                            if (!planEvents.isEmpty()) {
+                                log.info("Phase3: injecting {} plan events after tool={}", planEvents.size(), r.name());
+                                return Flux.concat(Flux.just(toolResult), Flux.fromIterable(planEvents));
+                            }
+                        }
+                        return Flux.just(toolResult);
+                    });
         });
 
         // Phase 4: After all tool results are emitted, collect everything into history and recurse
@@ -431,7 +498,8 @@ public class AgentRuntime {
                 executeLoopTurn(chatModel, history, options, maxTurns, timeout, turn + 1, fullText,
                         agentName, sessionId, skillsBasePath,
                         loopDetector, tracker, condenser, cache, approvalGate,
-                        toolTimeout, maxToolResultChars, maxParallel, nonRetryableTools));
+                        toolTimeout, maxToolResultChars, maxParallel, nonRetryableTools,
+                        activePlanId));
 
         return Flux.concat(callEvents, withHistory, nextTurn);
     }
@@ -450,7 +518,6 @@ public class AgentRuntime {
             String skillsBasePath,
             ToolCallLoopDetector loopDetector,
             ToolResultCache cache,
-            ToolApprovalGate approvalGate,
             Duration toolTimeout,
             int maxToolResultChars,
             Set<String> nonRetryableTools) {
@@ -499,20 +566,25 @@ public class AgentRuntime {
         }
 
         Mono<ToolExecutionResult> execution = Mono.fromCallable(() -> {
-            ToolCallback callback = toolsEngine.getCallbackByName(toolName);
-            String result = callback.call(arguments);
-            log.debug("Tool {} executed, result length={}", toolName, result != null ? result.length() : 0);
+            agentSessionContext.set(sessionId);
+            try {
+                ToolCallback callback = toolsEngine.getCallbackByName(toolName);
+                String result = callback.call(arguments);
+                log.debug("Tool {} executed, result length={}", toolName, result != null ? result.length() : 0);
 
-            recordSkillActivationIfApplicable(toolName, arguments, agentName, sessionId, skillsBasePath);
+                recordSkillActivationIfApplicable(toolName, arguments, agentName, sessionId, skillsBasePath);
 
-            cache.put(toolName, arguments, result);
-            cache.invalidateForWrite(toolName, arguments);
+                cache.put(toolName, arguments, result);
+                cache.invalidateForWrite(toolName, arguments);
 
-            result = truncateToolResult(result, maxToolResultChars);
-            if (appendWarning) {
-                result += "\n\n[WARNING: You've called this tool with identical arguments multiple times. Consider a different approach.]";
+                result = truncateToolResult(result, maxToolResultChars);
+                if (appendWarning) {
+                    result += "\n\n[WARNING: You've called this tool with identical arguments multiple times. Consider a different approach.]";
+                }
+                return new ToolExecutionResult(toolCallId, toolName, result != null ? result : "", true);
+            } finally {
+                agentSessionContext.clear();
             }
-            return new ToolExecutionResult(toolCallId, toolName, result != null ? result : "", true);
         }).subscribeOn(Schedulers.boundedElastic())
           .timeout(toolTimeout);
 
@@ -690,11 +762,13 @@ public class AgentRuntime {
 
     private String buildSystemPrompt(JavaClawProperties.Agent agentConfig,
                                      List<SkillContentProvider.SkillSummary> skillSummaries,
-                                     boolean parallelEnabled) {
+                                     boolean parallelEnabled,
+                                     String planContext,
+                                     boolean forcePlan) {
         StringBuilder sb = new StringBuilder();
 
-        appendSection(sb, "SOUL", agentConfig.getSoulMd());
-        appendSection(sb, "USER", agentConfig.getUserMd());
+        appendSection(sb, "SOUL:指定以何种语气去回答用户的问题，回答问题的风格以这个描述为主。","{"+agentConfig.getSoulMd()+"}");
+        appendSection(sb, "USER:你需要面对的客户，针对不同的客户的要求，产出不同的结果", "{"+agentConfig.getUserMd()+"}");
         appendSection(sb, "AGENTS", agentConfig.getAgentsMd());
 
         if (skillSummaries != null && !skillSummaries.isEmpty()) {
@@ -702,6 +776,12 @@ public class AgentRuntime {
             if (skillsSection != null && !skillsSection.isBlank()) {
                 appendSection(sb, "SKILLS", skillsSection);
             }
+        }
+
+        sb.append(buildPlanSystemSection(forcePlan));
+
+        if (planContext != null && !planContext.isBlank()) {
+            sb.append("\n\n").append(planContext);
         }
 
         sb.append("\n\n## TOOL USAGE GUIDELINES\n");
@@ -725,6 +805,38 @@ public class AgentRuntime {
         return prompt;
     }
 
+    private String buildPlanSystemSection(boolean forcePlan) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n\n<plan_system>\n");
+        sb.append("你拥有 `writePlan` 和 `updatePlan` 两个工具来管理任务计划。\n\n");
+        sb.append("### 何时创建计划\n");
+        sb.append("- 当任务涉及 3 个以上独立步骤时，先调用 `writePlan` 创建计划\n");
+        sb.append("- **即使存在匹配的 Skill，如果任务本身涉及多个步骤（如项目搭建、架构重构、系统迁移等），仍应优先创建计划。** Skill 可以在计划的各个步骤中被引用和激活\n");
+        sb.append("- 复杂任务的判断标准：需要创建/修改多个文件、涉及多个独立配置、需要按顺序完成多个阶段\n");
+        sb.append("- 简单任务（1-2 步）不需要创建计划，直接执行即可\n");
+        sb.append("- 用户显式要求时，必须创建计划\n\n");
+        sb.append("### 创建计划的要求\n");
+        sb.append("1. 每个步骤应该是独立、可验证的\n");
+        sb.append("2. 步骤标题简洁明确，描述包含具体操作内容\n");
+        sb.append("3. 步骤之间的依赖关系要在描述中说明\n");
+        sb.append("4. 合理评估步骤数量，避免过于细碎或笼统\n\n");
+        sb.append("### 执行计划\n");
+        sb.append("- 创建计划后等待用户审批，用户可能会编辑步骤\n");
+        sb.append("- 审批通过后，按步骤顺序执行\n");
+        sb.append("- 每完成一步，调用 `updatePlan` 的 `markStep` 标记完成\n");
+        sb.append("- 如果发现需要调整计划，使用 `updatePlan` 的 `addStep` / `removeStep`\n");
+        sb.append("- 如果发现后续步骤已不再必要，调用 `updatePlan` 的 `completePlan`，不要执行多余步骤\n\n");
+        sb.append("### 失败处理\n");
+        sb.append("- 步骤失败时先自行尝试不同方法解决\n");
+        sb.append("- 如果确实无法完成，调用 `updatePlan` 的 `markStep` 标记 failed，并说明原因\n");
+        sb.append("- 可以通过 `addStep` 新增替代步骤，或 `removeStep` 删除不可行的步骤\n");
+        sb.append("</plan_system>");
+        if (forcePlan) {
+            sb.append("\n\n**重要指令：你必须先调用 `writePlan` 创建计划，等待用户审批后再执行。不要直接开始执行任务。**");
+        }
+        return sb.toString();
+    }
+
     private String buildSkillsDiscovery(List<SkillContentProvider.SkillSummary> skills) {
         if (skills.isEmpty()) return null;
 
@@ -735,7 +847,8 @@ public class AgentRuntime {
         sb.append("Each skill is a directory containing a SKILL.md with detailed instructions, ");
         sb.append("and optionally scripts/ and references/ directories.\n\n");
         sb.append("When a user's request matches a skill's description, ");
-        sb.append("activate it by reading the skill's SKILL.md file first.\n\n");
+        sb.append("consider activating it by reading the skill's SKILL.md file. ");
+        sb.append("For complex multi-step tasks, create a plan first and use skills within individual steps.\n\n");
         sb.append("Available skills:\n");
 
         for (var skill : skills) {
@@ -761,5 +874,129 @@ public class AgentRuntime {
         } else {
             sb.append(content);
         }
+    }
+
+    /**
+     * After a writePlan/updatePlan tool execution succeeds, parse the JSON result
+     * and arguments to produce the corresponding Plan* AgentEvents that the
+     * frontend needs for real-time UI updates.
+     */
+    private List<AgentEvent> extractPlanEvents(String toolName, String arguments, String result) {
+        if (!"writePlan".equals(toolName) && !"updatePlan".equals(toolName)) {
+            return List.of();
+        }
+        if (arguments == null || result == null) {
+            log.warn("extractPlanEvents: null arguments or result for tool={}", toolName);
+            return List.of();
+        }
+        log.debug("extractPlanEvents: tool={}, resultLen={}, argsLen={}, result={}",
+                toolName, result.length(), arguments.length(),
+                result.substring(0, Math.min(result.length(), 500)));
+        try {
+            JsonNode resultNode = objectMapper.readTree(result);
+            if (resultNode.has("error")) {
+                log.debug("extractPlanEvents: result contains 'error' key, skipping");
+                return List.of();
+            }
+
+            List<AgentEvent> events;
+            if ("writePlan".equals(toolName)) {
+                events = extractWritePlanEvents(arguments, resultNode);
+            } else {
+                events = extractUpdatePlanEvents(arguments, resultNode);
+            }
+            log.info("extractPlanEvents: emitting {} plan event(s) for {}", events.size(), toolName);
+            return events;
+        } catch (Exception e) {
+            log.warn("Failed to extract plan events from {} result: {}", toolName, e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+    private List<AgentEvent> extractWritePlanEvents(String arguments, JsonNode resultNode) throws Exception {
+        log.debug("extractWritePlanEvents: resultNode={}", resultNode);
+        JsonNode planIdNode = resultNode.get("planId");
+        if (planIdNode == null) planIdNode = resultNode.get("plan_id");
+        if (planIdNode == null) planIdNode = resultNode.get("id");
+        if (planIdNode == null || planIdNode.isNull()) {
+            log.warn("extractWritePlanEvents: no planId found in result: {}", resultNode);
+            return List.of();
+        }
+        Long planId = planIdNode.asLong();
+
+        JsonNode argsNode = objectMapper.readTree(arguments);
+        String title = argsNode.has("title") ? argsNode.get("title").asText() : "";
+        JsonNode stepsArray = argsNode.has("steps") ? argsNode.get("steps") : objectMapper.createArrayNode();
+        log.debug("extractWritePlanEvents: title={}, steps count={}", title, stepsArray.size());
+
+        List<AgentEvent.PlanStepInfo> steps = new ArrayList<>();
+        for (int i = 0; i < stepsArray.size(); i++) {
+            JsonNode step = stepsArray.get(i);
+            steps.add(new AgentEvent.PlanStepInfo(
+                    i,
+                    step.has("title") ? step.get("title").asText() : "",
+                    step.has("description") ? step.get("description").asText() : ""
+            ));
+        }
+        log.info("extractWritePlanEvents: PlanCreated planId={}, title='{}', steps={}", planId, title, steps.size());
+
+        return List.of(
+                new AgentEvent.PlanCreated(planId, title, steps),
+                new AgentEvent.PlanAwaitingApproval(planId)
+        );
+    }
+
+    private List<AgentEvent> extractUpdatePlanEvents(String arguments, JsonNode resultNode) throws Exception {
+        JsonNode argsNode = objectMapper.readTree(arguments);
+        JsonNode planIdNode = argsNode.get("planId");
+        if (planIdNode == null) planIdNode = argsNode.get("plan_id");
+        JsonNode actionNode = argsNode.get("action");
+        if (planIdNode == null || planIdNode.isNull() || actionNode == null || actionNode.isNull()) {
+            log.warn("extractUpdatePlanEvents: missing planId or action in args: {}",
+                    arguments.substring(0, Math.min(arguments.length(), 500)));
+            return List.of();
+        }
+        Long planId = planIdNode.asLong();
+        String action = actionNode.asText();
+        log.debug("extractUpdatePlanEvents: planId={}, action={}", planId, action);
+
+        return switch (action) {
+            case "markStep" -> {
+                JsonNode stepIndexNode = argsNode.get("stepIndex");
+                JsonNode statusNode = argsNode.get("status");
+                if (stepIndexNode == null || statusNode == null) {
+                    log.warn("extractUpdatePlanEvents: markStep missing stepIndex or status");
+                    yield List.of();
+                }
+                int stepIndex = stepIndexNode.asInt();
+                String status = statusNode.asText();
+                if ("in_progress".equals(status)) {
+                    yield java.util.List.<AgentEvent>of(
+                            new AgentEvent.PlanStatusChanged(planId, "executing"),
+                            new AgentEvent.PlanStepStart(planId, stepIndex, ""));
+                } else {
+                    String summary = "";
+                    if (argsNode.has("resultSummary") && !argsNode.get("resultSummary").isNull()) {
+                        summary = argsNode.get("resultSummary").asText();
+                    }
+                    yield List.of((AgentEvent) new AgentEvent.PlanStepDone(planId, stepIndex, status, summary));
+                }
+            }
+            case "completePlan" -> List.of((AgentEvent) new AgentEvent.PlanCompleted(planId, "completed"));
+            case "addStep", "removeStep" -> {
+                List<AgentEvent.PlanStepInfo> currentSteps = List.of();
+                if (planOperations != null) {
+                    try {
+                        currentSteps = planOperations.getSteps(planId).stream()
+                                .map(s -> new AgentEvent.PlanStepInfo(s.index(), s.title(), s.description()))
+                                .toList();
+                    } catch (Exception e) {
+                        log.warn("Failed to load steps for PlanAdjusted event: {}", e.getMessage());
+                    }
+                }
+                yield List.of((AgentEvent) new AgentEvent.PlanAdjusted(planId, action, currentSteps));
+            }
+            default -> List.of();
+        };
     }
 }

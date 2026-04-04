@@ -11,6 +11,10 @@ export default defineConfig({
         target: "ws://localhost:3007",
         ws: true,
       },
+      "/api": {
+        target: "http://localhost:3007",
+        changeOrigin: true,
+      },
     },
   },
 });

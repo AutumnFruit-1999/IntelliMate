@@ -7,7 +7,7 @@ spring:
 
   # R2DBC reactive datasource (runtime queries)
   r2dbc:
-    url: r2dbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:javaclaw}?sslMode=DISABLED
+    url: r2dbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:javaclaw}?sslMode=REQUIRED
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:NyD0+oFDoOB+9cdVtnMonWFf4ZkDpTTs}
     pool:
@@ -61,6 +61,9 @@ javaclaw:
     condenser-keep-recent: 20
     condenser-summary-length: 200
     condenser-min-turns-between: 5
+    plan-max-steps: 20
+    plan-step-timeout-seconds: 120
+    plan-approval-timeout-seconds: 600
   skills:
     dir: ${JAVACLAW_SKILLS_DIR:/Users/user/Documents/code/GitHub/JavaClaw/skills/}
 

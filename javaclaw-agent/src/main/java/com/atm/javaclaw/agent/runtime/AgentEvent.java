@@ -1,5 +1,7 @@
 package com.atm.javaclaw.agent.runtime;
 
+import java.util.List;
+
 /**
  * Events emitted by the Agent Loop during execution.
  * Each variant represents a distinct phase of the agent's reasoning and action cycle.
@@ -48,4 +50,31 @@ public sealed interface AgentEvent {
             boolean approved,
             String modifiedArguments
     ) implements AgentEvent {}
+
+    // ───── Plan Mode events ─────
+
+    record PlanStepInfo(int index, String title, String description) {}
+
+    record PlanCreated(
+            Long planId, String title, List<PlanStepInfo> steps
+    ) implements AgentEvent {}
+
+    record PlanAwaitingApproval(Long planId) implements AgentEvent {}
+
+    record PlanStatusChanged(
+            Long planId, String status
+    ) implements AgentEvent {}
+
+    record PlanStepStart(Long planId, int stepIndex, String title) implements AgentEvent {}
+
+    record PlanStepDone(
+            Long planId, int stepIndex, String status, String resultSummary
+    ) implements AgentEvent {}
+
+    record PlanAdjusted(
+            Long planId, String adjustType,
+            List<PlanStepInfo> currentSteps
+    ) implements AgentEvent {}
+
+    record PlanCompleted(Long planId, String status) implements AgentEvent {}
 }

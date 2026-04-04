@@ -175,7 +175,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         dirty: false,
         config: s.config ? { ...s.config, toolsEnabled: toolsEnabledDraft } : null,
       }));
-      await get().fetchAgentList();
+      get().fetchAgentList().catch(() => {});
     } catch (e) {
       set({ saving: false, error: e instanceof Error ? e.message : String(e) });
     }
@@ -187,12 +187,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set({ saving: true, error: null });
     try {
       await updateAgentApi(config.name, { mcpToolsEnabled: mcpToolsEnabledDraft });
+      // 先更新 config，确保状态变化被检测到
       set((s) => ({
         saving: false,
         dirty: false,
         config: s.config ? { ...s.config, mcpToolsEnabled: mcpToolsEnabledDraft } : null,
       }));
-      await get().fetchAgentList();
+      // 异步更新列表，不影响当前状态
+      get().fetchAgentList().catch(() => {});
     } catch (e) {
       set({ saving: false, error: e instanceof Error ? e.message : String(e) });
     }
@@ -209,7 +211,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         dirty: false,
         config: s.config ? { ...s.config, skillsEnabled: skillsEnabledDraft } : null,
       }));
-      await get().fetchAgentList();
+      get().fetchAgentList().catch(() => {});
     } catch (e) {
       set({ saving: false, error: e instanceof Error ? e.message : String(e) });
     }

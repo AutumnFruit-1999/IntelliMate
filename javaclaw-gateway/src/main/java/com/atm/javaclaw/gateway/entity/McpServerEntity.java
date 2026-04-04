@@ -14,7 +14,6 @@ public class McpServerEntity {
     private String serverUrl;
     private String transportType;
     private String authConfig;
-    private String agentName;
     private Integer enabled;
     private LocalDateTime lastConnectedAt;
     private String toolsDiscovered;
@@ -31,8 +30,6 @@ public class McpServerEntity {
     public void setTransportType(String transportType) { this.transportType = transportType; }
     public String getAuthConfig() { return authConfig; }
     public void setAuthConfig(String authConfig) { this.authConfig = authConfig; }
-    public String getAgentName() { return agentName; }
-    public void setAgentName(String agentName) { this.agentName = agentName; }
     public Integer getEnabled() { return enabled; }
     public void setEnabled(Integer enabled) { this.enabled = enabled; }
     public LocalDateTime getLastConnectedAt() { return lastConnectedAt; }

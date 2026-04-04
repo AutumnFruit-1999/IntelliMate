@@ -121,24 +121,49 @@ public class ToolsEngine {
     }
 
     private ToolCallback[] getMcpCallbacksFor(String mcpToolsEnabledSpec) {
+        log.debug("getMcpCallbacksFor called with spec: {}", mcpToolsEnabledSpec);
+
         if (mcpToolProvider == null) {
+            log.debug("MCP ToolProvider is null, returning empty array");
             return new ToolCallback[0];
         }
+
         ToolCallback[] allMcp = mcpToolProvider.getAllCallbacks();
+        log.debug("MCP ToolProvider returned {} callbacks", allMcp.length);
+
+        for (ToolCallback cb : allMcp) {
+            log.debug("Available MCP tool: {}", cb.getToolDefinition().name());
+        }
+
         if (allMcp.length == 0) {
+            log.debug("No MCP callbacks available, returning empty array");
             return allMcp;
         }
+
         if (mcpToolsEnabledSpec == null || mcpToolsEnabledSpec.isBlank()) {
+            log.debug("mcpToolsEnabledSpec is null or blank, returning empty array");
             return new ToolCallback[0];
         }
+
         if ("full".equalsIgnoreCase(mcpToolsEnabledSpec.trim())) {
+            log.debug("mcpToolsEnabledSpec is 'full', returning all {} callbacks", allMcp.length);
             return allMcp;
         }
+
         Set<String> names = parseToolNames(mcpToolsEnabledSpec);
+        log.debug("Parsed tool names from spec: {}", names);
+
         if (names.isEmpty()) {
+            log.debug("Parsed names is empty, returning empty array");
             return new ToolCallback[0];
         }
-        return filterFromSource(allMcp, names);
+
+        ToolCallback[] filtered = filterFromSource(allMcp, names);
+
+        System.out.println("filtered = " + filtered);
+        log.debug("Filtered MCP callbacks: {} out of {} matched", filtered.length, allMcp.length);
+
+        return filtered;
     }
 
     private ToolCallback[] getBuiltinCustomCallbacks() {
@@ -159,7 +184,9 @@ public class ToolsEngine {
     }
 
     public List<Map<String, String>> getToolMetadata() {
-        return Arrays.stream(allToolCallbacks).map(cb -> {
+        return Arrays.stream(allToolCallbacks)
+                .filter(cb -> !detectSource(cb.getToolDefinition().name()).equals("mcp"))
+                .map(cb -> {
             String name = cb.getToolDefinition().name();
             String desc = cb.getToolDefinition().description();
             String source = detectSource(name);
@@ -193,7 +220,7 @@ public class ToolsEngine {
     }
 
     /**
-     * Return all groups (builtin enum + CUSTOM + MCP per-server).
+     * Return all groups (builtin enum + CUSTOM) for tool selection; MCP tools are excluded.
      */
     public List<Map<String, Object>> getAllGroups() {
         List<Map<String, Object>> groups = new ArrayList<>();
@@ -219,19 +246,6 @@ public class ToolsEngine {
                         "source", "custom"
                 ));
             }
-        }
-
-        if (mcpToolProvider != null) {
-            mcpToolProvider.getServerToolNames().forEach((serverName, toolNames) -> {
-                if (!toolNames.isEmpty()) {
-                    groups.add(Map.of(
-                            "name", "MCP:" + serverName,
-                            "displayName", "MCP: " + serverName,
-                            "tools", toolNames,
-                            "source", "mcp"
-                    ));
-                }
-            });
         }
 
         return groups;
