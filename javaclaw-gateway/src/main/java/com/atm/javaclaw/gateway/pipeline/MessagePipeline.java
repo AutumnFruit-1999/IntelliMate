@@ -253,6 +253,7 @@ public class MessagePipeline {
                     sb.append("### 输出与总结要求\n");
                     sb.append("- 每步完成时：在 `markStep` 的 `resultSummary` 中写**面向用户的简短总结**（1～3 句，说明做了什么、关键结果）。\n");
                     sb.append("- 每步结束后：在回复中用自然语言简要确认本步结果，再开始下一步（除非已无待办步骤）。\n");
+                    sb.append("- **步骤衔接**：在进入下一步、调用 `markStep(..., in_progress)` 之前，必须在**对话正文**中先用 1～2 句话复述上一步已完成的内容与结果（可与上一步的 `resultSummary` 一致，但必须对用户可见），然后再开始当前步的工具调用。\n");
                     sb.append("- 全部完成时：调用 `completePlan` 并在 `resultSummary` 或最终回复中给出**整体总结**。\n");
                     return sb.toString();
                 });

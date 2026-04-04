@@ -823,7 +823,8 @@ public class AgentRuntime {
         sb.append("### 执行计划\n");
         sb.append("- 创建计划后等待用户审批，用户可能会编辑步骤\n");
         sb.append("- 审批通过后，按步骤顺序执行\n");
-        sb.append("- 每完成一步，调用 `updatePlan` 的 `markStep` 标记完成\n");
+        sb.append("- **步骤与工具顺序（必须遵守，含第 1 步）**：对步骤 N，必须先调用 `updatePlan` 的 `markStep(stepIndex=N, status=in_progress)`，再调用除 `writePlan` / `updatePlan` 以外的工具完成该步；本步工作结束后，再调用 `markStep(stepIndex=N, status=completed, resultSummary=...)`。\n");
+        sb.append("- **禁止**在未对当前步标记 `in_progress` 之前，执行该步所需的任何工具（否则界面无法把工具归属到正确步骤）。\n");
         sb.append("- 如果发现需要调整计划，使用 `updatePlan` 的 `addStep` / `removeStep`\n");
         sb.append("- 如果发现后续步骤已不再必要，调用 `updatePlan` 的 `completePlan`，不要执行多余步骤\n\n");
         sb.append("### 失败处理\n");

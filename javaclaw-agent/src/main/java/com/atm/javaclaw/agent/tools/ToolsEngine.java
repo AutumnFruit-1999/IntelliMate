@@ -160,7 +160,6 @@ public class ToolsEngine {
 
         ToolCallback[] filtered = filterFromSource(allMcp, names);
 
-        System.out.println("filtered = " + filtered);
         log.debug("Filtered MCP callbacks: {} out of {} matched", filtered.length, allMcp.length);
 
         return filtered;

@@ -43,6 +43,9 @@ interface PendingToolCall {
   toolCallId: string;
   name: string;
   arguments: string;
+  result?: string;
+  success?: boolean;
+  status?: StepToolCall["status"];
 }
 
 function matchesActivePlan(
@@ -155,7 +158,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       const existing = newStepToolCalls[stepIndex] ?? [];
       const flushed: StepToolCall[] = state.pendingToolCalls.map((p) => ({
         ...p,
-        status: "calling" as const,
+        status: (p.status ?? "calling") as StepToolCall["status"],
       }));
       newStepToolCalls[stepIndex] = [...existing, ...flushed];
       return {
@@ -181,11 +184,32 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set((state) => {
       const pl = state.plan;
       if (!pl || !matchesActivePlan(pl, payload)) return {};
+
+      const existingCalls = state.stepToolCalls[stepIndex] ?? [];
+      let stepToolCalls = { ...state.stepToolCalls };
+      let pendingToolCalls = state.pendingToolCalls;
+      if (
+        pendingToolCalls.length > 0 &&
+        existingCalls.length === 0
+      ) {
+        const flushed: StepToolCall[] = pendingToolCalls.map((p) => ({
+          ...p,
+          status: (p.status ?? "calling") as StepToolCall["status"],
+        }));
+        stepToolCalls = {
+          ...stepToolCalls,
+          [stepIndex]: flushed,
+        };
+        pendingToolCalls = [];
+      }
+
       return {
         currentStepIndex:
           state.currentStepIndex === stepIndex
             ? null
             : state.currentStepIndex,
+        pendingToolCalls,
+        stepToolCalls,
         plan: {
           ...pl,
           steps: pl.steps.map((s) =>
@@ -341,12 +365,13 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       );
       if (pendingIdx !== -1) {
         const pending = [...state.pendingToolCalls];
-        const [matched] = pending.splice(pendingIdx, 1);
+        const matched = pending[pendingIdx];
         const stepIdx = state.currentStepIndex;
         if (stepIdx != null) {
+          const [removed] = pending.splice(pendingIdx, 1);
           const calls = [...(state.stepToolCalls[stepIdx] ?? [])];
           calls.push({
-            ...matched,
+            ...removed,
             result,
             success,
             status: (success ? "done" : "error") as StepToolCall["status"],
@@ -356,6 +381,12 @@ export const usePlanStore = create<PlanState>((set, get) => ({
             stepToolCalls: { ...state.stepToolCalls, [stepIdx]: calls },
           };
         }
+        pending[pendingIdx] = {
+          ...matched,
+          result,
+          success,
+          status: (success ? "done" : "error") as StepToolCall["status"],
+        };
         return { pendingToolCalls: pending };
       }
       return {};
