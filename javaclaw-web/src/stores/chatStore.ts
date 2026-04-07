@@ -6,6 +6,7 @@ import { generateId } from "../lib/protocol";
 export interface ToolCallInfo {
   toolCallId: string;
   name: string;
+  description?: string;
   arguments: string;
   result?: string;
   success?: boolean;
@@ -50,7 +51,7 @@ interface ChatState {
   setTurnStart: (requestId: string, turn: number, maxTurns: number) => void;
   addToolCall: (
     requestId: string,
-    info: { toolCallId: string; name: string; arguments: string; turn?: number },
+    info: { toolCallId: string; name: string; description?: string; arguments: string; turn?: number },
   ) => void;
   updateToolResult: (
     requestId: string,

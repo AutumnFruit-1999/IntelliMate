@@ -5,6 +5,7 @@ import com.atm.javaclaw.agent.runtime.AgentRunRequest;
 import com.atm.javaclaw.agent.runtime.AgentRuntime;
 import com.atm.javaclaw.core.config.JavaClawProperties;
 import com.atm.javaclaw.core.model.SessionKey;
+import com.atm.javaclaw.core.prompt.PromptLoader;
 import com.atm.javaclaw.core.model.SessionMetadata;
 import com.atm.javaclaw.core.protocol.EventFrame;
 import com.atm.javaclaw.core.protocol.GatewayFrame;
@@ -121,7 +122,9 @@ public class MessagePipeline {
                 .defaultIfEmpty(new PlanEntity())
                 .flatMapMany(activePlan -> {
                     Long planId = activePlan.getId();
-                    boolean planExecuting = planId != null && "executing".equals(activePlan.getStatus());
+                    String planStatus = activePlan.getStatus();
+                    boolean planExecuting = planId != null
+                            && ("executing".equals(planStatus) || "approved".equals(planStatus));
 
                     TranscriptMessageEntity userMsg = new TranscriptMessageEntity();
                     userMsg.setRole("user");
@@ -177,12 +180,23 @@ public class MessagePipeline {
                                         assistantMsg.setPlanId(planId);
                                     }
 
-                                    return sessionManager.appendMessage(session.getId(), assistantMsg)
+                                    Mono<Void> saveMsgMono = sessionManager.appendMessage(session.getId(), assistantMsg)
                                             .then(auditService.log("agent_response", "agent", session.getId(),
-                                                    "length=" + completeText.length()))
-                                            .thenMany(Flux.just(
-                                                    ResponseFrame.success(requestId, Map.of("text", completeText))
-                                            ));
+                                                    "length=" + completeText.length()));
+
+                                    if (!planExecuting || effectivePlanId == null) {
+                                        return saveMsgMono.thenMany(Flux.just(
+                                                ResponseFrame.success(requestId, Map.of("text", completeText))));
+                                    }
+
+                                    return saveMsgMono
+                                            .then(syncPlanAfterExecution(effectivePlanId))
+                                            .flatMapMany(planSyncEvents -> {
+                                                List<GatewayFrame> frames = new ArrayList<>();
+                                                frames.addAll(planSyncEvents);
+                                                frames.add(ResponseFrame.success(requestId, Map.of("text", completeText)));
+                                                return Flux.fromIterable(frames);
+                                            });
                                 });
 
                                 return Flux.concat(events, tail);
@@ -202,8 +216,10 @@ public class MessagePipeline {
         return planService.getSteps(planId)
                 .collectList()
                 .map(steps -> {
-                    StringBuilder sb = new StringBuilder("## PLAN EXECUTION CONTEXT\n\n");
-                    sb.append("你正在执行当前会话中的活动计划（用户可能已通过「批准并执行」或已开始推进步骤）。\n\n");
+                    StringBuilder sb = new StringBuilder(
+                            PromptLoader.load("prompts/plan-execution-context-header.md"));
+                    sb.append("**Plan ID: ").append(planId).append("**\n");
+                    sb.append("所有 `updatePlan` 调用必须使用此 Plan ID。\n\n");
 
                     List<PlanStepEntity> completed = steps.stream()
                             .filter(s -> "completed".equals(s.getStatus())).toList();
@@ -248,15 +264,67 @@ public class MessagePipeline {
                         sb.append('\n');
                     }
 
-                    sb.append("请专注于完成当前步骤。完成后调用 `updatePlan` 的 `markStep` 标记完成。\n");
-                    sb.append("如果发现需要调整计划，可以使用 addStep / removeStep / completePlan。\n\n");
-                    sb.append("### 输出与总结要求\n");
-                    sb.append("- 每步完成时：在 `markStep` 的 `resultSummary` 中写**面向用户的简短总结**（1～3 句，说明做了什么、关键结果）。\n");
-                    sb.append("- 每步结束后：在回复中用自然语言简要确认本步结果，再开始下一步（除非已无待办步骤）。\n");
-                    sb.append("- **步骤衔接**：在进入下一步、调用 `markStep(..., in_progress)` 之前，必须在**对话正文**中先用 1～2 句话复述上一步已完成的内容与结果（可与上一步的 `resultSummary` 一致，但必须对用户可见），然后再开始当前步的工具调用。\n");
-                    sb.append("- 全部完成时：调用 `completePlan` 并在 `resultSummary` 或最终回复中给出**整体总结**。\n");
+                    sb.append(PromptLoader.load("prompts/plan-execution-context-footer.md"));
                     return sb.toString();
                 });
+    }
+
+    /**
+     * After the agent loop completes, check the plan state and emit any missing
+     * lifecycle events. Handles the case where the LLM completes work for a step
+     * but forgets to call updatePlan(markStep, completed) or completePlan.
+     */
+    private Mono<List<GatewayFrame>> syncPlanAfterExecution(Long planId) {
+        return planService.getSteps(planId).collectList()
+                .flatMap(steps -> {
+                    List<GatewayFrame> syncEvents = new ArrayList<>();
+
+                    List<PlanStepEntity> nonTerminal = steps.stream()
+                            .filter(s -> {
+                                String st = s.getStatus();
+                                return "in_progress".equals(st) || "pending".equals(st);
+                            })
+                            .toList();
+
+                    if (nonTerminal.isEmpty()) {
+                        return checkAndCompletePlan(planId, steps, syncEvents);
+                    }
+
+                    log.info("Post-exec sync: auto-completing {} non-terminal steps for plan {}",
+                            nonTerminal.size(), planId);
+
+                    return Flux.fromIterable(nonTerminal)
+                            .concatMap(step ->
+                                    planService.markStep(planId, step.getStepIndex(), "completed",
+                                                    "步骤已由系统自动标记完成")
+                                            .doOnSuccess(v -> syncEvents.add(new EventFrame("plan.step_done",
+                                                    Map.of("planId", planId,
+                                                            "stepIndex", step.getStepIndex(),
+                                                            "status", "completed",
+                                                            "resultSummary", "步骤已由系统自动标记完成"),
+                                                    seqGenerator.incrementAndGet()))))
+                            .then(planService.getSteps(planId).collectList())
+                            .flatMap(updatedSteps -> checkAndCompletePlan(planId, updatedSteps, syncEvents));
+                });
+    }
+
+    private Mono<List<GatewayFrame>> checkAndCompletePlan(Long planId, List<PlanStepEntity> steps,
+                                                           List<GatewayFrame> syncEvents) {
+        boolean allTerminal = steps.stream().allMatch(s -> {
+            String st = s.getStatus();
+            return "completed".equals(st) || "failed".equals(st) || "skipped".equals(st);
+        });
+        if (allTerminal && !steps.isEmpty()) {
+            log.info("Post-exec sync: all steps terminal, auto-completing plan {}", planId);
+            return planService.completePlan(planId, null)
+                    .map(plan -> {
+                        syncEvents.add(new EventFrame("plan.completed",
+                                Map.of("planId", planId, "status", "completed"),
+                                seqGenerator.incrementAndGet()));
+                        return syncEvents;
+                    });
+        }
+        return Mono.just(syncEvents);
     }
 
     @SuppressWarnings("unchecked")
@@ -432,6 +500,7 @@ public class MessagePipeline {
                     "agent.tool_call",
                     Map.of("toolCallId", tc.toolCallId(),
                            "name", tc.name(),
+                           "description", tc.description() != null ? tc.description() : "",
                            "arguments", tc.arguments(),
                            "turn", tc.turn(),
                            "requestId", requestId),

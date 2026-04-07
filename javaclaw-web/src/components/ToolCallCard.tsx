@@ -100,15 +100,23 @@ export default function ToolCallCard({ info, compact = false }: ToolCallCardProp
     >
       <StatusIndicator status={info.status} />
       <span className="text-gray-500 dark:text-gray-400">{getToolIcon(info.name)}</span>
-      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
-        {info.name}
-      </span>
-      <span className="text-xs text-gray-400 dark:text-gray-500">{statusLabel}</span>
-      <span className="ml-auto" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+            {info.name}
+          </span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">{statusLabel}</span>
+        </div>
+        {info.description && (
+          <div className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
+            {info.description}
+          </div>
+        )}
+      </div>
       {hasDetail && (
         expanded
-          ? <ChevronDown size={14} className="text-gray-400 dark:text-gray-500" />
-          : <ChevronRight size={14} className="text-gray-400 dark:text-gray-500" />
+          ? <ChevronDown size={14} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
+          : <ChevronRight size={14} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
       )}
     </button>
   );

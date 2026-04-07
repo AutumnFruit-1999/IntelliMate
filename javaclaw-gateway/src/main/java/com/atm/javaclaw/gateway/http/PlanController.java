@@ -37,6 +37,23 @@ public class PlanController {
                 .collectList();
     }
 
+    @GetMapping("/{planId}")
+    public Mono<Map<String, Object>> getPlan(@PathVariable Long planId) {
+        return planRepository.findById(planId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Plan not found")))
+                .flatMap(plan -> planStepRepository.findByPlanIdOrderByStepIndex(planId)
+                        .map(this::toStepMap)
+                        .collectList()
+                        .map(steps -> {
+                            Map<String, Object> result = new LinkedHashMap<>();
+                            result.put("planId", plan.getId());
+                            result.put("title", plan.getTitle());
+                            result.put("status", plan.getStatus());
+                            result.put("steps", steps);
+                            return result;
+                        }));
+    }
+
     @GetMapping("/{planId}/steps")
     public Mono<List<Map<String, Object>>> getPlanSteps(@PathVariable Long planId) {
         return planRepository.findById(planId)

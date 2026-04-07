@@ -300,9 +300,16 @@ function ToolCallDetail({ tc }: { tc: StepToolCall }) {
         ) : (
           <XCircle size={10} className="text-red-500 flex-shrink-0" />
         )}
-        <span className="text-[11px] text-slate-600 dark:text-slate-300 truncate flex-1">
-          {tc.name}
-        </span>
+        <div className="flex-1 min-w-0">
+          <span className="text-[11px] text-slate-600 dark:text-slate-300 truncate block">
+            {tc.name}
+          </span>
+          {tc.description && (
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate block">
+              {tc.description}
+            </span>
+          )}
+        </div>
         {hasDetail && (
           open ? (
             <ChevronDown size={10} className="text-slate-400 flex-shrink-0" />

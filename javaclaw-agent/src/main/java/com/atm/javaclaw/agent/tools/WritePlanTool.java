@@ -2,6 +2,7 @@ package com.atm.javaclaw.agent.tools;
 
 import com.atm.javaclaw.agent.plan.PlanOperations;
 import com.atm.javaclaw.agent.plan.PlanOperations.StepInput;
+import com.atm.javaclaw.core.prompt.PromptLoader;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,12 +46,7 @@ public class WritePlanTool implements ToolCallback, ToolCallbackProvider {
         this.sessionContext = sessionContext;
         this.toolDefinition = ToolDefinition.builder()
                 .name("writePlan")
-                .description("Create a structured execution plan with numbered steps. "
-                        + "Use this when the user's task is complex and requires multiple distinct steps. "
-                        + "The plan will be presented to the user for approval before execution begins. "
-                        + "Each step should be a clear, actionable unit of work. "
-                        + "IMPORTANT: Pass ONLY a single valid JSON object as arguments (no markdown fences, no prose before/after). "
-                        + "Escape double quotes inside string values; use \\n for newlines in descriptions.")
+                .description(PromptLoader.load("prompts/write-plan-description.md"))
                 .inputSchema(INPUT_SCHEMA)
                 .build();
     }
@@ -69,7 +65,7 @@ public class WritePlanTool implements ToolCallback, ToolCallbackProvider {
 
         try {
             String jsonPayload = extractJsonObjectPayload(toolInput);
-            JsonNode root = LENIENT_MAPPER.readTree(jsonPayload);
+            JsonNode root = parseJsonLenient(jsonPayload);
             String title = root.has("title") ? root.get("title").asText() : "";
             JsonNode stepsNode = root.get("steps");
 
@@ -100,11 +96,167 @@ public class WritePlanTool implements ToolCallback, ToolCallbackProvider {
         }
     }
 
+    public static JsonNode parseJsonLenient(String json) throws Exception {
+        try {
+            return LENIENT_MAPPER.readTree(json);
+        } catch (Exception firstError) {
+            log.debug("Initial JSON parse failed, attempting repair: {}", firstError.getMessage());
+            String repaired = repairUnquotedValues(json);
+            if (!repaired.equals(json)) {
+                try {
+                    JsonNode result = LENIENT_MAPPER.readTree(repaired);
+                    log.info("JSON repair succeeded");
+                    return result;
+                } catch (Exception secondError) {
+                    log.debug("Repaired JSON also failed: {}", secondError.getMessage());
+                }
+            }
+
+            JsonNode fallback = tryRegexFallback(json);
+            if (fallback != null) {
+                log.info("Regex fallback succeeded for plan JSON");
+                return fallback;
+            }
+            throw firstError;
+        }
+    }
+
+    /**
+     * Last-resort extraction: use regex to pull title and steps from malformed JSON.
+     */
+    private static JsonNode tryRegexFallback(String json) {
+        try {
+            java.util.regex.Pattern titlePat = java.util.regex.Pattern.compile(
+                    "\"title\"\\s*:\\s*\"([^\"]+)\"");
+            java.util.regex.Pattern stepPat = java.util.regex.Pattern.compile(
+                    "\\{\\s*\"title\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"description\"\\s*:\\s*\"?([^\"\\}]+)\"?\\s*\\}");
+
+            java.util.regex.Matcher titleMatcher = titlePat.matcher(json);
+            String title = "";
+            if (titleMatcher.find()) {
+                title = titleMatcher.group(1);
+            }
+
+            com.fasterxml.jackson.databind.node.ObjectNode root = MAPPER.createObjectNode();
+            root.put("title", title);
+            com.fasterxml.jackson.databind.node.ArrayNode stepsArr = root.putArray("steps");
+
+            java.util.regex.Matcher stepMatcher = stepPat.matcher(json);
+            int lastEnd = 0;
+            while (stepMatcher.find(lastEnd)) {
+                com.fasterxml.jackson.databind.node.ObjectNode step = MAPPER.createObjectNode();
+                step.put("title", stepMatcher.group(1));
+                step.put("description", stepMatcher.group(2).trim());
+                stepsArr.add(step);
+                lastEnd = stepMatcher.end();
+            }
+
+            if (stepsArr.isEmpty()) return null;
+            log.debug("Regex fallback extracted title='{}' with {} steps", title, stepsArr.size());
+            return root;
+        } catch (Exception e) {
+            log.debug("Regex fallback failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Attempts to wrap unquoted string values in double quotes.
+     * Handles the common case where the model outputs:
+     *   "description": 使用 mkdir 创建目录
+     * instead of:
+     *   "description": "使用 mkdir 创建目录"
+     * Also correctly tracks single-quoted strings to avoid corrupting them.
+     */
+    public static String repairUnquotedValues(String json) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        int len = json.length();
+        char stringDelim = 0;
+        boolean escape = false;
+
+        while (i < len) {
+            char c = json.charAt(i);
+
+            if (escape) {
+                sb.append(c);
+                escape = false;
+                i++;
+                continue;
+            }
+            if (c == '\\' && stringDelim != 0) {
+                sb.append(c);
+                escape = true;
+                i++;
+                continue;
+            }
+            if (stringDelim != 0 && c == stringDelim) {
+                stringDelim = 0;
+                sb.append(c);
+                i++;
+                continue;
+            }
+            if (stringDelim == 0 && (c == '"' || c == '\'')) {
+                stringDelim = c;
+                sb.append(c);
+                i++;
+                continue;
+            }
+            if (stringDelim != 0) {
+                sb.append(c);
+                i++;
+                continue;
+            }
+
+            if (c == ':') {
+                sb.append(c);
+                i++;
+                while (i < len && (json.charAt(i) == ' ' || json.charAt(i) == '\t')) {
+                    sb.append(json.charAt(i));
+                    i++;
+                }
+                if (i < len) {
+                    char next = json.charAt(i);
+                    if (next != '"' && next != '\'' && next != '{' && next != '['
+                            && next != 't' && next != 'f' && next != 'n' && next != '-'
+                            && !Character.isDigit(next)) {
+                        int valueEnd = findUnquotedValueEnd(json, i);
+                        String rawValue = json.substring(i, valueEnd).trim();
+                        rawValue = rawValue.replace("\\", "\\\\").replace("\"", "\\\"")
+                                .replace("\n", "\\n").replace("\r", "\\r");
+                        sb.append('"').append(rawValue).append('"');
+                        i = valueEnd;
+                    }
+                }
+                continue;
+            }
+
+            sb.append(c);
+            i++;
+        }
+        return sb.toString();
+    }
+
+    private static int findUnquotedValueEnd(String json, int start) {
+        int depth = 0;
+        for (int i = start; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c == '{' || c == '[') depth++;
+            else if (c == '}' || c == ']') {
+                if (depth == 0) return i;
+                depth--;
+            } else if ((c == ',' || c == '\n') && depth == 0) {
+                return i;
+            }
+        }
+        return json.length();
+    }
+
 
     /**
      * Models often wrap JSON in markdown fences or append Chinese prose; strip to the outermost JSON object.
      */
-    static String extractJsonObjectPayload(String raw) {
+    public static String extractJsonObjectPayload(String raw) {
         if (raw == null) {
             return "";
         }

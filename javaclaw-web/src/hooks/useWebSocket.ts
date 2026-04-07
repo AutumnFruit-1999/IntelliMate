@@ -41,6 +41,13 @@ export function useWebSocket() {
         switch (event.event) {
           case "session.welcome": {
             store.setWsSessionId(event.payload.wsSessionId as string);
+            const planState = usePlanStore.getState();
+            if (
+              planState.plan &&
+              !["completed", "cancelled", "failed"].includes(planState.plan.status)
+            ) {
+              planState.syncFromServer(planState.plan.planId);
+            }
             break;
           }
           case "agent.chunk": {
@@ -58,6 +65,28 @@ export function useWebSocket() {
               event.payload.totalTurns as number | undefined,
             );
             clearRequestTimeout(requestId);
+
+            const planState = usePlanStore.getState();
+            if (planState.plan && planState.plan.status === "executing") {
+              const nonTerminal = planState.plan.steps.filter(
+                (s) => s.status === "pending" || s.status === "in_progress",
+              );
+              for (const step of nonTerminal) {
+                usePlanStore.getState().handleStepDone({
+                  planId: planState.plan.planId,
+                  stepIndex: step.index,
+                  status: "completed",
+                  resultSummary: "",
+                });
+              }
+              const updated = usePlanStore.getState();
+              if (updated.plan && updated.plan.status === "executing") {
+                updated.handlePlanCompleted({
+                  planId: updated.plan.planId,
+                  status: "completed",
+                });
+              }
+            }
             break;
           }
           case "agent.turn_start": {
@@ -70,9 +99,11 @@ export function useWebSocket() {
           }
           case "agent.tool_call": {
             const tcName = event.payload.name as string;
+            const tcDesc = (event.payload.description as string) || undefined;
             store.addToolCall(event.payload.requestId as string, {
               toolCallId: event.payload.toolCallId as string,
               name: tcName,
+              description: tcDesc,
               arguments: event.payload.arguments as string,
               turn: event.payload.turn as number | undefined,
             });
@@ -80,6 +111,7 @@ export function useWebSocket() {
               usePlanStore.getState().addStepToolCall({
                 toolCallId: event.payload.toolCallId as string,
                 name: tcName,
+                description: tcDesc,
                 arguments: event.payload.arguments as string,
               });
             }

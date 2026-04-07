@@ -1,5 +1,6 @@
 package com.atm.javaclaw.gateway.pipeline;
 
+import com.atm.javaclaw.core.prompt.PromptLoader;
 import com.atm.javaclaw.core.protocol.GatewayFrame;
 import com.atm.javaclaw.core.protocol.ResponseFrame;
 import com.atm.javaclaw.gateway.entity.SessionEntity;
@@ -115,15 +116,7 @@ public class CommandHandler {
     }
 
     private Flux<GatewayFrame> handleHelp(String requestId) {
-        String help = """
-                可用指令：\n
-                  /clear           : 清除当前对话记录\n
-                  /reset           — 重置会话（清除后端上下文）\n
-                  /status          — 查看当前会话状态\n
-                  /model <名称>    — 切换 LLM 模型\n
-                  /plan <描述>     — 强制以 Plan 模式处理任务\n
-                  /approve <code>  — 审批 DM 配对请求\n
-                  /help            — 显示此帮助""" ;
+        String help = PromptLoader.load("prompts/command-help.md");
         return Flux.just(ResponseFrame.success(requestId, Map.of("text", help)));
     }
 

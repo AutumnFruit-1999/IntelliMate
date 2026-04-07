@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { fetchPlan } from "../lib/api";
 
 export type PlanStepStatus =
   | "pending"
@@ -33,6 +34,7 @@ export interface Plan {
 export interface StepToolCall {
   toolCallId: string;
   name: string;
+  description?: string;
   arguments: string;
   result?: string;
   success?: boolean;
@@ -42,6 +44,7 @@ export interface StepToolCall {
 interface PendingToolCall {
   toolCallId: string;
   name: string;
+  description?: string;
   arguments: string;
   result?: string;
   success?: boolean;
@@ -72,12 +75,14 @@ interface PlanState {
   handlePlanStatusChanged(payload: Record<string, unknown>): void;
   handlePlanCompleted(payload: Record<string, unknown>): void;
   setAwaitingApproval(planId: number): void;
+  syncFromServer(planId: number): Promise<void>;
   clearPlan(): void;
   viewHistoryPlan(direction: "prev" | "next"): void;
 
   addStepToolCall(info: {
     toolCallId: string;
     name: string;
+    description?: string;
     arguments: string;
   }): void;
   updateStepToolResult(
@@ -274,12 +279,13 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set((state) => {
       const pl = state.plan;
       if (!pl || !matchesActivePlan(pl, payload)) return {};
+      const stepFinalStatus: PlanStepStatus = status === "completed" ? "completed" : "skipped";
       const updatedPlan: Plan = {
         ...pl,
         status,
         steps: pl.steps.map((s) =>
           s.status === "pending" || s.status === "in_progress"
-            ? { ...s, status: "skipped" as PlanStepStatus }
+            ? { ...s, status: stepFinalStatus }
             : s,
         ),
       };
@@ -288,6 +294,37 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         plan: updatedPlan,
       };
     });
+  },
+
+  async syncFromServer(planId: number) {
+    try {
+      const data = await fetchPlan(planId);
+      set((state) => {
+        const pl = state.plan;
+        if (!pl || pl.planId !== planId) return {};
+        return {
+          plan: {
+            ...pl,
+            status: data.status as PlanStatus,
+            steps: data.steps.map((s) => {
+              const local = pl.steps.find((ls) => ls.index === s.index);
+              return {
+                index: s.index,
+                title: s.title,
+                description: s.description,
+                status: s.status as PlanStepStatus,
+                resultSummary: s.resultSummary ?? local?.resultSummary,
+              };
+            }),
+          },
+          currentStepIndex: ["completed", "failed", "cancelled"].includes(data.status)
+            ? null
+            : state.currentStepIndex,
+        };
+      });
+    } catch {
+      // server unreachable — keep local state as-is
+    }
   },
 
   clearPlan() {
@@ -323,13 +360,41 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   },
 
   addStepToolCall(info) {
-    const { currentStepIndex } = get();
+    const { currentStepIndex, plan } = get();
+
     if (currentStepIndex == null) {
+      const planActive = plan && (
+        plan.status === "executing" || plan.status === "approved"
+      );
+      if (planActive) {
+        const nextStep = plan!.steps.find((s) => s.status === "pending");
+        if (nextStep) {
+          set((state) => {
+            const idx = nextStep.index;
+            const calls = [...(state.stepToolCalls[idx] ?? [])];
+            calls.push({ ...info, status: "calling" });
+            return {
+              currentStepIndex: idx,
+              stepToolCalls: { ...state.stepToolCalls, [idx]: calls },
+              plan: {
+                ...state.plan!,
+                steps: state.plan!.steps.map((s) =>
+                  s.index === idx
+                    ? { ...s, status: "in_progress" as PlanStepStatus }
+                    : s,
+                ),
+              },
+            };
+          });
+          return;
+        }
+      }
       set((state) => ({
         pendingToolCalls: [...state.pendingToolCalls, info],
       }));
       return;
     }
+
     set((state) => {
       const calls = [...(state.stepToolCalls[currentStepIndex] ?? [])];
       calls.push({ ...info, status: "calling" });

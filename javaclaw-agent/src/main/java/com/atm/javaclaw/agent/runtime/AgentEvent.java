@@ -18,6 +18,7 @@ public sealed interface AgentEvent {
     record ToolCall(
             String toolCallId,
             String name,
+            String description,
             String arguments,
             int turn
     ) implements AgentEvent {}

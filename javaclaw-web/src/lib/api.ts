@@ -237,6 +237,25 @@ export function testMcpServerConfig(data: McpServerCreate): Promise<McpTestResul
   });
 }
 
+// ─── Plan ───
+
+export interface PlanDetail {
+  planId: number;
+  title: string;
+  status: string;
+  steps: Array<{
+    index: number;
+    title: string;
+    description: string;
+    status: string;
+    resultSummary?: string;
+  }>;
+}
+
+export function fetchPlan(planId: number): Promise<PlanDetail> {
+  return request<PlanDetail>(`/api/plans/${planId}`);
+}
+
 // ─── Model Management ───
 
 export interface ModelItem {

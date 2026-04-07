@@ -8,7 +8,9 @@ import com.atm.javaclaw.agent.skills.SkillContentProvider;
 import com.atm.javaclaw.agent.skills.SkillUsageRecorder;
 import com.atm.javaclaw.agent.tools.AgentSessionContext;
 import com.atm.javaclaw.agent.tools.ToolsEngine;
+import com.atm.javaclaw.agent.tools.WritePlanTool;
 import com.atm.javaclaw.core.config.JavaClawProperties;
+import com.atm.javaclaw.core.prompt.PromptLoader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -186,11 +188,14 @@ public class AgentRuntime {
             int maxParallel = agentConfig.getMaxParallelToolCalls();
             Set<String> nonRetryable = new HashSet<>(agentConfig.getNonRetryableTools());
 
+            PlanStepTracker planStepTracker = request.activePlanId() != null && planOperations != null
+                    ? new PlanStepTracker(request.activePlanId(), planOperations) : null;
+
             return executeLoopTurn(resolved.chatModel(), conversationHistory, chatOptions, maxTurns, timeout, 1, new StringBuilder(),
                     agentConfig.getName(), request.sessionId(), skillsBasePath,
                     loopDetector, tracker, condenser, cache, approvalGate,
                     toolTimeout, maxToolResultChars, maxParallel, nonRetryable,
-                    request.activePlanId())
+                    request.activePlanId(), planStepTracker)
                     .doFinally(signal -> {
                         sessionApprovalGates.remove(request.sessionId());
                         if (request.activePlanId() != null) {
@@ -220,7 +225,8 @@ public class AgentRuntime {
             int maxToolResultChars,
             int maxParallel,
             Set<String> nonRetryableTools,
-            Long activePlanId) {
+            Long activePlanId,
+            PlanStepTracker planStepTracker) {
 
         if (activePlanId != null && pausedPlanIds.contains(activePlanId)) {
             log.info("Plan {} is paused/cancelled, stopping agent loop at turn {}", activePlanId, turn);
@@ -310,7 +316,7 @@ public class AgentRuntime {
                         agentName, sessionId, skillsBasePath,
                         loopDetector, tracker, condenser, cache, approvalGate,
                         toolTimeout, maxToolResultChars, maxParallel, nonRetryableTools,
-                        activePlanId);
+                        activePlanId, planStepTracker);
             }
 
             return Flux.just(new AgentEvent.Done(fullText.toString(), turn));
@@ -380,7 +386,8 @@ public class AgentRuntime {
             int maxToolResultChars,
             int maxParallel,
             Set<String> nonRetryableTools,
-            Long activePlanId) {
+            Long activePlanId,
+            PlanStepTracker planStepTracker) {
 
         AssistantMessage assistantMsg = toolCallResponse.getResult().getOutput();
         history.add(assistantMsg);
@@ -414,9 +421,20 @@ public class AgentRuntime {
             }
         }
 
+        // Phase 0: Auto-start plan step if needed (fallback when LLM skips updatePlan).
+        // Deferred to boundedElastic because ensureStepActive uses PlanOperationsImpl
+        // which calls .block() — not allowed on reactor-http-nio threads.
+        Flux<AgentEvent> autoStartFlux = planStepTracker != null
+                ? Flux.defer(() -> Flux.fromIterable(planStepTracker.ensureStepActive(toolCalls)))
+                      .subscribeOn(Schedulers.boundedElastic())
+                : Flux.empty();
+
         // Phase 1: Emit all ToolCall events (with turn for frontend grouping)
         Flux<AgentEvent> callEvents = Flux.fromIterable(toolCalls)
-                .map(tc -> (AgentEvent) new AgentEvent.ToolCall(tc.id(), tc.name(), tc.arguments(), turn));
+                .map(tc -> {
+                    String desc = toolsEngine.getToolDescription(tc.name());
+                    return (AgentEvent) new AgentEvent.ToolCall(tc.id(), tc.name(), desc, tc.arguments(), turn);
+                });
 
         // Phase 2a: Execute non-approval tools in parallel
         Mono<List<ToolExecutionResult>> directResultsMono = Flux.fromIterable(directCalls)
@@ -449,7 +467,12 @@ public class AgentRuntime {
                                 if (r.success()) {
                                     List<AgentEvent> planEvents = extractPlanEvents(r.name(), toolCallArgs.get(tc.id()), r.result());
                                     if (!planEvents.isEmpty()) {
-                                        return Flux.concat(Flux.just(toolResult), Flux.fromIterable(planEvents));
+                                        if (planStepTracker != null) {
+                                            planEvents = filterDuplicatePlanEvents(planEvents, planStepTracker);
+                                        }
+                                        if (!planEvents.isEmpty()) {
+                                            return Flux.concat(Flux.just(toolResult), Flux.fromIterable(planEvents));
+                                        }
                                     }
                                 }
                                 return Flux.just(toolResult);
@@ -467,8 +490,13 @@ public class AgentRuntime {
                                     r.name(), r.id(), toolCallArgs.containsKey(r.id()));
                             List<AgentEvent> planEvents = extractPlanEvents(r.name(), toolCallArgs.get(r.id()), r.result());
                             if (!planEvents.isEmpty()) {
-                                log.info("Phase3: injecting {} plan events after tool={}", planEvents.size(), r.name());
-                                return Flux.concat(Flux.just(toolResult), Flux.fromIterable(planEvents));
+                                if (planStepTracker != null) {
+                                    planEvents = filterDuplicatePlanEvents(planEvents, planStepTracker);
+                                }
+                                if (!planEvents.isEmpty()) {
+                                    log.info("Phase3: injecting {} plan events after tool={}", planEvents.size(), r.name());
+                                    return Flux.concat(Flux.just(toolResult), Flux.fromIterable(planEvents));
+                                }
                             }
                         }
                         return Flux.just(toolResult);
@@ -499,15 +527,15 @@ public class AgentRuntime {
                         agentName, sessionId, skillsBasePath,
                         loopDetector, tracker, condenser, cache, approvalGate,
                         toolTimeout, maxToolResultChars, maxParallel, nonRetryableTools,
-                        activePlanId));
+                        activePlanId, planStepTracker));
 
-        return Flux.concat(callEvents, withHistory, nextTurn);
+        return Flux.concat(autoStartFlux, callEvents, withHistory, nextTurn);
     }
 
     /**
      * Executes a single tool call with the full middleware chain:
      * loop detection -> approval gate -> cache check -> actual execution (with retry + timeout) -> truncation.
-     *
+     * <p>
      * Returns a Mono of ToolExecutionResult. Approval events are emitted separately
      * via processToolCalls which handles the approval flow.
      */
@@ -528,9 +556,7 @@ public class AgentRuntime {
         if (loopStatus == ToolCallLoopDetector.LoopStatus.TERMINATE) {
             log.warn("Tool call loop detected (TERMINATE): {}({})", tc.name(),
                     tc.arguments().length() > 100 ? tc.arguments().substring(0, 100) + "..." : tc.arguments());
-            String terminateMsg = "Loop detected: you've called " + tc.name()
-                    + " with identical arguments multiple times. "
-                    + "Please use the information you already have or try a different approach.";
+            String terminateMsg = PromptLoader.format("prompts/tool-loop-terminate.md", tc.name());
             return Mono.just(new ToolExecutionResult(tc.id(), tc.name(), terminateMsg, false));
         }
 
@@ -566,27 +592,27 @@ public class AgentRuntime {
         }
 
         Mono<ToolExecutionResult> execution = Mono.fromCallable(() -> {
-            agentSessionContext.set(sessionId);
-            try {
-                ToolCallback callback = toolsEngine.getCallbackByName(toolName);
-                String result = callback.call(arguments);
-                log.debug("Tool {} executed, result length={}", toolName, result != null ? result.length() : 0);
+                    agentSessionContext.set(sessionId);
+                    try {
+                        ToolCallback callback = toolsEngine.getCallbackByName(toolName);
+                        String result = callback.call(arguments);
+                        log.debug("Tool {} executed, result length={}", toolName, result != null ? result.length() : 0);
 
-                recordSkillActivationIfApplicable(toolName, arguments, agentName, sessionId, skillsBasePath);
+                        recordSkillActivationIfApplicable(toolName, arguments, agentName, sessionId, skillsBasePath);
 
-                cache.put(toolName, arguments, result);
-                cache.invalidateForWrite(toolName, arguments);
+                        cache.put(toolName, arguments, result);
+                        cache.invalidateForWrite(toolName, arguments);
 
-                result = truncateToolResult(result, maxToolResultChars);
-                if (appendWarning) {
-                    result += "\n\n[WARNING: You've called this tool with identical arguments multiple times. Consider a different approach.]";
-                }
-                return new ToolExecutionResult(toolCallId, toolName, result != null ? result : "", true);
-            } finally {
-                agentSessionContext.clear();
-            }
-        }).subscribeOn(Schedulers.boundedElastic())
-          .timeout(toolTimeout);
+                        result = truncateToolResult(result, maxToolResultChars);
+                        if (appendWarning) {
+                            result += "\n\n[WARNING: You've called this tool with identical arguments multiple times. Consider a different approach.]";
+                        }
+                        return new ToolExecutionResult(toolCallId, toolName, result != null ? result : "", true);
+                    } finally {
+                        agentSessionContext.clear();
+                    }
+                }).subscribeOn(Schedulers.boundedElastic())
+                .timeout(toolTimeout);
 
         // Apply retry for retryable errors (skip for tools in nonRetryableTools)
         if (!nonRetryableTools.contains(toolName)) {
@@ -734,11 +760,11 @@ public class AgentRuntime {
             params.put("historySize", request.history() != null ? request.history().size() : 0);
             params.put("history", request.history() != null
                     ? request.history().stream().map(msg -> {
-                        Map<String, String> m = new LinkedHashMap<>();
-                        m.put("role", msg.getMessageType().getValue());
-                        m.put("content", truncate(msg.getText()));
-                        return m;
-                    }).toList()
+                Map<String, String> m = new LinkedHashMap<>();
+                m.put("role", msg.getMessageType().getValue());
+                m.put("content", truncate(msg.getText()));
+                return m;
+            }).toList()
                     : List.of());
             params.put("tools", Arrays.stream(tools)
                     .map(cb -> cb.getToolDefinition().name())
@@ -767,8 +793,8 @@ public class AgentRuntime {
                                      boolean forcePlan) {
         StringBuilder sb = new StringBuilder();
 
-        appendSection(sb, "SOUL:指定以何种语气去回答用户的问题，回答问题的风格以这个描述为主。","{"+agentConfig.getSoulMd()+"}");
-        appendSection(sb, "USER:你需要面对的客户，针对不同的客户的要求，产出不同的结果", "{"+agentConfig.getUserMd()+"}");
+        appendSection(sb, "SOUL:指定以何种语气去回答用户的问题，回答问题的风格以这个描述为主。", "{" + agentConfig.getSoulMd() + "}");
+        appendSection(sb, "USER:你需要面对的客户，针对不同的客户的要求，产出不同的结果", "{" + agentConfig.getUserMd() + "}");
         appendSection(sb, "AGENTS", agentConfig.getAgentsMd());
 
         if (skillSummaries != null && !skillSummaries.isEmpty()) {
@@ -784,19 +810,10 @@ public class AgentRuntime {
             sb.append("\n\n").append(planContext);
         }
 
-        sb.append("\n\n## TOOL USAGE GUIDELINES\n");
-        if (parallelEnabled) {
-            sb.append("PARALLEL TOOL CALLING: When you need to gather information from multiple independent sources ");
-            sb.append("(e.g., reading several files, searching multiple terms, executing unrelated commands), ");
-            sb.append("call ALL relevant tools simultaneously in a single response rather than one at a time. ");
-            sb.append("Only use sequential calls when one tool's output is needed as input for another.\n\n");
-        }
-        sb.append("Avoid calling the same tool with identical arguments repeatedly. ");
-        sb.append("If a tool returns unexpected results, try a different approach ");
-        sb.append("or modify the arguments instead of retrying with the same parameters.\n");
-        sb.append("When a tool fails, consider alternative approaches:\n");
-        sb.append("- If readFile fails, try searchFiles to locate the file\n");
-        sb.append("- If exec fails, check the error and adjust the command\n");
+        String parallelSection = parallelEnabled
+                ? PromptLoader.load("prompts/parallel-tool-calling.md")
+                : "";
+        sb.append("\n\n").append(PromptLoader.format("prompts/tool-usage-guidelines.md", parallelSection));
 
         String prompt = sb.toString();
         if (prompt.length() > TOTAL_MAX_CHARS) {
@@ -806,34 +823,10 @@ public class AgentRuntime {
     }
 
     private String buildPlanSystemSection(boolean forcePlan) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("\n\n<plan_system>\n");
-        sb.append("你拥有 `writePlan` 和 `updatePlan` 两个工具来管理任务计划。\n\n");
-        sb.append("### 何时创建计划\n");
-        sb.append("- 当任务涉及 3 个以上独立步骤时，先调用 `writePlan` 创建计划\n");
-        sb.append("- **即使存在匹配的 Skill，如果任务本身涉及多个步骤（如项目搭建、架构重构、系统迁移等），仍应优先创建计划。** Skill 可以在计划的各个步骤中被引用和激活\n");
-        sb.append("- 复杂任务的判断标准：需要创建/修改多个文件、涉及多个独立配置、需要按顺序完成多个阶段\n");
-        sb.append("- 简单任务（1-2 步）不需要创建计划，直接执行即可\n");
-        sb.append("- 用户显式要求时，必须创建计划\n\n");
-        sb.append("### 创建计划的要求\n");
-        sb.append("1. 每个步骤应该是独立、可验证的\n");
-        sb.append("2. 步骤标题简洁明确，描述包含具体操作内容\n");
-        sb.append("3. 步骤之间的依赖关系要在描述中说明\n");
-        sb.append("4. 合理评估步骤数量，避免过于细碎或笼统\n\n");
-        sb.append("### 执行计划\n");
-        sb.append("- 创建计划后等待用户审批，用户可能会编辑步骤\n");
-        sb.append("- 审批通过后，按步骤顺序执行\n");
-        sb.append("- **步骤与工具顺序（必须遵守，含第 1 步）**：对步骤 N，必须先调用 `updatePlan` 的 `markStep(stepIndex=N, status=in_progress)`，再调用除 `writePlan` / `updatePlan` 以外的工具完成该步；本步工作结束后，再调用 `markStep(stepIndex=N, status=completed, resultSummary=...)`。\n");
-        sb.append("- **禁止**在未对当前步标记 `in_progress` 之前，执行该步所需的任何工具（否则界面无法把工具归属到正确步骤）。\n");
-        sb.append("- 如果发现需要调整计划，使用 `updatePlan` 的 `addStep` / `removeStep`\n");
-        sb.append("- 如果发现后续步骤已不再必要，调用 `updatePlan` 的 `completePlan`，不要执行多余步骤\n\n");
-        sb.append("### 失败处理\n");
-        sb.append("- 步骤失败时先自行尝试不同方法解决\n");
-        sb.append("- 如果确实无法完成，调用 `updatePlan` 的 `markStep` 标记 failed，并说明原因\n");
-        sb.append("- 可以通过 `addStep` 新增替代步骤，或 `removeStep` 删除不可行的步骤\n");
-        sb.append("</plan_system>");
+        StringBuilder sb = new StringBuilder("\n\n");
+        sb.append(PromptLoader.load("prompts/plan-system.md"));
         if (forcePlan) {
-            sb.append("\n\n**重要指令：你必须先调用 `writePlan` 创建计划，等待用户审批后再执行。不要直接开始执行任务。**");
+            sb.append("\n\n").append(PromptLoader.load("prompts/force-plan-instruction.md"));
         }
         return sb.toString();
     }
@@ -844,19 +837,13 @@ public class AgentRuntime {
         String basePath = skillContentProvider != null ? skillContentProvider.getSkillsBasePath() : "./skills";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("You have the following skills installed. ");
-        sb.append("Each skill is a directory containing a SKILL.md with detailed instructions, ");
-        sb.append("and optionally scripts/ and references/ directories.\n\n");
-        sb.append("When a user's request matches a skill's description, ");
-        sb.append("consider activating it by reading the skill's SKILL.md file. ");
-        sb.append("For complex multi-step tasks, create a plan first and use skills within individual steps.\n\n");
-        sb.append("Available skills:\n");
+        sb.append(PromptLoader.load("prompts/skills-discovery.md"));
 
         for (var skill : skills) {
             sb.append("- **").append(skill.name()).append("**: ")
-              .append(skill.description()).append('\n');
+                    .append(skill.description()).append('\n');
             sb.append("  Read: ").append(basePath).append('/').append(skill.name())
-              .append("/SKILL.md\n");
+                    .append("/SKILL.md\n");
         }
 
         return sb.toString();
@@ -870,11 +857,120 @@ public class AgentRuntime {
             sb.append("\n\n");
         }
         sb.append("## ").append(title).append('\n');
-        if (content.length() > SECTION_MAX_CHARS) {
-            sb.append(content, 0, SECTION_MAX_CHARS).append("\n...[truncated]");
-        } else {
-            sb.append(content);
+//        if (content.length() > SECTION_MAX_CHARS) {
+//            sb.append(content, 0, SECTION_MAX_CHARS).append("\n...[truncated]");
+//        } else {
+        sb.append(content);
+//        }
+    }
+
+    // ─── Plan step auto-tracking ───
+
+    /**
+     * Tracks the active plan step during execution. When the LLM calls non-plan
+     * tools without first marking a step as in_progress via updatePlan, this
+     * tracker auto-starts the next pending step so the frontend receives proper
+     * step lifecycle events regardless of LLM behavior.
+     */
+    static class PlanStepTracker {
+        private static final Logger tlog = LoggerFactory.getLogger(PlanStepTracker.class);
+
+        private final Long planId;
+        private final PlanOperations ops;
+        private Integer activeStepIndex;
+        private final Set<Integer> autoStartedSteps = new HashSet<>();
+
+        PlanStepTracker(Long planId, PlanOperations ops) {
+            this.planId = planId;
+            this.ops = ops;
         }
+
+        /**
+         * If no step is currently active and the turn contains non-plan tool calls
+         * (without the LLM also calling updatePlan markStep in_progress), auto-start
+         * the next pending step and return the events to emit ahead of ToolCall events.
+         */
+        List<AgentEvent> ensureStepActive(List<AssistantMessage.ToolCall> toolCalls) {
+            if (activeStepIndex != null) return List.of();
+
+            boolean hasNonPlanTools = toolCalls.stream()
+                    .anyMatch(tc -> !"writePlan".equals(tc.name()) && !"updatePlan".equals(tc.name()));
+            if (!hasNonPlanTools) return List.of();
+
+            boolean llmStartingStep = toolCalls.stream()
+                    .anyMatch(tc -> "updatePlan".equals(tc.name())
+                            && tc.arguments() != null
+                            && tc.arguments().contains("\"in_progress\""));
+            if (llmStartingStep) return List.of();
+
+            try {
+                List<PlanOperations.StepSnapshot> steps = ops.getSteps(planId);
+                PlanOperations.StepSnapshot next = steps.stream()
+                        .filter(s -> "pending".equals(s.status()))
+                        .findFirst().orElse(null);
+                if (next == null) return List.of();
+
+                int idx = next.index();
+                PlanOperations.StepResult markResult = ops.markStep(planId, idx, "in_progress", null);
+                if ("error".equals(markResult.status())) {
+                    tlog.warn("Failed to auto-start step {} for plan {}: {}",
+                            idx, planId, markResult.message());
+                    return List.of();
+                }
+                activeStepIndex = idx;
+                autoStartedSteps.add(idx);
+                tlog.info("Auto-started step {} for plan {}", idx, planId);
+
+                return List.of(
+                        new AgentEvent.PlanStatusChanged(planId, "executing"),
+                        new AgentEvent.PlanStepStart(planId, idx, next.title()));
+            } catch (Exception e) {
+                tlog.warn("Failed to auto-start step for plan {}: {}", planId, e.getMessage());
+                return List.of();
+            }
+        }
+
+        boolean isAutoStartedStep(int stepIndex) {
+            return autoStartedSteps.contains(stepIndex);
+        }
+
+        void onStepStart(int stepIndex) {
+            activeStepIndex = stepIndex;
+        }
+
+        void onStepDone(int stepIndex) {
+            if (activeStepIndex != null && activeStepIndex == stepIndex) {
+                activeStepIndex = null;
+            }
+            autoStartedSteps.remove(stepIndex);
+        }
+
+        void onPlanCompleted() {
+            activeStepIndex = null;
+        }
+    }
+
+    /**
+     * Filters plan events that were already emitted by the auto-tracker to avoid
+     * duplicates when the LLM also calls updatePlan(markStep, in_progress).
+     */
+    private static List<AgentEvent> filterDuplicatePlanEvents(List<AgentEvent> events, PlanStepTracker tracker) {
+        List<AgentEvent> filtered = new ArrayList<>(events.size());
+        for (AgentEvent evt : events) {
+            if (evt instanceof AgentEvent.PlanStepStart pss) {
+                if (tracker.isAutoStartedStep(pss.stepIndex())) {
+                    log.debug("Filtering duplicate PlanStepStart for auto-started step {}", pss.stepIndex());
+                    continue;
+                }
+                tracker.onStepStart(pss.stepIndex());
+            } else if (evt instanceof AgentEvent.PlanStepDone psd) {
+                tracker.onStepDone(psd.stepIndex());
+            } else if (evt instanceof AgentEvent.PlanCompleted) {
+                tracker.onPlanCompleted();
+            }
+            filtered.add(evt);
+        }
+        return filtered;
     }
 
     /**
@@ -895,8 +991,20 @@ public class AgentRuntime {
                 result.substring(0, Math.min(result.length(), 500)));
         try {
             JsonNode resultNode = objectMapper.readTree(result);
+            // Defense against double-encoded JSON (e.g. from @Tool methods whose
+            // String return value gets re-serialized by Spring AI's MethodToolCallback).
+            if (resultNode.isTextual()) {
+                log.debug("extractPlanEvents: result is a JSON string (double-encoded), unwrapping");
+                resultNode = objectMapper.readTree(resultNode.asText());
+            }
             if (resultNode.has("error")) {
                 log.debug("extractPlanEvents: result contains 'error' key, skipping");
+                return List.of();
+            }
+            String resultStatus = resultNode.has("status") ? resultNode.get("status").asText() : "";
+            if ("error".equals(resultStatus)) {
+                log.warn("extractPlanEvents: tool {} returned error status: {}",
+                        toolName, resultNode.has("message") ? resultNode.get("message").asText() : "unknown");
                 return List.of();
             }
 
@@ -925,7 +1033,8 @@ public class AgentRuntime {
         }
         Long planId = planIdNode.asLong();
 
-        JsonNode argsNode = objectMapper.readTree(arguments);
+        String cleanArgs = WritePlanTool.extractJsonObjectPayload(arguments);
+        JsonNode argsNode = WritePlanTool.parseJsonLenient(cleanArgs);
         String title = argsNode.has("title") ? argsNode.get("title").asText() : "";
         JsonNode stepsArray = argsNode.has("steps") ? argsNode.get("steps") : objectMapper.createArrayNode();
         log.debug("extractWritePlanEvents: title={}, steps count={}", title, stepsArray.size());
@@ -948,7 +1057,8 @@ public class AgentRuntime {
     }
 
     private List<AgentEvent> extractUpdatePlanEvents(String arguments, JsonNode resultNode) throws Exception {
-        JsonNode argsNode = objectMapper.readTree(arguments);
+        String cleanArgs = WritePlanTool.extractJsonObjectPayload(arguments);
+        JsonNode argsNode = WritePlanTool.parseJsonLenient(cleanArgs);
         JsonNode planIdNode = argsNode.get("planId");
         if (planIdNode == null) planIdNode = argsNode.get("plan_id");
         JsonNode actionNode = argsNode.get("action");

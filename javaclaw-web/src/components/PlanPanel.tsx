@@ -133,14 +133,20 @@ export default function PlanPanel({
         console.error("[PlanPanel] plan.approve failed:", res.error);
         return;
       }
-      onSendAction(createPlanResume(plan.planId));
+      const resumeRes = await onSendPlanActionAndWait(
+        createPlanResume(plan.planId),
+      );
+      if (!resumeRes.ok) {
+        console.error("[PlanPanel] plan.resume failed:", resumeRes.error);
+        return;
+      }
       onSendMessage("开始执行计划");
     } catch (e) {
       console.error("[PlanPanel] approve and execute:", e);
     } finally {
       setApproveStarting(false);
     }
-  }, [plan, onSendAction, onSendMessage, onSendPlanActionAndWait]);
+  }, [plan, onSendMessage, onSendPlanActionAndWait]);
 
   return (
     <div className="w-[420px] flex-shrink-0 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-col h-full overflow-hidden">
@@ -326,8 +332,14 @@ export default function PlanPanel({
         {plan.status === "approved" && (
           <button
             className="flex items-center gap-1.5 text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
-            onClick={() => {
-              onSendAction(createPlanResume(plan.planId));
+            onClick={async () => {
+              const res = await onSendPlanActionAndWait(
+                createPlanResume(plan.planId),
+              );
+              if (!res.ok) {
+                console.error("[PlanPanel] plan.resume failed:", res.error);
+                return;
+              }
               onSendMessage("开始执行计划");
             }}
           >
@@ -359,8 +371,14 @@ export default function PlanPanel({
           <>
             <button
               className="flex items-center gap-1.5 text-sm px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
-              onClick={() => {
-                onSendAction(createPlanResume(plan.planId));
+              onClick={async () => {
+                const res = await onSendPlanActionAndWait(
+                  createPlanResume(plan.planId),
+                );
+                if (!res.ok) {
+                  console.error("[PlanPanel] plan.resume failed:", res.error);
+                  return;
+                }
                 onSendMessage("继续执行计划");
               }}
             >

@@ -1,6 +1,7 @@
 package com.atm.javaclaw.agent.tools;
 
 import com.atm.javaclaw.core.exception.ToolExecutionException;
+import com.atm.javaclaw.core.prompt.PromptLoader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -106,9 +107,6 @@ public class WebSearchTool {
      * instead of throwing an error, so the agent can still proceed.
      */
     private String fallbackSearch(String query, int limit) {
-        return "Web search is not configured (no SERPAPI_KEY set). " +
-                "Unable to search for: " + query + ". " +
-                "Please answer based on your existing knowledge, or ask the user to configure " +
-                "the javaclaw.tools.serpapi-key property.";
+        return PromptLoader.format("prompts/web-search-fallback.md", query);
     }
 }

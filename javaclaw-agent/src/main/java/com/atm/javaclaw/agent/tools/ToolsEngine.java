@@ -269,6 +269,15 @@ public class ToolsEngine {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown tool: " + toolName));
     }
 
+    public String getToolDescription(String toolName) {
+        for (ToolCallback cb : allToolCallbacks) {
+            if (cb.getToolDefinition().name().equals(toolName)) {
+                return cb.getToolDefinition().description();
+            }
+        }
+        return null;
+    }
+
     private String detectSource(String toolName) {
         if (toolName.startsWith("mcp_")) {
             return "mcp";

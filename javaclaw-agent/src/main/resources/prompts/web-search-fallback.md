@@ -1,0 +1,1 @@
+网络搜索未配置（未设置 SERPAPI_KEY）。无法搜索：%s。请基于你已有的知识回答，或提示用户配置 javaclaw.tools.serpapi-key 属性。

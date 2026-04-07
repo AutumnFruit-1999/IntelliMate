@@ -43,19 +43,48 @@ public class PlanService {
 
         return planRepository.save(plan)
                 .flatMap(savedPlan -> {
+                    Long planId = savedPlan.getId();
+                    log.info("createPlan: plan saved with id={}, sessionId={}", planId, sessionId);
                     AtomicInteger idx = new AtomicInteger(0);
+                    int expectedCount = steps.size();
                     return Flux.fromIterable(steps)
                             .map(s -> {
                                 PlanStepEntity step = new PlanStepEntity();
-                                step.setPlanId(savedPlan.getId());
+                                step.setPlanId(planId);
                                 step.setStepIndex(idx.getAndIncrement());
                                 step.setTitle(s.title());
                                 step.setDescription(s.description());
                                 step.setStatus("pending");
                                 return step;
                             })
-                            .flatMap(planStepRepository::save)
-                            .then(Mono.just(savedPlan));
+                            .concatMap(step -> planStepRepository.save(step)
+                                    .doOnNext(saved -> log.debug(
+                                            "createPlan: step saved id={}, planId={}, stepIndex={}",
+                                            saved.getId(), saved.getPlanId(), saved.getStepIndex())))
+                            .count()
+                            .flatMap(savedCount -> {
+                                if (savedCount != expectedCount) {
+                                    log.error("createPlan: saved {}/{} steps for plan {}",
+                                            savedCount, expectedCount, planId);
+                                }
+                                log.info("createPlan: saved {} steps for plan {}", savedCount, planId);
+                                return planStepRepository.findByPlanIdOrderByStepIndex(planId)
+                                        .collectList()
+                                        .flatMap(verified -> {
+                                            if (verified.size() != expectedCount) {
+                                                log.error("createPlan: verification failed! Expected {} steps but found {} for plan {}. " +
+                                                                "Found indices: {}",
+                                                        expectedCount, verified.size(), planId,
+                                                        verified.stream().map(PlanStepEntity::getStepIndex).toList());
+                                                return Mono.error(new IllegalStateException(
+                                                        "Plan step verification failed: expected " + expectedCount
+                                                                + " but found " + verified.size()));
+                                            }
+                                            log.info("createPlan: verification OK, {} steps confirmed for plan {}",
+                                                    verified.size(), planId);
+                                            return Mono.just(savedPlan);
+                                        });
+                            });
                 });
     }
 

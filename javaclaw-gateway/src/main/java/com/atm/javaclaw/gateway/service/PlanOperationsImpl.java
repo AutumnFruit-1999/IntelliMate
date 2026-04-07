@@ -3,12 +3,16 @@ package com.atm.javaclaw.gateway.service;
 import com.atm.javaclaw.agent.plan.PlanOperations;
 import com.atm.javaclaw.gateway.entity.PlanEntity;
 import com.atm.javaclaw.gateway.entity.PlanStepEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
 public class PlanOperationsImpl implements PlanOperations {
+
+    private static final Logger log = LoggerFactory.getLogger(PlanOperationsImpl.class);
 
     private final PlanService planService;
 
@@ -33,7 +37,14 @@ public class PlanOperationsImpl implements PlanOperations {
     public StepResult markStep(Long planId, int stepIndex, String status, String summary) {
         PlanStepEntity step = planService.markStep(planId, stepIndex, status, summary).block();
         if (step == null) {
-            return new StepResult(planId, stepIndex, "error", "Step not found");
+            List<PlanStepEntity> existingSteps = planService.getSteps(planId).collectList().block();
+            List<Integer> indices = existingSteps != null
+                    ? existingSteps.stream().map(PlanStepEntity::getStepIndex).toList()
+                    : List.of();
+            log.error("markStep: step not found for planId={}, stepIndex={}. Existing indices: {}",
+                    planId, stepIndex, indices);
+            return new StepResult(planId, stepIndex, "error",
+                    "Step not found (existing indices: " + indices + ")");
         }
         return new StepResult(planId, step.getStepIndex(), step.getStatus(),
                 "Step " + stepIndex + " marked as " + status);

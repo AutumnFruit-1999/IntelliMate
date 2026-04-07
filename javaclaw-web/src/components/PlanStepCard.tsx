@@ -69,6 +69,11 @@ function StepToolsList({ calls }: { calls: StepToolCall[] }) {
                   {tc.status === "calling" ? "· 执行中" : tc.status === "done" ? "· 完成" : "· 失败"}
                 </span>
               </div>
+              {tc.description && (
+                <div className="text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                  {tc.description}
+                </div>
+              )}
               {tc.arguments ? (
                 <pre className="mt-1 whitespace-pre-wrap break-all text-slate-500 dark:text-slate-400 max-h-16 overflow-auto leading-snug">
                   {tc.arguments.length > 400 ? tc.arguments.slice(0, 400) + "…" : tc.arguments}
