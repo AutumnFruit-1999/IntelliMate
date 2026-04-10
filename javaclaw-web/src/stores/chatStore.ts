@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { ConnectionState } from "../lib/wsClient";
 import type { ResponseFrame } from "../lib/protocol";
 import { generateId } from "../lib/protocol";
+import { usePlanStore } from "./planStore";
 
 export interface ToolCallInfo {
   toolCallId: string;
@@ -12,6 +13,11 @@ export interface ToolCallInfo {
   success?: boolean;
   status: "calling" | "done" | "error";
   turn?: number;
+}
+
+export interface StepGroupSnapshot {
+  steps: Array<{ index: number; title: string; status: string; resultSummary?: string }>;
+  stepToolCalls: Record<number, import("./planStore").StepToolCall[]>;
 }
 
 export interface ChatMessage {
@@ -25,6 +31,7 @@ export interface ChatMessage {
   currentTurn?: number;
   maxTurns?: number;
   totalTurns?: number;
+  stepGroupSnapshot?: StepGroupSnapshot;
 }
 
 interface ChatState {
@@ -59,6 +66,7 @@ interface ChatState {
     result: string,
     success: boolean,
   ) => void;
+  snapshotStepGroup: (skipStreaming?: boolean) => void;
 }
 
 function getAgentMessages(state: ChatState): ChatMessage[] {
@@ -163,6 +171,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const command = payload.command as string | undefined;
 
       if (command === "clear" || command === "reset") {
+        usePlanStore.getState().clearPlan();
         set((state) => ({
           isWaiting: false,
           ...updateAgentMessages(state, () => []),
@@ -316,5 +325,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : msg,
       ),
     ));
+  },
+
+  snapshotStepGroup: (skipStreaming?: boolean) => {
+    const planState = usePlanStore.getState();
+    if (!planState.plan || planState.plan.steps.length === 0) return;
+    const hasAnyTools = Object.values(planState.stepToolCalls).some(
+      (calls) => calls.length > 0,
+    );
+    if (!hasAnyTools) return;
+
+    const snapshot: StepGroupSnapshot = {
+      steps: planState.plan.steps.map((s) => ({
+        index: s.index,
+        title: s.title,
+        status: s.status,
+        resultSummary: s.resultSummary,
+      })),
+      stepToolCalls: { ...planState.stepToolCalls },
+    };
+
+    set((state) => {
+      const msgs = getAgentMessages(state);
+      let targetId: string | null = null;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (skipStreaming && m.streaming) continue;
+        if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+          targetId = m.id;
+          break;
+        }
+      }
+      if (!targetId) return {};
+      return updateAgentMessages(state, (ms) =>
+        ms.map((m) =>
+          m.id === targetId ? { ...m, stepGroupSnapshot: snapshot } : m,
+        ),
+      );
+    });
   },
 }));

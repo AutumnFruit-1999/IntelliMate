@@ -184,16 +184,21 @@ public class MessagePipeline {
                                             .then(auditService.log("agent_response", "agent", session.getId(),
                                                     "length=" + completeText.length()));
 
-                                    if (!planExecuting || effectivePlanId == null) {
-                                        return saveMsgMono.thenMany(Flux.just(
-                                                ResponseFrame.success(requestId, Map.of("text", completeText))));
+                                    Mono<List<GatewayFrame>> syncMono;
+                                    if (planExecuting && effectivePlanId != null) {
+                                        syncMono = syncPlanAfterExecution(effectivePlanId);
+                                    } else {
+                                        syncMono = planService.getActivePlan(session.getId())
+                                                .filter(p -> "executing".equals(p.getStatus())
+                                                        || "approved".equals(p.getStatus()))
+                                                .flatMap(p -> syncPlanAfterExecution(p.getId()))
+                                                .defaultIfEmpty(List.of());
                                     }
 
                                     return saveMsgMono
-                                            .then(syncPlanAfterExecution(effectivePlanId))
+                                            .then(syncMono)
                                             .flatMapMany(planSyncEvents -> {
-                                                List<GatewayFrame> frames = new ArrayList<>();
-                                                frames.addAll(planSyncEvents);
+                                                List<GatewayFrame> frames = new ArrayList<>(planSyncEvents);
                                                 frames.add(ResponseFrame.success(requestId, Map.of("text", completeText)));
                                                 return Flux.fromIterable(frames);
                                             });
@@ -246,7 +251,7 @@ public class MessagePipeline {
                     }
 
                     if (current != null) {
-                        sb.append("### 当前步骤 (").append(current.getStepIndex() + 1)
+                        sb.append("### 当前步骤 (").append(current.getStepIndex())
                                 .append("/").append(steps.size()).append("):\n");
                         sb.append("**").append(current.getTitle()).append("**\n");
                         if (current.getDescription() != null) {

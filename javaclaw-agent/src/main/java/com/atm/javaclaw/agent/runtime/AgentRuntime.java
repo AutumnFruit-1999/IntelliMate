@@ -1043,7 +1043,7 @@ public class AgentRuntime {
         for (int i = 0; i < stepsArray.size(); i++) {
             JsonNode step = stepsArray.get(i);
             steps.add(new AgentEvent.PlanStepInfo(
-                    i,
+                    i + 1,
                     step.has("title") ? step.get("title").asText() : "",
                     step.has("description") ? step.get("description").asText() : ""
             ));

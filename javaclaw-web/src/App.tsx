@@ -44,7 +44,9 @@ export default function App() {
 
   const pendingForcePlan = useChatStore((s) => s.pendingForcePlan);
   const plan = usePlanStore((s) => s.plan);
-  const showPlanPanel = plan !== null && planPanelOpen;
+  const planHistory = usePlanStore((s) => s.planHistory);
+  const dismissed = usePlanStore((s) => s.dismissed);
+  const showPlanPanel = (plan !== null || planHistory.length > 0) && planPanelOpen && !dismissed;
 
   useEffect(() => {
     fetchAgentList().then(() => {
@@ -61,7 +63,10 @@ export default function App() {
   }, [pendingForcePlan, sendMessage]);
 
   useEffect(() => {
-    if (plan && !planPanelOpen) setPlanPanelOpen(true);
+    if (plan) {
+      if (!planPanelOpen) setPlanPanelOpen(true);
+      setPlanPanelCollapsed(false);
+    }
   }, [plan?.planId]);
 
   useEffect(() => {
@@ -76,6 +81,7 @@ export default function App() {
       if (name !== activeAgent) {
         setActiveAgent(name);
         useChatStore.getState().setCurrentAgent(name);
+        usePlanStore.getState().clearPlan();
       }
       setViewMode("chat");
     },

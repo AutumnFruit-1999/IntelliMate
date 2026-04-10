@@ -175,7 +175,7 @@ export default function PlanStepCard({
           ) : (
             <>
               <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
-                {step.index + 1}. {step.title}
+                {step.index}. {step.title}
               </div>
               {step.description && (
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">

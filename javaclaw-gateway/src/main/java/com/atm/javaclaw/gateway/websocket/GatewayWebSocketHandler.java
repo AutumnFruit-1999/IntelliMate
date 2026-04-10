@@ -28,7 +28,7 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GatewayWebSocketHandler.class);
     private static final Duration PING_INTERVAL = Duration.ofSeconds(30);
-    private static final int MAX_MISSED_PONGS = 30;
+    private static final int MAX_MISSED_PONGS = 3;
 
     private final ProtocolCodec codec;
     private final SecurityService securityService;
@@ -75,9 +75,30 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
                     ));
                 });
 
-        Mono<Void> inbound = session.receive()
-                .map(msg -> codec.decode(msg.getPayloadAsText()))
-                .concatMap(frame -> routeFrame(frame, session, missedPongs))
+        Sinks.Many<GatewayFrame> frameSink = Sinks.many().unicast().onBackpressureBuffer();
+
+        Disposable receiver = session.receive()
+                .subscribe(
+                        msg -> {
+                            try {
+                                GatewayFrame frame = codec.decode(msg.getPayloadAsText());
+                                if (frame instanceof EventFrame evt && "pong".equals(evt.event())) {
+                                    missedPongs.set(0);
+                                    log.trace("Pong received, counter reset");
+                                    return;
+                                }
+                                frameSink.tryEmitNext(frame);
+                            } catch (Exception e) {
+                                log.error("Failed to decode frame: {}", msg.getPayloadAsText(), e);
+                                frameSink.tryEmitError(e);
+                            }
+                        },
+                        frameSink::tryEmitError,
+                        frameSink::tryEmitComplete
+                );
+
+        Mono<Void> inbound = frameSink.asFlux()
+                .concatMap(frame -> routeFrame(frame, session))
                 .doOnNext(outSink::tryEmitNext)
                 .doOnComplete(outSink::tryEmitComplete)
                 .doOnError(e -> outSink.tryEmitError(e))
@@ -88,15 +109,16 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
 
         return Mono.when(inbound, session.send(outbound))
                 .doFinally(signal -> {
+                    receiver.dispose();
                     heartbeat.dispose();
                     log.info("WebSocket disconnected: sessionId={}, signal={}", session.getId(), signal);
                 });
     }
 
-    private Flux<GatewayFrame> routeFrame(GatewayFrame frame, WebSocketSession session, AtomicInteger missedPongs) {
+    private Flux<GatewayFrame> routeFrame(GatewayFrame frame, WebSocketSession session) {
         return switch (frame) {
             case RequestFrame req -> handleRequest(req, session);
-            case EventFrame evt -> handleEvent(evt, missedPongs);
+            case EventFrame evt -> handleEvent(evt);
             case ResponseFrame resp -> Flux.empty();
         };
     }
@@ -106,18 +128,9 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
         return messagePipeline.processRequest(request, session.getId());
     }
 
-    private Flux<GatewayFrame> handleEvent(EventFrame event, AtomicInteger missedPongs) {
-        return switch (event.event()) {
-            case "pong" -> {
-                missedPongs.set(0);
-                log.trace("Pong received, counter reset");
-                yield Flux.empty();
-            }
-            default -> {
-                log.debug("Unhandled client event: {}", event.event());
-                yield Flux.empty();
-            }
-        };
+    private Flux<GatewayFrame> handleEvent(EventFrame event) {
+        log.debug("Unhandled client event: {}", event.event());
+        return Flux.empty();
     }
 
     private String extractToken(WebSocketSession session) {

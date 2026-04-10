@@ -14,6 +14,7 @@ const WS_URL =
   import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/ws`;
 const REQUEST_TIMEOUT_MS = 300_000;
 const PLAN_ACTION_WAIT_MS = 30_000;
+const PLAN_POLL_INTERVAL_MS = 10_000;
 
 export function useWebSocket() {
   const clientRef = useRef<WsClient | null>(null);
@@ -51,10 +52,9 @@ export function useWebSocket() {
             break;
           }
           case "agent.chunk": {
-            store.appendChunk(
-              event.payload.requestId as string,
-              event.payload.text as string,
-            );
+            const chunkReqId = event.payload.requestId as string;
+            resetRequestTimeout(chunkReqId);
+            store.appendChunk(chunkReqId, event.payload.text as string);
             break;
           }
           case "agent.done": {
@@ -87,20 +87,27 @@ export function useWebSocket() {
                 });
               }
             }
+            if (planState.plan) {
+              store.snapshotStepGroup();
+            }
             break;
           }
           case "agent.turn_start": {
+            const turnReqId = event.payload.requestId as string;
+            resetRequestTimeout(turnReqId);
             store.setTurnStart(
-              event.payload.requestId as string,
+              turnReqId,
               event.payload.turn as number,
               event.payload.maxTurns as number,
             );
             break;
           }
           case "agent.tool_call": {
+            const tcReqId = event.payload.requestId as string;
+            resetRequestTimeout(tcReqId);
             const tcName = event.payload.name as string;
             const tcDesc = (event.payload.description as string) || undefined;
-            store.addToolCall(event.payload.requestId as string, {
+            store.addToolCall(tcReqId, {
               toolCallId: event.payload.toolCallId as string,
               name: tcName,
               description: tcDesc,
@@ -108,21 +115,26 @@ export function useWebSocket() {
               turn: event.payload.turn as number | undefined,
             });
             if (tcName !== "writePlan" && tcName !== "updatePlan") {
-              usePlanStore.getState().addStepToolCall({
-                toolCallId: event.payload.toolCallId as string,
-                name: tcName,
-                description: tcDesc,
-                arguments: event.payload.arguments as string,
-              });
+              const ps = usePlanStore.getState();
+              if (ps.plan && (ps.plan.status === "executing" || ps.plan.status === "approved")) {
+                ps.addStepToolCall({
+                  toolCallId: event.payload.toolCallId as string,
+                  name: tcName,
+                  description: tcDesc,
+                  arguments: event.payload.arguments as string,
+                });
+              }
             }
             break;
           }
           case "agent.tool_result": {
+            const trReqId = event.payload.requestId as string;
+            resetRequestTimeout(trReqId);
             const trId = event.payload.toolCallId as string;
             const trResult = event.payload.result as string;
             const trSuccess = event.payload.success as boolean;
             store.updateToolResult(
-              event.payload.requestId as string,
+              trReqId,
               trId,
               trResult,
               trSuccess,
@@ -143,6 +155,10 @@ export function useWebSocket() {
           case "plan.status_changed": {
             console.log("[WS] plan.status_changed:", event.payload);
             usePlanStore.getState().handlePlanStatusChanged(event.payload);
+            const changedStatus = event.payload.status as string;
+            if (changedStatus === "cancelled" || changedStatus === "failed") {
+              useChatStore.getState().snapshotStepGroup();
+            }
             break;
           }
           case "plan.step_start": {
@@ -163,6 +179,7 @@ export function useWebSocket() {
           case "plan.completed": {
             console.log("[WS] plan.completed:", event.payload);
             usePlanStore.getState().handlePlanCompleted(event.payload);
+            useChatStore.getState().snapshotStepGroup();
             break;
           }
         }
@@ -190,12 +207,52 @@ export function useWebSocket() {
     };
   }, []);
 
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const stopPolling = () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+
+    const unsub = usePlanStore.subscribe((state) => {
+      const plan = state.plan;
+      const isExecuting = plan && plan.status === "executing";
+
+      if (isExecuting && !pollTimerRef.current) {
+        const planId = plan.planId;
+        pollTimerRef.current = setInterval(() => {
+          usePlanStore.getState().syncFromServer(planId);
+        }, PLAN_POLL_INTERVAL_MS);
+      } else if (!isExecuting) {
+        stopPolling();
+      }
+    });
+
+    return () => {
+      unsub();
+      stopPolling();
+    };
+  }, []);
+
   function clearRequestTimeout(requestId: string) {
     const timer = timeoutTimers.current.get(requestId);
     if (timer) {
       clearTimeout(timer);
       timeoutTimers.current.delete(requestId);
     }
+  }
+
+  function resetRequestTimeout(requestId: string) {
+    if (!timeoutTimers.current.has(requestId)) return;
+    clearRequestTimeout(requestId);
+    const timer = setTimeout(() => {
+      timeoutTimers.current.delete(requestId);
+      useChatStore.getState().timeoutRequest(requestId);
+    }, REQUEST_TIMEOUT_MS);
+    timeoutTimers.current.set(requestId, timer);
   }
 
   const sendMessage = useCallback((text: string, forcePlan?: boolean) => {

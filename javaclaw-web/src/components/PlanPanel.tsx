@@ -63,11 +63,17 @@ export default function PlanPanel({
   onSendMessage,
   onClose,
 }: PlanPanelProps) {
-  const plan = usePlanStore((s) => s.plan);
-  const stepToolCalls = usePlanStore((s) => s.stepToolCalls);
+  const activePlan = usePlanStore((s) => s.plan);
+  const activeStepToolCalls = usePlanStore((s) => s.stepToolCalls);
   const planHistory = usePlanStore((s) => s.planHistory);
   const currentPlanIndex = usePlanStore((s) => s.currentPlanIndex);
   const viewHistoryPlan = usePlanStore((s) => s.viewHistoryPlan);
+
+  const plan = currentPlanIndex === 0
+    ? activePlan
+    : (planHistory[currentPlanIndex - 1] ?? null);
+  const stepToolCalls = currentPlanIndex === 0 ? activeStepToolCalls : {};
+  const isViewingActive = currentPlanIndex === 0;
   const [addingStep, setAddingStep] = useState(false);
   const [newStepTitle, setNewStepTitle] = useState("");
   const [newStepDesc, setNewStepDesc] = useState("");
@@ -76,7 +82,7 @@ export default function PlanPanel({
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [approveStarting, setApproveStarting] = useState(false);
 
-  const canDrag = plan?.status === "draft" || plan?.status === "paused";
+  const canDrag = isViewingActive && (plan?.status === "draft" || plan?.status === "paused");
 
   const handleDragStart = useCallback((idx: number) => {
     dragIdxRef.current = idx;
@@ -189,7 +195,7 @@ export default function PlanPanel({
       {/* Failure banner */}
       {plan.status === "paused" && failedStep && (
         <div className="mx-4 mt-3 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-xs">
-          步骤 {failedStep.index + 1} 执行失败
+          步骤 {failedStep.index} 执行失败
           {failedStep.resultSummary && `：${failedStep.resultSummary}`}
         </div>
       )}

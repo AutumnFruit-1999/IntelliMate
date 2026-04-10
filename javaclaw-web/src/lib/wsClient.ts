@@ -20,7 +20,6 @@ export interface WsClientOptions {
   onEvent?: (event: EventFrame) => void;
   onResponse?: (response: ResponseFrame) => void;
   onStateChange?: (state: ConnectionState) => void;
-  maxReconnectAttempts?: number;
 }
 
 export class WsClient {
@@ -29,10 +28,10 @@ export class WsClient {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _state: ConnectionState = "disconnected";
+  private intentionalDisconnect = false;
 
   constructor(opts: WsClientOptions) {
     this.options = {
-      maxReconnectAttempts: 5,
       onEvent: () => {},
       onResponse: () => {},
       onStateChange: () => {},
@@ -46,6 +45,7 @@ export class WsClient {
   }
 
   connect(): void {
+    this.intentionalDisconnect = false;
     this.cleanup();
     this.setState("connecting");
 
@@ -80,11 +80,11 @@ export class WsClient {
   }
 
   disconnect(): void {
+    this.intentionalDisconnect = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    this.reconnectAttempt = this.options.maxReconnectAttempts;
     this.cleanup();
     this.setState("disconnected");
   }
@@ -108,12 +108,10 @@ export class WsClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectAttempt >= this.options.maxReconnectAttempts) {
-      return;
-    }
+    if (this.intentionalDisconnect) return;
     this.reconnectAttempt++;
     this.setState("reconnecting");
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt - 1), 30000);
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt - 1), 30_000);
     this.reconnectTimer = setTimeout(() => {
       this.connect();
     }, delay);

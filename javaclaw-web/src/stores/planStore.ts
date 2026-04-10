@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { fetchPlan } from "../lib/api";
+import { useChatStore } from "./chatStore";
 
 export type PlanStepStatus =
   | "pending"
@@ -67,6 +68,7 @@ interface PlanState {
   pendingToolCalls: PendingToolCall[];
   planHistory: Plan[];
   currentPlanIndex: number;
+  dismissed: boolean;
 
   handlePlanCreated(payload: Record<string, unknown>): void;
   handleStepStart(payload: Record<string, unknown>): void;
@@ -77,6 +79,7 @@ interface PlanState {
   setAwaitingApproval(planId: number): void;
   syncFromServer(planId: number): Promise<void>;
   clearPlan(): void;
+  dismissPlan(): void;
   viewHistoryPlan(direction: "prev" | "next"): void;
 
   addStepToolCall(info: {
@@ -99,8 +102,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   pendingToolCalls: [],
   planHistory: [],
   currentPlanIndex: 0,
+  dismissed: false,
 
   handlePlanCreated(payload) {
+    useChatStore.getState().snapshotStepGroup(true);
+
     const steps = (
       payload.steps as Array<{
         index: number;
@@ -133,6 +139,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         pendingToolCalls: [],
         planHistory: history,
         currentPlanIndex: 0,
+        dismissed: false,
       };
     });
   },
@@ -297,8 +304,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   },
 
   async syncFromServer(planId: number) {
-    try {
-      const data = await fetchPlan(planId);
+    const applyData = (data: { status: string; steps: Array<{ index: number; title: string; description: string; status: string; resultSummary?: string }> }) => {
       set((state) => {
         const pl = state.plan;
         if (!pl || pl.planId !== planId) return {};
@@ -322,40 +328,36 @@ export const usePlanStore = create<PlanState>((set, get) => ({
             : state.currentStepIndex,
         };
       });
+    };
+
+    try {
+      const data = await fetchPlan(planId);
+      applyData(data);
     } catch {
-      // server unreachable — keep local state as-is
+      setTimeout(() => {
+        fetchPlan(planId).then(applyData).catch(() => {});
+      }, 3000);
     }
   },
 
   clearPlan() {
-    set({ plan: null, stepToolCalls: {}, currentStepIndex: null, pendingToolCalls: [] });
+    set({ plan: null, stepToolCalls: {}, currentStepIndex: null, pendingToolCalls: [], dismissed: false });
+  },
+
+  dismissPlan() {
+    set({ dismissed: true });
   },
 
   viewHistoryPlan(direction) {
     set((state) => {
-      const allPlans = state.plan
-        ? [state.plan, ...state.planHistory]
-        : [...state.planHistory];
-      if (allPlans.length <= 1) return {};
-
-      const total = allPlans.length;
+      if (!state.plan) return {};
+      const total = state.planHistory.length + 1;
+      if (total <= 1) return {};
       let newIdx = state.currentPlanIndex;
-      if (direction === "prev") {
-        newIdx = Math.max(0, newIdx - 1);
-      } else {
-        newIdx = Math.min(total - 1, newIdx + 1);
-      }
+      if (direction === "prev") newIdx = Math.max(0, newIdx - 1);
+      else newIdx = Math.min(total - 1, newIdx + 1);
       if (newIdx === state.currentPlanIndex) return {};
-
-      const target = allPlans[newIdx];
-      const remaining = allPlans.filter((_, i) => i !== newIdx);
-      return {
-        plan: target,
-        planHistory: remaining.slice(0, 5),
-        stepToolCalls: {},
-        currentStepIndex: null,
-        currentPlanIndex: newIdx,
-      };
+      return { currentPlanIndex: newIdx };
     });
   },
 

@@ -45,7 +45,7 @@ public class PlanService {
                 .flatMap(savedPlan -> {
                     Long planId = savedPlan.getId();
                     log.info("createPlan: plan saved with id={}, sessionId={}", planId, sessionId);
-                    AtomicInteger idx = new AtomicInteger(0);
+                    AtomicInteger idx = new AtomicInteger(1);
                     int expectedCount = steps.size();
                     return Flux.fromIterable(steps)
                             .map(s -> {
@@ -162,7 +162,7 @@ public class PlanService {
                 .then(planStepRepository.findByPlanIdOrderByStepIndex(planId)
                         .collectList()
                         .flatMapMany(steps -> {
-                            AtomicInteger idx = new AtomicInteger(0);
+                            AtomicInteger idx = new AtomicInteger(1);
                             return Flux.fromIterable(steps)
                                     .flatMap(s -> {
                                         s.setStepIndex(idx.getAndIncrement());
@@ -287,7 +287,7 @@ public class PlanService {
                         if (step == null) {
                             return Mono.error(new IllegalArgumentException("Invalid step index: " + newOrder.get(i)));
                         }
-                        step.setStepIndex(i);
+                        step.setStepIndex(i + 1);
                         saves.add(planStepRepository.save(step));
                     }
                     return Flux.concat(saves).collectList();

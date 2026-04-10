@@ -67,7 +67,7 @@ export default function PlanView({ onSendAction }: PlanViewProps) {
       {/* Paused with failure info */}
       {plan.status === "paused" && failedStep && (
         <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-xs">
-          步骤 {failedStep.index + 1} 执行失败
+          步骤 {failedStep.index} 执行失败
           {failedStep.resultSummary && `：${failedStep.resultSummary}`}
         </div>
       )}

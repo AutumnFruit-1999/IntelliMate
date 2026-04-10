@@ -47,32 +47,34 @@ export default function MessageBubble({ message, isLastAssistantWithTools }: Mes
   const planWithSteps = !!(plan && plan.steps.length > 0);
   const planActive =
     plan &&
-    (plan.status === "draft" ||
-      plan.status === "approved" ||
-      plan.status === "executing" ||
-      plan.status === "paused" ||
-      plan.status === "completed" ||
-      plan.status === "cancelled");
-  /** 最后一条助手消息按步骤聚合；历史消息不重复铺开，详情见右侧计划面板每步「工具调用」 */
-  const showStepView =
+    plan.status !== "draft" &&
+    plan.status !== "cancelled";
+  const hasPlanTools = hasToolCalls && message.toolCalls!.some(
+    (tc) => tc.name === "updatePlan" || tc.name === "writePlan",
+  );
+
+  const showLiveStepView =
     hasToolCalls &&
     planWithSteps &&
     planActive &&
     !!isLastAssistantWithTools;
 
+  const hasSnapshot = !!(message.stepGroupSnapshot && message.stepGroupSnapshot.steps.length > 0);
+  const showSnapshotStepView = hasToolCalls && !showLiveStepView && hasSnapshot;
+  const showStepView = showLiveStepView || showSnapshotStepView;
+
   const toolCallGroups = useMemo(() => {
-    if (planWithSteps && planActive && hasToolCalls && !isLastAssistantWithTools) {
-      return [];
-    }
-    if (!hasToolCalls || showStepView) return [];
-    if (planActive && planWithSteps && !isLastAssistantWithTools) return [];
-    return groupByTurn(message.toolCalls!);
+    if (!hasToolCalls) return [];
+    if (showStepView) return [];
+    const calls = hasPlanTools
+      ? message.toolCalls!.filter(tc => tc.name !== "writePlan" && tc.name !== "updatePlan")
+      : message.toolCalls!;
+    if (calls.length === 0) return [];
+    return groupByTurn(calls);
   }, [
-    planWithSteps,
-    planActive,
     hasToolCalls,
     showStepView,
-    isLastAssistantWithTools,
+    hasPlanTools,
     message.toolCalls,
   ]);
 
@@ -95,12 +97,22 @@ export default function MessageBubble({ message, isLastAssistantWithTools }: Mes
           />
         )}
 
-        {showStepView && (
+        {showLiveStepView && (
           <div className="mb-2">
             <StepGroupedTools
               steps={plan!.steps}
               stepToolCalls={stepToolCalls}
               currentStepIndex={currentStepIndex}
+            />
+          </div>
+        )}
+
+        {showSnapshotStepView && (
+          <div className="mb-2">
+            <StepGroupedTools
+              steps={message.stepGroupSnapshot!.steps}
+              stepToolCalls={message.stepGroupSnapshot!.stepToolCalls}
+              currentStepIndex={null}
             />
           </div>
         )}
@@ -249,7 +261,7 @@ function StepToolSection({
       >
         <StepStatusBadge status={step.status} />
         <span className="text-xs font-medium text-slate-700 dark:text-slate-200 flex-1 truncate">
-          {step.index + 1}. {step.title}
+          {step.index}. {step.title}
         </span>
         {tools.length > 0 && (
           <span className="text-[10px] text-slate-400">
