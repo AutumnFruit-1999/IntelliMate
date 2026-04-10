@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api")
@@ -123,7 +124,9 @@ public class ModelDefinitionController {
             group.models().add(toItemDto(def));
         }
 
-        return new ArrayList<>(groupMap.values());
+        return groupMap.values().stream()
+                .filter(g -> !g.models().isEmpty())
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     private ModelItemDto toItemDto(ModelDefinitionEntity e) {

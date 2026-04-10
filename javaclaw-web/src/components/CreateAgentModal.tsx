@@ -51,7 +51,7 @@ export default function CreateAgentModal({ open, onClose, onCreate }: CreateAgen
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={handleBackdrop}
     >
-      <div className="w-full max-w-5xl max-h-[90vh] md:max-h-[85vh] bg-white dark:bg-slate-900 rounded-xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-5xl max-h-[90vh] md:max-h-[85vh] bg-white dark:bg-slate-900 rounded-xl shadow-2xl overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
           <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
             新建智能体
