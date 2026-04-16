@@ -1,7 +1,6 @@
 package com.atm.javaclaw.agent.tools;
 
 import com.atm.javaclaw.core.exception.ToolExecutionException;
-import com.atm.javaclaw.core.prompt.PromptLoader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -35,10 +34,10 @@ public class WebSearchTool {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Tool(description = "Search the web for information using a search query")
+    @Tool(description = "使用搜索引擎在网络上搜索信息")
     public String webSearch(
-            @ToolParam(description = "The search query") String query,
-            @ToolParam(description = "Maximum number of results (default 5)", required = false) Integer maxResults
+            @ToolParam(description = "搜索关键词") String query,
+            @ToolParam(description = "最大结果数量（默认 5）", required = false) Integer maxResults
     ) {
         int limit = (maxResults != null && maxResults > 0) ? Math.min(maxResults, 10) : 5;
         log.info("Web search: query='{}', limit={}", query, limit);
@@ -107,6 +106,6 @@ public class WebSearchTool {
      * instead of throwing an error, so the agent can still proceed.
      */
     private String fallbackSearch(String query, int limit) {
-        return PromptLoader.format("prompts/web-search-fallback.md", query);
+        return "网络搜索未配置（未设置 SERPAPI_KEY）。无法搜索：" + query + "。请基于已有知识回答。";
     }
 }

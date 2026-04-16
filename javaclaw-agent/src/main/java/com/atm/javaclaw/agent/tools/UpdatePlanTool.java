@@ -24,21 +24,21 @@ public class UpdatePlanTool implements ToolCallback, ToolCallbackProvider {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String DESCRIPTION =
-            "Update an active execution plan. Supported actions:\n"
-            + "- markStep: Mark a step as 'in_progress', 'completed', or 'failed'\n"
-            + "- addStep: Insert a new step after a given index\n"
-            + "- removeStep: Remove an unnecessary step\n"
-            + "- completePlan: Mark the entire plan as completed (skips remaining steps)";
+            "更新活动执行计划。支持的操作：\n"
+            + "- markStep：标记步骤状态为 in_progress、completed 或 failed\n"
+            + "- addStep：在指定索引后插入新步骤\n"
+            + "- removeStep：移除不需要的步骤\n"
+            + "- completePlan：标记整个计划为已完成（跳过剩余步骤）";
 
     private static final String INPUT_SCHEMA = """
             {"type":"object","properties":{\
-            "planId":{"type":"integer","description":"The plan ID to update"},\
-            "action":{"type":"string","description":"Action: markStep, addStep, removeStep, or completePlan"},\
-            "stepIndex":{"type":"integer","description":"Step index (required for markStep, addStep, removeStep)"},\
-            "status":{"type":"string","description":"New status for markStep (in_progress/completed/failed), or reason for removeStep"},\
-            "resultSummary":{"type":"string","description":"Result summary for markStep(completed/failed) or completePlan"},\
-            "title":{"type":"string","description":"Title for addStep"},\
-            "description":{"type":"string","description":"Description for addStep"}\
+            "planId":{"type":"integer","description":"要更新的计划 ID"},\
+            "action":{"type":"string","description":"操作类型：markStep、addStep、removeStep 或 completePlan"},\
+            "stepIndex":{"type":"integer","description":"步骤索引（markStep、addStep、removeStep 必填）"},\
+            "status":{"type":"string","description":"markStep 的新状态（in_progress/completed/failed）"},\
+            "resultSummary":{"type":"string","description":"markStep(completed/failed) 或 completePlan 的结果摘要"},\
+            "title":{"type":"string","description":"addStep 的步骤标题"},\
+            "description":{"type":"string","description":"addStep 的步骤描述"}\
             },"required":["planId","action"]}""";
 
     private final ToolDefinition toolDefinition;

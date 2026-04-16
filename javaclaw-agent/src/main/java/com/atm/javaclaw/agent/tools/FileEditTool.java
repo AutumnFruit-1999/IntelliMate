@@ -15,11 +15,11 @@ public class FileEditTool {
 
     private static final Logger log = LoggerFactory.getLogger(FileEditTool.class);
 
-    @Tool(description = "Edit a file by replacing a specific string with a new string")
+    @Tool(description = "通过精确匹配并替换字符串来编辑文件")
     public String editFile(
-            @ToolParam(description = "Absolute or relative path to the file") String path,
-            @ToolParam(description = "The exact string to find and replace") String oldString,
-            @ToolParam(description = "The replacement string") String newString
+            @ToolParam(description = "文件的绝对或相对路径") String path,
+            @ToolParam(description = "要查找并替换的精确字符串") String oldString,
+            @ToolParam(description = "替换后的新字符串") String newString
     ) {
         log.info("Editing file: {}", path);
 

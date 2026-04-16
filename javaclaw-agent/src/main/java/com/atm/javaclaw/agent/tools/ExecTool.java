@@ -19,11 +19,11 @@ public class ExecTool {
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private static final int MAX_OUTPUT_CHARS = 8_000;
 
-    @Tool(description = "Execute a shell command on the host machine and return the output. Output exceeding 8000 chars will be truncated (head+tail preserved).")
+    @Tool(description = "在宿主机上执行 Shell 命令并返回输出。输出超过 8000 字符时自动截断（保留头尾）。")
     public String exec(
-            @ToolParam(description = "Shell command to execute") String command,
-            @ToolParam(description = "Working directory (optional)", required = false) String workingDirectory,
-            @ToolParam(description = "Timeout in seconds (default 30)", required = false) Integer timeoutSeconds
+            @ToolParam(description = "要执行的 Shell 命令") String command,
+            @ToolParam(description = "工作目录（可选）", required = false) String workingDirectory,
+            @ToolParam(description = "超时秒数（默认 30）", required = false) Integer timeoutSeconds
     ) {
         int timeout = (timeoutSeconds != null && timeoutSeconds > 0) ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
         log.info("Executing command: {} (timeout={}s)", command, timeout);

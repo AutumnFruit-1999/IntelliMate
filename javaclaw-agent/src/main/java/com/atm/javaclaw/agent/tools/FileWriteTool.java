@@ -15,10 +15,10 @@ public class FileWriteTool {
 
     private static final Logger log = LoggerFactory.getLogger(FileWriteTool.class);
 
-    @Tool(description = "Write content to a file, creating it if it does not exist")
+    @Tool(description = "将内容写入文件，文件不存在时自动创建")
     public String writeFile(
-            @ToolParam(description = "Absolute or relative path to the file") String path,
-            @ToolParam(description = "Content to write to the file") String content
+            @ToolParam(description = "文件的绝对或相对路径") String path,
+            @ToolParam(description = "要写入的文件内容") String content
     ) {
         log.info("Writing file: {}", path);
 

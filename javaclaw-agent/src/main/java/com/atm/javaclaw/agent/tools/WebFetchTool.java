@@ -24,10 +24,10 @@ public class WebFetchTool {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
-    @Tool(description = "Fetch content from a URL and return the response body as text")
+    @Tool(description = "访问指定 URL 并返回响应内容的文本")
     public String webFetch(
-            @ToolParam(description = "The URL to fetch") String url,
-            @ToolParam(description = "Timeout in seconds (default 15)", required = false) Integer timeoutSeconds
+            @ToolParam(description = "要访问的 URL") String url,
+            @ToolParam(description = "超时秒数（默认 15）", required = false) Integer timeoutSeconds
     ) {
         int timeout = (timeoutSeconds != null && timeoutSeconds > 0) ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
         log.info("Fetching URL: {} (timeout={}s)", url, timeout);

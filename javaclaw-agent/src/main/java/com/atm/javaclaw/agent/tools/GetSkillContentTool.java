@@ -18,11 +18,9 @@ public class GetSkillContentTool {
         this.skillContentProvider = skillContentProvider;
     }
 
-    @Tool(description = "Read the full SKILL.md content for a specific skill by name. "
-            + "Use this when you identify a matching skill from the available skills list "
-            + "and need its detailed instructions.")
+    @Tool(description = "根据技能名称读取完整的 SKILL.md 内容。当从可用技能列表中识别到匹配技能后，使用此工具获取其详细说明。")
     public String getSkillContent(
-            @ToolParam(description = "The skill name to look up (e.g. 'code-reviewer')") String skillName
+            @ToolParam(description = "要查找的技能名称（如 'code-reviewer'）") String skillName
     ) {
         log.info("Getting skill content for: {}", skillName);
 

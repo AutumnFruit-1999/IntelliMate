@@ -241,7 +241,7 @@ public class AgentRuntime {
             log.warn("Agent loop reached maxTurns={}", maxTurns);
             String text = fullText.toString();
             if (text.isEmpty()) {
-                text = "[Agent Loop reached maximum turns (" + maxTurns + ")]";
+                text = "[Agent 已达最大轮次 (" + maxTurns + ")]";
             }
             return Flux.just(new AgentEvent.Done(text, turn - 1));
         }
@@ -251,7 +251,7 @@ public class AgentRuntime {
                     tracker.estimatedTotalTokens(), tracker.getMaxContextTokens());
             String text = fullText.toString();
             if (text.isEmpty()) {
-                text = "[Context window exceeded, forcing completion]";
+                text = "[上下文窗口已超限，强制结束]";
             }
             return Flux.just(new AgentEvent.Done(text, turn));
         }
@@ -270,7 +270,7 @@ public class AgentRuntime {
                 log.error("Still over limit after condensation, forcing completion");
                 String text = fullText.toString();
                 if (text.isEmpty()) {
-                    text = "[Context window exceeded after condensation, forcing completion]";
+                    text = "[压缩后上下文仍超限，强制结束]";
                 }
                 return Flux.just(new AgentEvent.Done(text, turn));
             }
@@ -556,7 +556,7 @@ public class AgentRuntime {
         if (loopStatus == ToolCallLoopDetector.LoopStatus.TERMINATE) {
             log.warn("Tool call loop detected (TERMINATE): {}({})", tc.name(),
                     tc.arguments().length() > 100 ? tc.arguments().substring(0, 100) + "..." : tc.arguments());
-            String terminateMsg = PromptLoader.format("prompts/tool-loop-terminate.md", tc.name());
+            String terminateMsg = "检测到循环调用：你已多次使用相同参数调用 " + tc.name() + "，已拦截执行。请利用已有信息或尝试其他方法。";
             return Mono.just(new ToolExecutionResult(tc.id(), tc.name(), terminateMsg, false));
         }
 
@@ -583,10 +583,10 @@ public class AgentRuntime {
         // Check cache first
         String cached = cache.get(toolName, arguments);
         if (cached != null) {
-            String result = cached + "\n[cached result]";
+            String result = cached + "\n[缓存结果]";
             result = truncateToolResult(result, maxToolResultChars);
             if (appendWarning) {
-                result += "\n\n[WARNING: You've called this tool with identical arguments multiple times. Consider a different approach.]";
+                result += "\n\n[警告：你已多次使用相同参数调用此工具，请尝试其他方法。]";
             }
             return Mono.just(new ToolExecutionResult(toolCallId, toolName, result, true));
         }
@@ -605,7 +605,7 @@ public class AgentRuntime {
 
                         result = truncateToolResult(result, maxToolResultChars);
                         if (appendWarning) {
-                            result += "\n\n[WARNING: You've called this tool with identical arguments multiple times. Consider a different approach.]";
+                            result += "\n\n[警告：你已多次使用相同参数调用此工具，请尝试其他方法。]";
                         }
                         return new ToolExecutionResult(toolCallId, toolName, result != null ? result : "", true);
                     } finally {
@@ -652,8 +652,8 @@ public class AgentRuntime {
         }
         int half = maxChars / 2;
         return result.substring(0, half)
-                + "\n\n... [truncated: showing first and last " + half
-                + " chars of " + result.length() + " total] ...\n\n"
+                + "\n\n... [已截断：显示前后各 " + half
+                + " 字符，共 " + result.length() + " 字符] ...\n\n"
                 + result.substring(result.length() - half);
     }
 
@@ -793,27 +793,31 @@ public class AgentRuntime {
                                      boolean forcePlan) {
         StringBuilder sb = new StringBuilder();
 
-        appendSection(sb, "SOUL:指定以何种语气去回答用户的问题，回答问题的风格以这个描述为主。", "{" + agentConfig.getSoulMd() + "}");
-        appendSection(sb, "USER:你需要面对的客户，针对不同的客户的要求，产出不同的结果", "{" + agentConfig.getUserMd() + "}");
-        appendSection(sb, "AGENTS", agentConfig.getAgentsMd());
+        appendSection(sb, "soul", agentConfig.getSoulMd());
+        appendSection(sb, "user_context", agentConfig.getUserMd());
+        appendSection(sb, "agents", agentConfig.getAgentsMd());
 
         if (skillSummaries != null && !skillSummaries.isEmpty()) {
             String skillsSection = buildSkillsDiscovery(skillSummaries);
             if (skillsSection != null && !skillsSection.isBlank()) {
-                appendSection(sb, "SKILLS", skillsSection);
+                appendSection(sb, "skills", skillsSection);
             }
         }
 
-        sb.append(buildPlanSystemSection(forcePlan));
+        appendSection(sb, "plan_system", buildPlanSystemSection(forcePlan));
 
         if (planContext != null && !planContext.isBlank()) {
-            sb.append("\n\n").append(planContext);
+            appendSection(sb, "plan_execution", planContext);
         }
 
         String parallelSection = parallelEnabled
-                ? PromptLoader.load("prompts/parallel-tool-calling.md")
+                ? "\n\n### 并行与串行调用\n\n"
+                + "当多个工具调用彼此独立、无数据依赖时，**必须**在同一轮回复中同时调用。\n"
+                + "适用场景：读取多个文件、搜索多个关键词、执行多个不相关的命令。\n\n"
+                + "仅当某个工具的输出必须作为另一个工具的输入时，才采用顺序调用。\n"
+                + "禁止并行的场景：文件写入后需要验证结果、有明确的先后依赖关系。\n"
                 : "";
-        sb.append("\n\n").append(PromptLoader.format("prompts/tool-usage-guidelines.md", parallelSection));
+        appendSection(sb, "tool_guidelines", PromptLoader.format("prompts/tool-usage-guidelines.md", parallelSection));
 
         String prompt = sb.toString();
         if (prompt.length() > TOTAL_MAX_CHARS) {
@@ -823,10 +827,10 @@ public class AgentRuntime {
     }
 
     private String buildPlanSystemSection(boolean forcePlan) {
-        StringBuilder sb = new StringBuilder("\n\n");
+        StringBuilder sb = new StringBuilder();
         sb.append(PromptLoader.load("prompts/plan-system.md"));
         if (forcePlan) {
-            sb.append("\n\n").append(PromptLoader.load("prompts/force-plan-instruction.md"));
+            sb.append("\n\n**重要指令：你必须先调用 `writePlan` 创建计划，等待用户审批后再执行。在审批通过之前，不要调用任何其他工具或直接开始执行任务。**");
         }
         return sb.toString();
     }
@@ -849,19 +853,16 @@ public class AgentRuntime {
         return sb.toString();
     }
 
-    private static void appendSection(StringBuilder sb, String title, String content) {
+    private static void appendSection(StringBuilder sb, String tag, String content) {
         if (content == null || content.isBlank()) {
             return;
         }
         if (!sb.isEmpty()) {
             sb.append("\n\n");
         }
-        sb.append("## ").append(title).append('\n');
-//        if (content.length() > SECTION_MAX_CHARS) {
-//            sb.append(content, 0, SECTION_MAX_CHARS).append("\n...[truncated]");
-//        } else {
-        sb.append(content);
-//        }
+        sb.append('<').append(tag).append(">\n");
+        sb.append(content.strip());
+        sb.append("\n</").append(tag).append('>');
     }
 
     // ─── Plan step auto-tracking ───

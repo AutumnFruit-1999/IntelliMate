@@ -17,14 +17,13 @@ public class FileReadTool {
     private static final int MAX_LINES_PER_READ = 500;
 
     @Tool(description = """
-            Read the contents of a file at the specified path.
-            For large files (>500 lines), results are automatically paginated.
-            Use startLine and lineCount parameters to read specific sections.
-            The response includes totalLines so you know the file size.""")
+            读取指定路径的文件内容。大文件（>500 行）自动分页。
+            可通过 startLine 和 lineCount 参数读取特定区间。
+            返回结果包含总行数信息。""")
     public String readFile(
-            @ToolParam(description = "Absolute or relative path to the file") String path,
-            @ToolParam(description = "Starting line number (1-based, optional)", required = false) Integer startLine,
-            @ToolParam(description = "Number of lines to read (optional)", required = false) Integer lineCount
+            @ToolParam(description = "文件的绝对或相对路径") String path,
+            @ToolParam(description = "起始行号（从 1 开始，可选）", required = false) Integer startLine,
+            @ToolParam(description = "读取的行数（可选）", required = false) Integer lineCount
     ) {
         log.info("Reading file: {}", path);
 

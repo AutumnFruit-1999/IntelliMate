@@ -30,11 +30,11 @@ public class WritePlanTool implements ToolCallback, ToolCallbackProvider {
 
     private static final String INPUT_SCHEMA = """
             {"type":"object","properties":{\
-            "title":{"type":"string","description":"A concise title summarizing the overall goal"},\
+            "title":{"type":"string","description":"简洁概括整体目标的计划标题"},\
             "steps":{"type":"array","items":{"type":"object","properties":{\
-            "title":{"type":"string","description":"Step title"},\
-            "description":{"type":"string","description":"Step description"}\
-            },"required":["title","description"]},"description":"Array of plan steps"}\
+            "title":{"type":"string","description":"步骤标题"},\
+            "description":{"type":"string","description":"步骤描述，包含具体操作和预期产出"}\
+            },"required":["title","description"]},"description":"计划步骤数组"}\
             },"required":["title","steps"]}""";
 
     private final ToolDefinition toolDefinition;

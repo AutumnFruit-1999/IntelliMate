@@ -221,10 +221,9 @@ public class MessagePipeline {
         return planService.getSteps(planId)
                 .collectList()
                 .map(steps -> {
-                    StringBuilder sb = new StringBuilder(
-                            PromptLoader.load("prompts/plan-execution-context-header.md"));
-                    sb.append("**Plan ID: ").append(planId).append("**\n");
-                    sb.append("所有 `updatePlan` 调用必须使用此 Plan ID。\n\n");
+                    StringBuilder dynamicState = new StringBuilder();
+                    dynamicState.append("**Plan ID: ").append(planId).append("**\n");
+                    dynamicState.append("所有 `updatePlan` 调用必须使用此 Plan ID。\n\n");
 
                     List<PlanStepEntity> completed = steps.stream()
                             .filter(s -> "completed".equals(s.getStatus())).toList();
@@ -238,39 +237,38 @@ public class MessagePipeline {
                             .filter(s -> "pending".equals(s.getStatus())).toList();
 
                     if (!completed.isEmpty()) {
-                        sb.append("### 已完成的步骤:\n");
+                        dynamicState.append("### 已完成的步骤:\n");
                         for (PlanStepEntity s : completed) {
-                            sb.append("- [x] Step ").append(s.getStepIndex())
+                            dynamicState.append("- [x] Step ").append(s.getStepIndex())
                                     .append(": ").append(s.getTitle());
                             if (s.getResultSummary() != null) {
-                                sb.append(" → ").append(s.getResultSummary());
+                                dynamicState.append(" → ").append(s.getResultSummary());
                             }
-                            sb.append('\n');
+                            dynamicState.append('\n');
                         }
-                        sb.append('\n');
+                        dynamicState.append('\n');
                     }
 
                     if (current != null) {
-                        sb.append("### 当前步骤 (").append(current.getStepIndex())
+                        dynamicState.append("### 当前步骤 (").append(current.getStepIndex())
                                 .append("/").append(steps.size()).append("):\n");
-                        sb.append("**").append(current.getTitle()).append("**\n");
+                        dynamicState.append("**").append(current.getTitle()).append("**\n");
                         if (current.getDescription() != null) {
-                            sb.append(current.getDescription()).append('\n');
+                            dynamicState.append(current.getDescription()).append('\n');
                         }
-                        sb.append('\n');
+                        dynamicState.append('\n');
                     }
 
                     if (!pending.isEmpty()) {
-                        sb.append("### 待执行的步骤:\n");
+                        dynamicState.append("### 待执行的步骤:\n");
                         for (PlanStepEntity s : pending) {
-                            sb.append("- [ ] Step ").append(s.getStepIndex())
+                            dynamicState.append("- [ ] Step ").append(s.getStepIndex())
                                     .append(": ").append(s.getTitle()).append('\n');
                         }
-                        sb.append('\n');
+                        dynamicState.append('\n');
                     }
 
-                    sb.append(PromptLoader.load("prompts/plan-execution-context-footer.md"));
-                    return sb.toString();
+                    return PromptLoader.format("prompts/plan-execution-context.md", dynamicState.toString());
                 });
     }
 
