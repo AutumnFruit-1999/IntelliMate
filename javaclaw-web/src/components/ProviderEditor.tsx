@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { Loader2, Check, Wifi } from "lucide-react";
+import { Loader2, Check } from "lucide-react";
 import { useModelStore } from "../stores/modelStore";
 import type { ModelProviderDto } from "../lib/api";
 
@@ -22,13 +22,10 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const addProvider = useModelStore((s) => s.addProvider);
   const editProvider = useModelStore((s) => s.editProvider);
-  const testProvider = useModelStore((s) => s.testProvider);
 
   useEffect(() => {
     if (provider) {
@@ -43,7 +40,6 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
       setApiKey("");
     }
     setError(null);
-    setTestResult(null);
   }, [provider]);
 
   const handleSave = useCallback(async () => {
@@ -66,20 +62,6 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
       setSaving(false);
     }
   }, [name, type, baseUrl, apiKey, isNew, provider, addProvider, editProvider, onSaved]);
-
-  const handleTest = useCallback(async () => {
-    if (!provider) return;
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const result = await testProvider(provider.id);
-      setTestResult(result);
-    } catch (e) {
-      setTestResult({ success: false, error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setTesting(false);
-    }
-  }, [provider, testProvider]);
 
   return (
     <div className="space-y-4">
@@ -138,26 +120,10 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
 
       {error && <p className="text-xs text-red-500">{error}</p>}
 
-      {testResult && (
-        <div className={`text-xs px-3 py-2 rounded-lg ${testResult.success ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"}`}>
-          {testResult.success ? "连接成功" : `测试失败: ${testResult.error}`}
-        </div>
-      )}
-
       <div className="flex gap-2 pt-2">
         {onCancel && (
           <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
             取消
-          </button>
-        )}
-        {provider && !isNew && (
-          <button
-            onClick={handleTest}
-            disabled={testing}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
-          >
-            {testing ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />}
-            测试连接
           </button>
         )}
         <button

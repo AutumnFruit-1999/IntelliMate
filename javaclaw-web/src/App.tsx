@@ -5,9 +5,9 @@ import ChatPanel from "./components/ChatPanel";
 import PlanPanel from "./components/PlanPanel";
 import AgentCardGrid from "./components/AgentCardGrid";
 import AgentConfigModal from "./components/AgentConfigModal";
-import ToolManagerModal from "./components/ToolManagerModal";
-import SkillManagerModal from "./components/SkillManagerModal";
-import ModelManagerModal from "./components/ModelManagerModal";
+import ToolManagerPage from "./components/ToolManagerModal";
+import SkillManagerPage from "./components/SkillManagerModal";
+import ModelManagerPage from "./components/ModelManagerModal";
 import CreateAgentModal from "./components/CreateAgentModal";
 import PlanHistoryTab from "./components/PlanHistoryTab";
 import { useWebSocket } from "./hooks/useWebSocket";
@@ -15,7 +15,7 @@ import { useAgentStore } from "./stores/agentStore";
 import { useChatStore } from "./stores/chatStore";
 import { usePlanStore } from "./stores/planStore";
 
-type ViewMode = "chat" | "agents" | "planHistory";
+type ViewMode = "chat" | "agents" | "planHistory" | "toolManager" | "skillManager" | "modelManager";
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -29,9 +29,6 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
   const [agentConfigTarget, setAgentConfigTarget] = useState<string | null>(null);
-  const [toolManagerOpen, setToolManagerOpen] = useState(false);
-  const [skillManagerOpen, setSkillManagerOpen] = useState(false);
-  const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [planPanelOpen, setPlanPanelOpen] = useState(true);
   const [planPanelCollapsed, setPlanPanelCollapsed] = useState(false);
@@ -108,13 +105,12 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-slate-900">
       <Sidebar
-        onSend={sendMessage}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onOpenAgentManager={handleOpenAgentManager}
-        onOpenToolManager={() => setToolManagerOpen(true)}
-        onOpenSkillManager={() => setSkillManagerOpen(true)}
-        onOpenModelManager={() => setModelManagerOpen(true)}
+        onOpenToolManager={() => setViewMode("toolManager")}
+        onOpenSkillManager={() => setViewMode("skillManager")}
+        onOpenModelManager={() => setViewMode("modelManager")}
         onOpenPlanHistory={() => setViewMode("planHistory")}
         onCreateAgent={() => setCreateModalOpen(true)}
         onSelectAgent={handleSelectAgent}
@@ -131,6 +127,12 @@ export default function App() {
             <ChatPanel onSend={sendMessage} onSendPlanAction={sendPlanAction} />
           ) : viewMode === "planHistory" ? (
             <PlanHistoryTab onBack={() => setViewMode("chat")} />
+          ) : viewMode === "toolManager" ? (
+            <ToolManagerPage onBack={() => setViewMode("chat")} />
+          ) : viewMode === "skillManager" ? (
+            <SkillManagerPage onBack={() => setViewMode("chat")} />
+          ) : viewMode === "modelManager" ? (
+            <ModelManagerPage onBack={() => setViewMode("chat")} />
           ) : (
             <AgentCardGrid
               onSelectAgent={handleAgentCardClick}
@@ -167,18 +169,6 @@ export default function App() {
         open={agentConfigTarget !== null}
         onClose={() => setAgentConfigTarget(null)}
         initialAgent={agentConfigTarget ?? undefined}
-      />
-      <ToolManagerModal
-        open={toolManagerOpen}
-        onClose={() => setToolManagerOpen(false)}
-      />
-      <SkillManagerModal
-        open={skillManagerOpen}
-        onClose={() => setSkillManagerOpen(false)}
-      />
-      <ModelManagerModal
-        open={modelManagerOpen}
-        onClose={() => setModelManagerOpen(false)}
       />
       <CreateAgentModal
         open={createModalOpen}
