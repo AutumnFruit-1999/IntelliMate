@@ -11,6 +11,19 @@ import com.atm.javaclaw.agent.tools.ToolsEngine;
 import com.atm.javaclaw.agent.tools.WritePlanTool;
 import com.atm.javaclaw.core.config.JavaClawProperties;
 import com.atm.javaclaw.core.prompt.PromptLoader;
+import com.atm.javaclaw.memory.MemorySystem;
+import com.atm.javaclaw.memory.config.MemoryConfigProvider;
+import com.atm.javaclaw.memory.config.ResolvedMemoryConfig;
+import com.atm.javaclaw.memory.consolidation.ConsolidationResult;
+import com.atm.javaclaw.memory.consolidation.MemoryConsolidator;
+import com.atm.javaclaw.memory.longterm.LongTermMemory;
+import com.atm.javaclaw.memory.model.ContentCategory;
+import com.atm.javaclaw.memory.model.ExtractedFact;
+import com.atm.javaclaw.memory.model.MemoryChunk;
+import com.atm.javaclaw.memory.perception.ImportanceAssessor;
+import com.atm.javaclaw.memory.retrieval.MemoryRetrieval;
+import com.atm.javaclaw.memory.working.TokenEstimator;
+import com.atm.javaclaw.memory.working.WorkingMemory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -20,6 +33,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -67,6 +81,9 @@ public class AgentRuntime {
     private final AgentSessionContext agentSessionContext;
     private final JavaClawProperties properties;
     private final PlanOperations planOperations;
+    private final MemoryConfigProvider memoryConfigProvider;
+    private final LongTermMemory longTermMemory;
+    private final MemorySystem memorySystem;
 
     public AgentRuntime(ChatModelRegistry chatModelRegistry,
                         ToolsEngine toolsEngine,
@@ -76,7 +93,10 @@ public class AgentRuntime {
                         @Autowired(required = false) SkillUsageRecorder skillUsageRecorder,
                         AgentSessionContext agentSessionContext,
                         JavaClawProperties properties,
-                        @Autowired(required = false) PlanOperations planOperations) {
+                        @Autowired(required = false) PlanOperations planOperations,
+                        @Autowired(required = false) MemoryConfigProvider memoryConfigProvider,
+                        @Autowired(required = false) LongTermMemory longTermMemory,
+                        @Autowired(required = false) MemorySystem memorySystem) {
         this.chatModelRegistry = chatModelRegistry;
         this.toolsEngine = toolsEngine;
         this.runQueueManager = runQueueManager;
@@ -86,6 +106,9 @@ public class AgentRuntime {
         this.agentSessionContext = agentSessionContext;
         this.properties = properties;
         this.planOperations = planOperations;
+        this.memoryConfigProvider = memoryConfigProvider;
+        this.longTermMemory = longTermMemory;
+        this.memorySystem = memorySystem;
     }
 
     public Flux<AgentEvent> dispatch(AgentRunRequest request) {
@@ -94,6 +117,28 @@ public class AgentRuntime {
 
     private final ConcurrentMap<Long, ToolApprovalGate> sessionApprovalGates = new ConcurrentHashMap<>();
     private final Set<Long> pausedPlanIds = ConcurrentHashMap.newKeySet();
+
+    private static final ConcurrentMap<Long, AgentEvent.MemorySnapshot> latestSnapshots = new ConcurrentHashMap<>();
+
+    private record DeferredEpisodicStore(WorkingMemory workingMemory, LongTermMemory ltm,
+                                          String userId, String agentId, Long sessionId,
+                                          int minChunksForEpisodic) {}
+    private static final ConcurrentMap<Long, DeferredEpisodicStore> deferredEpisodicStores = new ConcurrentHashMap<>();
+
+    public static AgentEvent.MemorySnapshot getLatestSnapshot(Long sessionId) {
+        return latestSnapshots.get(sessionId);
+    }
+
+    /**
+     * Called on WebSocket disconnect to flush deferred episodic memory for the session.
+     * Only stores if chunks > 4 and no prior episodic was generated during this session.
+     */
+    public void flushDeferredEpisodicMemory(Long sessionId) {
+        DeferredEpisodicStore deferred = deferredEpisodicStores.remove(sessionId);
+        if (deferred == null) return;
+        storeSessionEpisodicMemory(deferred.workingMemory(), deferred.ltm(),
+                deferred.userId(), deferred.agentId(), deferred.sessionId(), deferred.minChunksForEpisodic());
+    }
 
     public void signalPlanPaused(Long planId) {
         if (planId != null) {
@@ -152,7 +197,12 @@ public class AgentRuntime {
             if (request.history() != null) {
                 conversationHistory.addAll(request.history());
             }
-            conversationHistory.add(new UserMessage(request.userMessage()));
+            boolean lastIsCurrentUser = !conversationHistory.isEmpty()
+                    && conversationHistory.getLast() instanceof UserMessage lastMsg
+                    && request.userMessage().equals(lastMsg.getText());
+            if (!lastIsCurrentUser) {
+                conversationHistory.add(new UserMessage(request.userMessage()));
+            }
 
             ChatOptions chatOptions = buildChatOptions(tools, resolved, parallelEnabled);
 
@@ -165,18 +215,16 @@ public class AgentRuntime {
                     agentConfig.getLoopDetectorTerminateThreshold(),
                     new HashSet<>(agentConfig.getLoopDetectorExcludedTools()));
 
-            ContextWindowTracker tracker = new ContextWindowTracker(agentConfig.getMaxContextTokens());
-            tracker.addToolResultChars(systemPrompt.length());
-            for (Message msg : conversationHistory) {
-                if (msg.getText() != null) {
-                    tracker.addToolResultChars(msg.getText().length());
-                }
-            }
+            TokenEstimator tokenEstimator = memorySystem != null
+                    ? memorySystem.getTokenEstimator() : new TokenEstimator();
+            MemoryChunk systemChunk = MemoryChunk.system(systemPrompt, tokenEstimator.estimateForMessage(systemPrompt));
 
-            ContextCondenser condenser = new ContextCondenser(
-                    agentConfig.getCondenserKeepRecent(),
-                    agentConfig.getCondenserSummaryLength(),
-                    agentConfig.getCondenserMinTurnsBetween());
+            String agentId = agentConfig.getName() != null && !agentConfig.getName().isBlank()
+                    ? agentConfig.getName()
+                    : "default";
+
+            ImportanceAssessor importanceAssessor = memorySystem != null
+                    ? memorySystem.getImportanceAssessor() : new ImportanceAssessor();
             ToolResultCache cache = new ToolResultCache();
 
             Set<String> approvalTools = new HashSet<>(agentConfig.getApprovalRequiredTools());
@@ -184,25 +232,182 @@ public class AgentRuntime {
             sessionApprovalGates.put(request.sessionId(), approvalGate);
 
             Duration toolTimeout = Duration.ofSeconds(agentConfig.getToolExecutionTimeoutSeconds());
-            int maxToolResultChars = agentConfig.getMaxToolResultChars();
             int maxParallel = agentConfig.getMaxParallelToolCalls();
             Set<String> nonRetryable = new HashSet<>(agentConfig.getNonRetryableTools());
 
             PlanStepTracker planStepTracker = request.activePlanId() != null && planOperations != null
                     ? new PlanStepTracker(request.activePlanId(), planOperations) : null;
 
-            return executeLoopTurn(resolved.chatModel(), conversationHistory, chatOptions, maxTurns, timeout, 1, new StringBuilder(),
-                    agentConfig.getName(), request.sessionId(), skillsBasePath,
-                    loopDetector, tracker, condenser, cache, approvalGate,
-                    toolTimeout, maxToolResultChars, maxParallel, nonRetryable,
-                    request.activePlanId(), planStepTracker)
-                    .doFinally(signal -> {
-                        sessionApprovalGates.remove(request.sessionId());
-                        if (request.activePlanId() != null) {
-                            pausedPlanIds.remove(request.activePlanId());
+            return loadMemoryInitReactive(tokenEstimator)
+                    .flatMapMany(memoryInit -> {
+                        MemoryConsolidator consolidator = memoryInit.consolidator() != null
+                                ? memoryInit.consolidator()
+                                : (memorySystem != null ? memorySystem.getConsolidator() : null);
+                        ResolvedMemoryConfig resolvedMem = memoryInit.resolved();
+
+                        float consolidationThreshold = 0.75f;
+                        float overflowTolerance = 1.1f;
+                        int tokenBudget = agentConfig.getMaxContextTokens();
+                        if (resolvedMem != null) {
+                            tokenBudget = resolvedMem.tokenBudget();
+                            consolidationThreshold = resolvedMem.consolidationThreshold();
+                            overflowTolerance = resolvedMem.overflowTolerance();
                         }
+
+                        WorkingMemory workingMemory = new WorkingMemory(
+                                tokenBudget,
+                                consolidationThreshold,
+                                overflowTolerance,
+                                consolidator,
+                                systemChunk,
+                                agentId
+                        );
+                        workingMemory.setUserId(request.userId());
+                        if (request.planExecutionAssessment() != null
+                                && request.planExecutionAssessment().currentStepDescription() != null) {
+                            workingMemory.setTaskContext(request.planExecutionAssessment().currentStepDescription());
+                        } else if (request.userMessage() != null) {
+                            workingMemory.setTaskContext(request.userMessage());
+                        }
+                        for (Message msg : conversationHistory) {
+                            if (msg.getText() != null && !(msg instanceof SystemMessage)) {
+                                int tokens = tokenEstimator.estimateForMessage(msg.getText());
+                                MemoryChunk chunk = msg instanceof UserMessage
+                                        ? MemoryChunk.user(msg.getText(), tokens)
+                                        : MemoryChunk.assistant(msg.getText(), tokens);
+                                workingMemory.accept(chunk);
+                            }
+                        }
+
+                        boolean ltEnabled = resolvedMem != null && resolvedMem.longTermEnabled();
+                        String sessionUserId = request.userId() != null && !request.userId().isBlank()
+                                ? request.userId() : "default";
+
+                        Mono<Void> retrievalMono;
+                        if (longTermMemory != null && ltEnabled) {
+                            MemoryRetrieval retrieval = memorySystem != null
+                                    ? memorySystem.getMemoryRetrieval()
+                                    : new MemoryRetrieval(longTermMemory, tokenEstimator);
+                            int maxInjectionTokens = resolvedMem.maxInjectionTokens();
+                            double lambda = resolvedMem.decayLambda();
+
+                            String cue = request.userMessage() != null ? request.userMessage() : "";
+                            if (request.planExecutionAssessment() != null
+                                    && request.planExecutionAssessment().currentStepDescription() != null) {
+                                cue = cue + " " + request.planExecutionAssessment().currentStepDescription();
+                            }
+
+                            retrievalMono = retrieval.retrieve(cue, sessionUserId, agentId, maxInjectionTokens, lambda)
+                                    .timeout(Duration.ofSeconds(3))
+                                    .doOnNext(recalledChunks -> {
+                                        if (!recalledChunks.isEmpty()) {
+                                            for (MemoryChunk chunk : recalledChunks) {
+                                                String prefixed = "[历史记忆] " + chunk.content();
+                                                MemoryChunk recalledWithPrefix = MemoryChunk.recalled(
+                                                        prefixed, chunk.estimatedTokens(), chunk.importance());
+                                                workingMemory.accept(recalledWithPrefix);
+                                            }
+                                            int injectedTokens = recalledChunks.stream()
+                                                    .mapToInt(MemoryChunk::estimatedTokens)
+                                                    .sum();
+                                            log.info("Injected {} recalled memories ({} tokens) for agent '{}' session {}",
+                                                    recalledChunks.size(), injectedTokens, agentId, request.sessionId());
+                                        }
+                                    })
+                                    .onErrorResume(e -> {
+                                        log.warn("Failed to retrieve long-term memories, continuing without: {}", e.getMessage());
+                                        return Mono.empty();
+                                    })
+                                    .then();
+                        } else {
+                            retrievalMono = Mono.empty();
+                        }
+
+                        return retrievalMono
+                                .then(workingMemory.awaitPendingConsolidation()
+                                        .timeout(Duration.ofSeconds(5))
+                                        .onErrorResume(e -> {
+                                            log.warn("Pre-loop consolidation await failed, continuing: {}", e.getMessage());
+                                            return Mono.empty();
+                                        }))
+                                .thenMany(executeLoopTurn(resolved.chatModel(), conversationHistory, chatOptions, maxTurns, timeout, 1, new StringBuilder(),
+                                        agentConfig.getName(), request.sessionId(), skillsBasePath,
+                                        loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
+                                        toolTimeout, maxParallel, nonRetryable,
+                                        request.activePlanId(), planStepTracker, request.planExecutionAssessment())
+                                        .doFinally(signal -> {
+                                            sessionApprovalGates.remove(request.sessionId());
+                                            latestSnapshots.remove(request.sessionId());
+                                            if (request.activePlanId() != null) {
+                                                pausedPlanIds.remove(request.activePlanId());
+                                            }
+                                            if (longTermMemory != null && ltEnabled && request.activePlanId() == null) {
+                                                int minChunks = resolvedMem != null ? resolvedMem.minChunksForEpisodic() : 4;
+                                                deferEpisodicStore(workingMemory, longTermMemory, sessionUserId, agentId, request.sessionId(), minChunks);
+                                            }
+                                        }));
                     });
         });
+    }
+
+    private record MemoryInit(ResolvedMemoryConfig resolved, MemoryConsolidator consolidator) {}
+
+    /**
+     * Resolves DB-backed memory config once per run for WorkingMemory thresholds,
+     * consolidator construction, and long-term retrieval settings.
+     */
+    private Mono<MemoryInit> loadMemoryInitReactive(TokenEstimator tokenEstimator) {
+        if (memoryConfigProvider == null) {
+            return Mono.just(new MemoryInit(null, null));
+        }
+        return memoryConfigProvider.resolve()
+                .timeout(Duration.ofSeconds(2))
+                .map(memConfig -> new MemoryInit(memConfig, createMemoryConsolidator(memConfig, tokenEstimator)))
+                .defaultIfEmpty(new MemoryInit(null, null))
+                .onErrorResume(e -> {
+                    log.warn("Failed to load memory config, using defaults: {}", e.getMessage());
+                    return Mono.just(new MemoryInit(null, null));
+                });
+    }
+
+    private MemoryConsolidator createMemoryConsolidator(ResolvedMemoryConfig memConfig, TokenEstimator tokenEstimator) {
+        try {
+            ResolvedModel consolidationModel = chatModelRegistry.resolveByModelName(memConfig.consolidationModel());
+            ChatModel fallbackChatModel = null;
+            String fallbackModelId = null;
+            try {
+                ResolvedModel fallbackResolved = chatModelRegistry.resolveByModelName(memConfig.fallbackModel());
+                fallbackChatModel = fallbackResolved.chatModel();
+                fallbackModelId = fallbackResolved.modelId();
+            } catch (Exception ignored) {
+                // optional fallback model
+            }
+            return new MemoryConsolidator(
+                    consolidationModel.chatModel(),
+                    fallbackChatModel,
+                    longTermMemory,
+                    tokenEstimator,
+                    memConfig.maxSummaryTokens(),
+                    memConfig.maxRetries(),
+                    memConfig.timeoutMs(),
+                    consolidationModel.modelId(),
+                    fallbackModelId);
+        } catch (Exception e) {
+            log.warn("Failed to create MemoryConsolidator, using null: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static AgentEvent.ConsolidationTriggered toConsolidationTriggeredEvent(
+            ConsolidationResult cr, WorkingMemory workingMemory) {
+        WorkingMemory.MemorySnapshot snap = workingMemory.getSnapshot();
+        int tokensBefore = cr.tokensBefore() >= 0 ? cr.tokensBefore() : snap.tokenUsed();
+        int tokensAfter = cr.tokensAfter() >= 0 ? cr.tokensAfter() : snap.tokenUsed();
+        List<String> factStrings = cr.facts().stream()
+                .map(f -> f.content())
+                .toList();
+        return new AgentEvent.ConsolidationTriggered(
+                cr.sourceChunkCount(), tokensBefore, tokensAfter, factStrings);
     }
 
     private Flux<AgentEvent> executeLoopTurn(
@@ -217,16 +422,17 @@ public class AgentRuntime {
             Long sessionId,
             String skillsBasePath,
             ToolCallLoopDetector loopDetector,
-            ContextWindowTracker tracker,
-            ContextCondenser condenser,
+            WorkingMemory workingMemory,
+            ImportanceAssessor importanceAssessor,
+            TokenEstimator tokenEstimator,
             ToolResultCache cache,
             ToolApprovalGate approvalGate,
             Duration toolTimeout,
-            int maxToolResultChars,
             int maxParallel,
             Set<String> nonRetryableTools,
             Long activePlanId,
-            PlanStepTracker planStepTracker) {
+            PlanStepTracker planStepTracker,
+            PlanExecutionAssessment planExecutionAssessment) {
 
         if (activePlanId != null && pausedPlanIds.contains(activePlanId)) {
             log.info("Plan {} is paused/cancelled, stopping agent loop at turn {}", activePlanId, turn);
@@ -246,9 +452,9 @@ public class AgentRuntime {
             return Flux.just(new AgentEvent.Done(text, turn - 1));
         }
 
-        if (tracker.isOverLimit()) {
-            log.error("Context window exceeded: ~{} / {} tokens, forcing completion",
-                    tracker.estimatedTotalTokens(), tracker.getMaxContextTokens());
+        if (workingMemory.usageRatio() > workingMemory.getOverflowTolerance()) {
+            log.error("Context window exceeded: ~{} / {} tokens (ratio={}), forcing completion",
+                    workingMemory.getTokenUsage(), workingMemory.getTokenBudget(), workingMemory.usageRatio());
             String text = fullText.toString();
             if (text.isEmpty()) {
                 text = "[上下文窗口已超限，强制结束]";
@@ -256,27 +462,10 @@ public class AgentRuntime {
             return Flux.just(new AgentEvent.Done(text, turn));
         }
 
-        // Context condensation check
-        if (condenser.shouldCondense(turn, tracker)) {
-            int beforeSize = history.size();
-            List<Message> condensed = condenser.condense(history, turn);
-            history.clear();
-            history.addAll(condensed);
-            tracker.recalculate(history);
-            log.info("Context condensed at turn {}: {} messages, ~{} tokens",
-                    turn, history.size(), tracker.estimatedTotalTokens());
-
-            if (tracker.isOverLimit()) {
-                log.error("Still over limit after condensation, forcing completion");
-                String text = fullText.toString();
-                if (text.isEmpty()) {
-                    text = "[压缩后上下文仍超限，强制结束]";
-                }
-                return Flux.just(new AgentEvent.Done(text, turn));
-            }
-        }
-
         log.debug("Agent loop turn={}/{}", turn, maxTurns);
+
+        history.clear();
+        history.addAll(workingMemory.buildLLMInputSync());
 
         Prompt prompt = new Prompt(new ArrayList<>(history), options);
         List<ChatResponse> allChunks = new ArrayList<>();
@@ -296,16 +485,15 @@ public class AgentRuntime {
                 });
 
         Flux<AgentEvent> afterStream = Flux.defer(() -> {
-            if (!allChunks.isEmpty()) {
-                ChatResponse lastChunk = allChunks.get(allChunks.size() - 1);
-                try {
-                    if (lastChunk.getMetadata() != null
-                            && lastChunk.getMetadata().getUsage() != null
-                            && lastChunk.getMetadata().getUsage().getTotalTokens() > 0) {
-                        tracker.updateFromApiUsage(lastChunk.getMetadata().getUsage().getTotalTokens());
+            for (int i = allChunks.size() - 1; i >= 0; i--) {
+                ChatResponse chunk = allChunks.get(i);
+                if (chunk != null && chunk.getMetadata() != null) {
+                    Usage usage = chunk.getMetadata().getUsage();
+                    if (usage != null && usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
+                        workingMemory.setActualTokenUsage(usage.getPromptTokens().intValue());
+                        log.debug("Actual prompt tokens from API: {}", usage.getPromptTokens());
+                        break;
                     }
-                } catch (Exception e) {
-                    log.trace("Could not extract usage from last chunk: {}", e.getMessage());
                 }
             }
 
@@ -314,12 +502,30 @@ public class AgentRuntime {
             if (merged != null) {
                 return processToolCalls(chatModel, history, options, merged, maxTurns, timeout, turn, fullText,
                         agentName, sessionId, skillsBasePath,
-                        loopDetector, tracker, condenser, cache, approvalGate,
-                        toolTimeout, maxToolResultChars, maxParallel, nonRetryableTools,
-                        activePlanId, planStepTracker);
+                        loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
+                        toolTimeout, maxParallel, nonRetryableTools,
+                        activePlanId, planStepTracker, planExecutionAssessment);
             }
 
-            return Flux.just(new AgentEvent.Done(fullText.toString(), turn));
+            String finalText = fullText.toString();
+            if (!finalText.isEmpty()) {
+                history.add(new AssistantMessage(finalText));
+                MemoryChunk assistantChunk = MemoryChunk.assistant(
+                        finalText, tokenEstimator.estimateForMessage(finalText));
+                workingMemory.accept(assistantChunk);
+            }
+
+            WorkingMemory.MemorySnapshot snap = workingMemory.getSnapshot();
+            List<AgentEvent.ChunkInfo> chunkInfos = snap.chunks().stream()
+                    .map(c -> new AgentEvent.ChunkInfo(c.id(), c.type(), c.category(),
+                            c.importance(), c.tokens(), c.contentPreview(), c.createdAt()))
+                    .toList();
+            AgentEvent.MemorySnapshot memSnap = new AgentEvent.MemorySnapshot(
+                    snap.tokenBudget(), snap.tokenUsed(), snap.tokenEstimated(), snap.usageRatio(),
+                    snap.chunkCount(), chunkInfos);
+            latestSnapshots.put(sessionId, memSnap);
+
+            return Flux.just(memSnap, new AgentEvent.Done(finalText, turn));
         });
 
         return Flux.concat(turnStart, streaming, afterStream);
@@ -378,16 +584,17 @@ public class AgentRuntime {
             Long sessionId,
             String skillsBasePath,
             ToolCallLoopDetector loopDetector,
-            ContextWindowTracker tracker,
-            ContextCondenser condenser,
+            WorkingMemory workingMemory,
+            ImportanceAssessor importanceAssessor,
+            TokenEstimator tokenEstimator,
             ToolResultCache cache,
             ToolApprovalGate approvalGate,
             Duration toolTimeout,
-            int maxToolResultChars,
             int maxParallel,
             Set<String> nonRetryableTools,
             Long activePlanId,
-            PlanStepTracker planStepTracker) {
+            PlanStepTracker planStepTracker,
+            PlanExecutionAssessment planExecutionAssessment) {
 
         AssistantMessage assistantMsg = toolCallResponse.getResult().getOutput();
         history.add(assistantMsg);
@@ -440,7 +647,7 @@ public class AgentRuntime {
         Mono<List<ToolExecutionResult>> directResultsMono = Flux.fromIterable(directCalls)
                 .flatMap(tc -> executeSingleTool(tc, agentName, sessionId, skillsBasePath,
                         loopDetector, cache,
-                        toolTimeout, maxToolResultChars, nonRetryableTools), maxParallel)
+                        toolTimeout, nonRetryableTools), maxParallel)
                 .collectList();
 
         // Phase 2b: Handle approval tools (emit approval events, wait, then execute)
@@ -457,7 +664,7 @@ public class AgentRuntime {
                                 String args = decision.modifiedArguments() != null
                                         ? decision.modifiedArguments() : tc.arguments();
                                 return doExecuteTool(tc.id(), tc.name(), args, agentName, sessionId, skillsBasePath,
-                                        cache, toolTimeout, maxToolResultChars, nonRetryableTools, false);
+                                        cache, toolTimeout, nonRetryableTools, false);
                             });
 
                     return Flux.concat(
@@ -511,30 +718,82 @@ public class AgentRuntime {
             for (AgentEvent evt : allEvents) {
                 if (evt instanceof AgentEvent.ToolResult tr) {
                     responses.add(new ToolResponseMessage.ToolResponse(tr.toolCallId(), tr.name(), tr.result()));
-                    int chars = tr.result() != null ? tr.result().length() : 0;
-                    tracker.addToolResultChars(chars);
+                    String resultText = tr.result() != null ? tr.result() : "";
+                    int tokens = tokenEstimator.estimateForToolInteraction(resultText);
+                    workingMemory.addIncrementalTokens(tokens);
+                    Map<String, String> toolMeta = Map.of("toolName", tr.name());
+                    float importance;
+                    if (activePlanId != null && planExecutionAssessment != null) {
+                        String currentStep = planExecutionAssessment.currentStepDescription();
+                        List<String> completed = planExecutionAssessment.completedStepDescriptions() != null
+                                ? planExecutionAssessment.completedStepDescriptions() : List.of();
+                        List<String> pending = planExecutionAssessment.pendingStepDescriptions() != null
+                                ? planExecutionAssessment.pendingStepDescriptions() : List.of();
+                        importance = importanceAssessor.assessWithPlanContext(
+                                resultText, ContentCategory.COMMAND_OUTPUT, toolMeta,
+                                currentStep != null ? currentStep : "", completed, pending);
+                    } else {
+                        importance = importanceAssessor.assess(resultText, ContentCategory.COMMAND_OUTPUT, toolMeta);
+                    }
+                    MemoryChunk chunk = MemoryChunk.toolInteraction(
+                            resultText, ContentCategory.COMMAND_OUTPUT, importance, tokens,
+                            Map.of("toolName", tr.name(), "toolCallId", tr.toolCallId(), "arguments", "{}"));
+                    workingMemory.accept(chunk);
                 }
             }
             if (!responses.isEmpty()) {
                 history.add(new ToolResponseMessage(responses));
             }
-            return Flux.fromIterable(allEvents);
+
+            // Emit lightweight snapshot after tool results for real-time frontend token tracking
+            List<AgentEvent> result = new ArrayList<>(allEvents);
+            WorkingMemory.MemorySnapshot midSnap = workingMemory.getSnapshot();
+            List<AgentEvent.ChunkInfo> midChunkInfos = midSnap.chunks().stream()
+                    .map(c -> new AgentEvent.ChunkInfo(c.id(), c.type(), c.category(),
+                            c.importance(), c.tokens(), c.contentPreview(), c.createdAt()))
+                    .toList();
+            AgentEvent.MemorySnapshot midEvent = new AgentEvent.MemorySnapshot(
+                    midSnap.tokenBudget(), midSnap.tokenUsed(), midSnap.tokenEstimated(), midSnap.usageRatio(),
+                    midSnap.chunkCount(), midChunkInfos);
+            latestSnapshots.put(sessionId, midEvent);
+            result.add(midEvent);
+            return Flux.fromIterable(result);
         });
 
-        // Phase 5: Recurse to next turn
+        // Phase 5: Await consolidation (if any), emit ConsolidationTriggered + memory snapshot, recurse
+        Flux<AgentEvent> memorySnapshot = Flux.defer(() -> workingMemory.awaitPendingConsolidation()
+                .flatMapMany(optionalCr -> {
+                    List<AgentEvent> events = new ArrayList<>();
+                    optionalCr.ifPresent(cr -> {
+                        events.add(toConsolidationTriggeredEvent(cr, workingMemory));
+                        history.clear();
+                        history.addAll(workingMemory.buildLLMInputSync());
+                    });
+                    WorkingMemory.MemorySnapshot snap = workingMemory.getSnapshot();
+                    List<AgentEvent.ChunkInfo> chunkInfos = snap.chunks().stream()
+                            .map(c -> new AgentEvent.ChunkInfo(c.id(), c.type(), c.category(),
+                                    c.importance(), c.tokens(), c.contentPreview(), c.createdAt()))
+                            .toList();
+                    AgentEvent.MemorySnapshot event = new AgentEvent.MemorySnapshot(
+                            snap.tokenBudget(), snap.tokenUsed(), snap.tokenEstimated(), snap.usageRatio(),
+                            snap.chunkCount(), chunkInfos);
+                    latestSnapshots.put(sessionId, event);
+                    events.add(event);
+                    return Flux.fromIterable(events);
+                }));
         Flux<AgentEvent> nextTurn = Flux.defer(() ->
                 executeLoopTurn(chatModel, history, options, maxTurns, timeout, turn + 1, fullText,
                         agentName, sessionId, skillsBasePath,
-                        loopDetector, tracker, condenser, cache, approvalGate,
-                        toolTimeout, maxToolResultChars, maxParallel, nonRetryableTools,
-                        activePlanId, planStepTracker));
+                        loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
+                        toolTimeout, maxParallel, nonRetryableTools,
+                        activePlanId, planStepTracker, planExecutionAssessment));
 
-        return Flux.concat(autoStartFlux, callEvents, withHistory, nextTurn);
+        return Flux.concat(autoStartFlux, callEvents, withHistory, memorySnapshot, nextTurn);
     }
 
     /**
      * Executes a single tool call with the full middleware chain:
-     * loop detection -> approval gate -> cache check -> actual execution (with retry + timeout) -> truncation.
+     * loop detection -> approval gate -> cache check -> actual execution (with retry + timeout).
      * <p>
      * Returns a Mono of ToolExecutionResult. Approval events are emitted separately
      * via processToolCalls which handles the approval flow.
@@ -547,7 +806,6 @@ public class AgentRuntime {
             ToolCallLoopDetector loopDetector,
             ToolResultCache cache,
             Duration toolTimeout,
-            int maxToolResultChars,
             Set<String> nonRetryableTools) {
 
         // 1. Loop detection
@@ -564,7 +822,7 @@ public class AgentRuntime {
 
         // 2. Direct execution (approval is handled at the processToolCalls level)
         return doExecuteTool(tc.id(), tc.name(), tc.arguments(), agentName, sessionId, skillsBasePath,
-                cache, toolTimeout, maxToolResultChars, nonRetryableTools, appendWarning);
+                cache, toolTimeout, nonRetryableTools, appendWarning);
     }
 
     private Mono<ToolExecutionResult> doExecuteTool(
@@ -576,7 +834,6 @@ public class AgentRuntime {
             String skillsBasePath,
             ToolResultCache cache,
             Duration toolTimeout,
-            int maxToolResultChars,
             Set<String> nonRetryableTools,
             boolean appendWarning) {
 
@@ -584,7 +841,6 @@ public class AgentRuntime {
         String cached = cache.get(toolName, arguments);
         if (cached != null) {
             String result = cached + "\n[缓存结果]";
-            result = truncateToolResult(result, maxToolResultChars);
             if (appendWarning) {
                 result += "\n\n[警告：你已多次使用相同参数调用此工具，请尝试其他方法。]";
             }
@@ -603,7 +859,6 @@ public class AgentRuntime {
                         cache.put(toolName, arguments, result);
                         cache.invalidateForWrite(toolName, arguments);
 
-                        result = truncateToolResult(result, maxToolResultChars);
                         if (appendWarning) {
                             result += "\n\n[警告：你已多次使用相同参数调用此工具，请尝试其他方法。]";
                         }
@@ -644,17 +899,6 @@ public class AgentRuntime {
             return false;
         }
         return e.getMessage() != null && e.getMessage().contains("429");
-    }
-
-    static String truncateToolResult(String result, int maxChars) {
-        if (result == null || result.length() <= maxChars) {
-            return result;
-        }
-        int half = maxChars / 2;
-        return result.substring(0, half)
-                + "\n\n... [已截断：显示前后各 " + half
-                + " 字符，共 " + result.length() + " 字符] ...\n\n"
-                + result.substring(result.length() - half);
     }
 
     // ─── skill activation recording ───
@@ -783,7 +1027,6 @@ public class AgentRuntime {
                 : text;
     }
 
-    private static final int SECTION_MAX_CHARS = 20_000;
     private static final int TOTAL_MAX_CHARS = 150_000;
 
     private String buildSystemPrompt(JavaClawProperties.Agent agentConfig,
@@ -1110,5 +1353,97 @@ public class AgentRuntime {
             }
             default -> List.of();
         };
+    }
+
+    /**
+     * Defers episodic storage until WebSocket disconnects. Updates the deferred state on every agent run
+     * so that the latest conversation state is used when flush is triggered.
+     */
+    private void deferEpisodicStore(WorkingMemory workingMemory, LongTermMemory ltm,
+                                     String userId, String agentId, Long sessionId, int minChunksForEpisodic) {
+        deferredEpisodicStores.put(sessionId, new DeferredEpisodicStore(workingMemory, ltm, userId, agentId, sessionId, minChunksForEpisodic));
+    }
+
+    /**
+     * Asynchronously store an episodic summary of the session.
+     * Uses LLM summarization when no mid-session consolidation occurred and conversation is substantial.
+     */
+    private void storeSessionEpisodicMemory(WorkingMemory workingMemory, LongTermMemory ltm,
+                                             String userId, String agentId, Long sessionId, int minChunksForEpisodic) {
+        try {
+            List<MemoryChunk> chunks = workingMemory.getChunks();
+            if (chunks.size() <= minChunksForEpisodic) return;
+
+            if (workingMemory.getConsolidationCount() == 0) {
+                storeSessionEpisodicViaLLM(workingMemory, ltm, userId, agentId, sessionId);
+            } else {
+                storeSessionEpisodicSimple(chunks, ltm, userId, agentId, sessionId);
+            }
+        } catch (Exception e) {
+            log.warn("Error building session episodic memory: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * High-quality episodic: call consolidation model to summarize the entire session.
+     * Uses summarizeSession (processes ALL chunks) instead of tryConsolidate (which only processes old chunks).
+     */
+    private void storeSessionEpisodicViaLLM(WorkingMemory workingMemory, LongTermMemory ltm,
+                                             String userId, String agentId, Long sessionId) {
+        MemoryConsolidator consolidator = workingMemory.getConsolidator();
+        if (consolidator == null) {
+            consolidator = memorySystem != null ? memorySystem.getConsolidator() : null;
+        }
+        if (consolidator == null) {
+            storeSessionEpisodicSimple(workingMemory.getChunks(), ltm, userId, agentId, sessionId);
+            return;
+        }
+
+        final MemoryConsolidator effectiveConsolidator = consolidator;
+        final List<MemoryChunk> allChunks = new ArrayList<>(workingMemory.getChunks());
+        Mono.fromCallable(() -> effectiveConsolidator.summarizeSession(allChunks, agentId, userId))
+                .subscribeOn(Schedulers.boundedElastic())
+                .subscribe(
+                        result -> {
+                            if (result != null && !result.facts().isEmpty()) {
+                                log.info("Session {} full summarization: {} facts stored", sessionId, result.facts().size());
+                            } else {
+                                storeSessionEpisodicSimple(allChunks, ltm, userId, agentId, sessionId);
+                            }
+                        },
+                        e -> {
+                            log.warn("Session {} full summarization failed, falling back to simple: {}",
+                                    sessionId, e.getMessage());
+                            storeSessionEpisodicSimple(allChunks, ltm, userId, agentId, sessionId);
+                        });
+    }
+
+    private void storeSessionEpisodicSimple(List<MemoryChunk> chunks, LongTermMemory ltm,
+                                             String userId, String agentId, Long sessionId) {
+        StringBuilder summary = new StringBuilder();
+        summary.append("Session ").append(sessionId).append(" summary: ");
+        int userCount = 0, toolCount = 0;
+        for (MemoryChunk c : chunks) {
+            switch (c.type()) {
+                case USER -> userCount++;
+                case TOOL_INTERACTION -> toolCount++;
+                default -> {}
+            }
+        }
+        summary.append(userCount).append(" user turns, ").append(toolCount).append(" tool calls. ");
+
+        for (MemoryChunk c : chunks) {
+            if (c.type() == com.atm.javaclaw.memory.model.ChunkType.USER) {
+                String preview = c.content().length() > 100 ? c.content().substring(0, 100) + "..." : c.content();
+                summary.append("Topics: ").append(preview);
+                break;
+            }
+        }
+
+        ExtractedFact episodic = new ExtractedFact("episodic", summary.toString(), 0.5f);
+        ltm.store(episodic, userId, agentId)
+                .subscribe(
+                        unused -> {},
+                        e -> log.warn("Failed to store session episodic memory for session {}: {}", sessionId, e.getMessage()));
     }
 }

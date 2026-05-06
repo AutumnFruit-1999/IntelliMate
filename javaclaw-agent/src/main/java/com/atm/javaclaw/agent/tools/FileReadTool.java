@@ -14,12 +14,11 @@ import java.nio.file.Path;
 public class FileReadTool {
 
     private static final Logger log = LoggerFactory.getLogger(FileReadTool.class);
-    private static final int MAX_LINES_PER_READ = 500;
 
     @Tool(description = """
-            读取指定路径的文件内容。大文件（>500 行）自动分页。
+            读取指定路径的文件内容；未指定 startLine/lineCount 时返回全文。
             可通过 startLine 和 lineCount 参数读取特定区间。
-            返回结果包含总行数信息。""")
+            返回结果在部分读取时会标注行范围。""")
     public String readFile(
             @ToolParam(description = "文件的绝对或相对路径") String path,
             @ToolParam(description = "起始行号（从 1 开始，可选）", required = false) Integer startLine,
@@ -38,18 +37,6 @@ public class FileReadTool {
 
             var lines = Files.readAllLines(filePath);
 
-            if (startLine == null && lineCount == null && lines.size() > MAX_LINES_PER_READ) {
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < MAX_LINES_PER_READ; i++) {
-                    sb.append(i + 1).append("|").append(lines.get(i)).append("\n");
-                }
-                sb.append("\n--- [Showing lines 1-").append(MAX_LINES_PER_READ)
-                  .append(" of ").append(lines.size()).append(" total lines. ")
-                  .append("Use startLine=").append(MAX_LINES_PER_READ + 1)
-                  .append(" to read more.] ---");
-                return sb.toString();
-            }
-
             int start = (startLine != null && startLine > 0) ? startLine - 1 : 0;
             int end = (lineCount != null && lineCount > 0) ? Math.min(start + lineCount, lines.size()) : lines.size();
             start = Math.min(start, lines.size());
@@ -59,7 +46,7 @@ public class FileReadTool {
                 sb.append(i + 1).append("|").append(lines.get(i)).append("\n");
             }
 
-            if (lines.size() > MAX_LINES_PER_READ) {
+            if (start > 0 || end < lines.size()) {
                 sb.append("\n--- [Showing lines ").append(start + 1).append("-").append(end)
                   .append(" of ").append(lines.size()).append(" total lines.] ---");
             }

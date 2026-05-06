@@ -111,6 +111,7 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
                 .doFinally(signal -> {
                     receiver.dispose();
                     heartbeat.dispose();
+                    messagePipeline.onWebSocketDisconnect(session.getId());
                     log.info("WebSocket disconnected: sessionId={}, signal={}", session.getId(), signal);
                 });
     }

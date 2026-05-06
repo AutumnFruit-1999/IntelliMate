@@ -3,6 +3,7 @@ package com.atm.javaclaw.gateway.pipeline;
 import com.atm.javaclaw.agent.runtime.AgentEvent;
 import com.atm.javaclaw.agent.runtime.AgentRunRequest;
 import com.atm.javaclaw.agent.runtime.AgentRuntime;
+import com.atm.javaclaw.agent.runtime.PlanExecutionAssessment;
 import com.atm.javaclaw.core.config.JavaClawProperties;
 import com.atm.javaclaw.core.model.SessionKey;
 import com.atm.javaclaw.core.prompt.PromptLoader;
@@ -20,8 +21,11 @@ import com.atm.javaclaw.gateway.entity.SessionEntity;
 import com.atm.javaclaw.gateway.entity.TranscriptMessageEntity;
 import com.atm.javaclaw.gateway.service.PlanService;
 import com.atm.javaclaw.gateway.session.SessionManager;
+import com.atm.javaclaw.memory.longterm.LongTermMemory;
+import com.atm.javaclaw.memory.model.ExtractedFact;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
@@ -29,11 +33,14 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Component
@@ -48,7 +55,11 @@ public class MessagePipeline {
     private final CommandHandler commandHandler;
     private final AuditService auditService;
     private final PlanService planService;
+    private final LongTermMemory longTermMemory;
     private final AtomicLong seqGenerator = new AtomicLong(0);
+    private final ConcurrentMap<String, Long> wsSessionToDbSession = new ConcurrentHashMap<>();
+
+    private record PlanExecutionPayload(String markdown, PlanExecutionAssessment assessment) {}
 
     public MessagePipeline(SessionManager sessionManager,
                            AgentRuntime agentRuntime,
@@ -56,7 +67,8 @@ public class MessagePipeline {
                            AgentConfigService agentConfigService,
                            CommandHandler commandHandler,
                            AuditService auditService,
-                           PlanService planService) {
+                           PlanService planService,
+                           @Autowired(required = false) LongTermMemory longTermMemory) {
         this.sessionManager = sessionManager;
         this.agentRuntime = agentRuntime;
         this.properties = properties;
@@ -64,6 +76,7 @@ public class MessagePipeline {
         this.commandHandler = commandHandler;
         this.auditService = auditService;
         this.planService = planService;
+        this.longTermMemory = longTermMemory;
     }
 
     @SuppressWarnings("unchecked")
@@ -102,6 +115,7 @@ public class MessagePipeline {
 
         return sessionManager.getOrCreate(sessionKey, metadata)
                 .flatMapMany(session -> {
+                    wsSessionToDbSession.put(wsSessionId, session.getId());
                     if (CommandHandler.isCommand(userText)) {
                         return auditService.log("command", wsSessionId, session.getId(), userText)
                                 .thenMany(commandHandler.handle(userText, session, request.id()));
@@ -143,31 +157,36 @@ public class MessagePipeline {
                                     loadHistory(session.getId(), effectivePlanId).collectList(),
                                     agentConfigService.resolve(session.getAgentName()),
                                     planExecuting
-                                            ? buildPlanExecutionContext(planId).defaultIfEmpty("")
-                                            : Mono.just("")
+                                            ? buildPlanExecutionPayload(planId)
+                                            : Mono.just(new PlanExecutionPayload("", null))
                             ))
                             .flatMapMany(tuple -> {
                                 List<Message> messages = convertToAiMessages(tuple.getT1());
                                 ResolvedAgentConfig resolved = tuple.getT2();
-                                String planContext = tuple.getT3();
+                                PlanExecutionPayload planPayload = tuple.getT3();
+                                String planContext = planPayload.markdown().isEmpty() ? null : planPayload.markdown();
 
+                                String effectiveUserId = session.getContextId() != null && !session.getContextId().isBlank()
+                                        ? session.getContextId() : "default";
                                 AgentRunRequest runRequest = new AgentRunRequest(
                                         session.getId(),
+                                        effectiveUserId,
                                         resolved.agent(),
                                         userText,
                                         messages,
                                         resolved.toolsEnabled(),
                                         resolved.mcpToolsEnabled(),
                                         resolved.skillsEnabled(),
-                                        planContext.isEmpty() ? null : planContext,
+                                        planContext,
                                         forcePlan,
-                                        effectivePlanId
+                                        effectivePlanId,
+                                        planPayload.assessment()
                                 );
 
                                 StringBuilder fullResponse = new StringBuilder();
 
                                 Flux<GatewayFrame> events = agentRuntime.dispatch(runRequest)
-                                        .concatMap(event -> mapAgentEvent(event, requestId, fullResponse));
+                                        .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session));
 
                                 Flux<GatewayFrame> tail = Flux.defer(() -> {
                                     String completeText = fullResponse.toString();
@@ -184,14 +203,16 @@ public class MessagePipeline {
                                             .then(auditService.log("agent_response", "agent", session.getId(),
                                                     "length=" + completeText.length()));
 
+                                    String memoryAgentId = resolveAgentId(session);
+                                    String memoryUserId = resolveUserId(session);
                                     Mono<List<GatewayFrame>> syncMono;
                                     if (planExecuting && effectivePlanId != null) {
-                                        syncMono = syncPlanAfterExecution(effectivePlanId);
+                                        syncMono = syncPlanAfterExecution(effectivePlanId, session.getId(), memoryAgentId, memoryUserId);
                                     } else {
                                         syncMono = planService.getActivePlan(session.getId())
                                                 .filter(p -> "executing".equals(p.getStatus())
                                                         || "approved".equals(p.getStatus()))
-                                                .flatMap(p -> syncPlanAfterExecution(p.getId()))
+                                                .flatMap(p -> syncPlanAfterExecution(p.getId(), session.getId(), memoryAgentId, memoryUserId))
                                                 .defaultIfEmpty(List.of());
                                     }
 
@@ -217,7 +238,7 @@ public class MessagePipeline {
         return sessionManager.getChatHistory(sessionId, limit);
     }
 
-    private Mono<String> buildPlanExecutionContext(Long planId) {
+    private Mono<PlanExecutionPayload> buildPlanExecutionPayload(Long planId) {
         return planService.getSteps(planId)
                 .collectList()
                 .map(steps -> {
@@ -268,8 +289,61 @@ public class MessagePipeline {
                         dynamicState.append('\n');
                     }
 
-                    return PromptLoader.format("prompts/plan-execution-context.md", dynamicState.toString());
+                    String markdown = PromptLoader.format("prompts/plan-execution-context.md", dynamicState.toString());
+
+                    String currentStepDesc = null;
+                    if (current != null) {
+                        StringBuilder cur = new StringBuilder();
+                        if (current.getTitle() != null) {
+                            cur.append(current.getTitle());
+                        }
+                        if (current.getDescription() != null && !current.getDescription().isBlank()) {
+                            if (!cur.isEmpty()) {
+                                cur.append(' ');
+                            }
+                            cur.append(current.getDescription());
+                        }
+                        currentStepDesc = cur.toString().trim();
+                        if (currentStepDesc.isEmpty()) {
+                            currentStepDesc = null;
+                        }
+                    }
+
+                    List<String> completedDescs = completed.stream()
+                            .map(MessagePipeline::stepTextForImportance)
+                            .filter(s -> !s.isBlank())
+                            .toList();
+                    List<String> pendingDescs = pending.stream()
+                            .map(MessagePipeline::stepTitleDescriptionOnly)
+                            .filter(s -> !s.isBlank())
+                            .toList();
+
+                    PlanExecutionAssessment assessment = new PlanExecutionAssessment(
+                            currentStepDesc, completedDescs, pendingDescs);
+                    return new PlanExecutionPayload(markdown, assessment);
                 });
+    }
+
+    private static String stepTextForImportance(PlanStepEntity s) {
+        String base = stepTitleDescriptionOnly(s);
+        if (s.getResultSummary() != null && !s.getResultSummary().isBlank()) {
+            return base.isEmpty() ? s.getResultSummary().trim() : base + " " + s.getResultSummary().trim();
+        }
+        return base;
+    }
+
+    private static String stepTitleDescriptionOnly(PlanStepEntity s) {
+        StringBuilder b = new StringBuilder();
+        if (s.getTitle() != null && !s.getTitle().isBlank()) {
+            b.append(s.getTitle().trim());
+        }
+        if (s.getDescription() != null && !s.getDescription().isBlank()) {
+            if (!b.isEmpty()) {
+                b.append(' ');
+            }
+            b.append(s.getDescription().trim());
+        }
+        return b.toString().trim();
     }
 
     /**
@@ -277,7 +351,7 @@ public class MessagePipeline {
      * lifecycle events. Handles the case where the LLM completes work for a step
      * but forgets to call updatePlan(markStep, completed) or completePlan.
      */
-    private Mono<List<GatewayFrame>> syncPlanAfterExecution(Long planId) {
+    private Mono<List<GatewayFrame>> syncPlanAfterExecution(Long planId, Long sessionId, String agentId, String userId) {
         return planService.getSteps(planId).collectList()
                 .flatMap(steps -> {
                     List<GatewayFrame> syncEvents = new ArrayList<>();
@@ -290,7 +364,7 @@ public class MessagePipeline {
                             .toList();
 
                     if (nonTerminal.isEmpty()) {
-                        return checkAndCompletePlan(planId, steps, syncEvents);
+                        return checkAndCompletePlan(planId, steps, syncEvents, sessionId, agentId, userId);
                     }
 
                     log.info("Post-exec sync: auto-completing {} non-terminal steps for plan {}",
@@ -307,12 +381,13 @@ public class MessagePipeline {
                                                             "resultSummary", "步骤已由系统自动标记完成"),
                                                     seqGenerator.incrementAndGet()))))
                             .then(planService.getSteps(planId).collectList())
-                            .flatMap(updatedSteps -> checkAndCompletePlan(planId, updatedSteps, syncEvents));
+                            .flatMap(updatedSteps -> checkAndCompletePlan(planId, updatedSteps, syncEvents, sessionId, agentId, userId));
                 });
     }
 
     private Mono<List<GatewayFrame>> checkAndCompletePlan(Long planId, List<PlanStepEntity> steps,
-                                                           List<GatewayFrame> syncEvents) {
+                                                           List<GatewayFrame> syncEvents, Long sessionId,
+                                                           String agentId, String userId) {
         boolean allTerminal = steps.stream().allMatch(s -> {
             String st = s.getStatus();
             return "completed".equals(st) || "failed".equals(st) || "skipped".equals(st);
@@ -324,10 +399,73 @@ public class MessagePipeline {
                         syncEvents.add(new EventFrame("plan.completed",
                                 Map.of("planId", planId, "status", "completed"),
                                 seqGenerator.incrementAndGet()));
+                        schedulePlanCompletionMemoryExtraction(sessionId, planId, agentId, userId);
                         return syncEvents;
                     });
         }
         return Mono.just(syncEvents);
+    }
+
+    /**
+     * Persists a comprehensive procedural + episodic memory after a plan finishes.
+     * Format: "问题 + 解决步骤 + 结果" as one procedural entry, plus a brief episodic entry.
+     */
+    private void schedulePlanCompletionMemoryExtraction(Long sessionId, Long planId, String agentId, String userId) {
+        if (longTermMemory == null || planId == null || sessionId == null) {
+            return;
+        }
+        String effectiveAgentId = agentId != null && !agentId.isBlank() ? agentId : "default";
+        String effectiveUserId = userId != null && !userId.isBlank() ? userId : "default";
+        Mono.defer(() -> Mono.zip(
+                        planService.getPlanById(planId).defaultIfEmpty(new PlanEntity()),
+                        planService.getSteps(planId).collectList()))
+                .flatMap(tuple -> {
+                    PlanEntity plan = tuple.getT1();
+                    List<PlanStepEntity> steps = tuple.getT2();
+                    String title = plan.getTitle();
+                    if (title == null || title.isBlank()) {
+                        title = "Plan " + planId;
+                    }
+
+                    long completedCount = steps.stream().filter(s -> "completed".equals(s.getStatus())).count();
+                    long failedCount = steps.stream().filter(s -> "failed".equals(s.getStatus())).count();
+                    String outcome = failedCount == 0 ? "成功" : "部分完成(" + completedCount + "成功/" + failedCount + "失败)";
+
+                    String procedural = buildPlanProceduralSummary(title, steps, outcome);
+                    String episodic = "完成计划: " + title + ", 共" + steps.size() + "步, " + outcome;
+
+                    Mono<Void> proceduralMono = longTermMemory.store(
+                            new ExtractedFact("procedural", procedural, 0.7f), effectiveUserId, effectiveAgentId);
+                    Mono<Void> episodicMono = longTermMemory.store(
+                            new ExtractedFact("episodic", episodic, 0.6f), effectiveUserId, effectiveAgentId);
+                    return proceduralMono.then(episodicMono);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .subscribe(
+                        unused -> {
+                        },
+                        e -> log.warn("Plan completion memory extraction failed for planId={}: {}",
+                                planId, e.getMessage(), e));
+    }
+
+    private static String buildPlanProceduralSummary(String title, List<PlanStepEntity> steps, String outcome) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("问题：").append(title).append('\n');
+        sb.append("解决步骤：\n");
+        for (PlanStepEntity step : steps) {
+            sb.append(step.getStepIndex()).append(". ");
+            if (step.getTitle() != null && !step.getTitle().isBlank()) {
+                sb.append(step.getTitle().trim());
+            }
+            if (step.getResultSummary() != null && !step.getResultSummary().isBlank()) {
+                sb.append(" → ").append(step.getResultSummary().trim());
+            } else if (step.getStatus() != null) {
+                sb.append(" → ").append(step.getStatus());
+            }
+            sb.append('\n');
+        }
+        sb.append("最终结果：").append(outcome);
+        return sb.toString();
     }
 
     @SuppressWarnings("unchecked")
@@ -479,7 +617,7 @@ public class MessagePipeline {
     }
 
     private Flux<GatewayFrame> mapAgentEvent(
-            AgentEvent event, String requestId, StringBuilder fullResponse) {
+            AgentEvent event, String requestId, StringBuilder fullResponse, SessionEntity session) {
 
         return switch (event) {
             case AgentEvent.TurnStart ts -> Flux.just(new EventFrame(
@@ -599,12 +737,65 @@ public class MessagePipeline {
                     seqGenerator.incrementAndGet()
             ));
 
-            case AgentEvent.PlanCompleted pcomp -> Flux.just(new EventFrame(
-                    "plan.completed",
-                    Map.of("planId", pcomp.planId(), "status", pcomp.status(), "requestId", requestId),
+            case AgentEvent.PlanCompleted pcomp -> {
+                schedulePlanCompletionMemoryExtraction(session.getId(), pcomp.planId(), resolveAgentId(session), resolveUserId(session));
+                yield Flux.just(new EventFrame(
+                        "plan.completed",
+                        Map.of("planId", pcomp.planId(), "status", pcomp.status(), "requestId", requestId),
+                        seqGenerator.incrementAndGet()
+                ));
+            }
+
+            case AgentEvent.MemorySnapshot ms -> Flux.just(new EventFrame(
+                    "memory.snapshot",
+                    Map.of("tokenBudget", ms.tokenBudget(),
+                           "tokenUsed", ms.tokenUsed(),
+                           "tokenEstimated", ms.tokenEstimated(),
+                           "usageRatio", ms.usageRatio(),
+                           "chunkCount", ms.chunkCount(),
+                           "chunks", ms.chunks().stream()
+                                   .map(c -> Map.of("id", c.id(), "type", c.type(),
+                                           "category", c.category(), "importance", c.importance(),
+                                           "tokens", c.tokens(), "contentPreview", c.contentPreview(),
+                                           "createdAt", c.createdAt()))
+                                   .toList(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            case AgentEvent.ConsolidationTriggered ct -> Flux.just(new EventFrame(
+                    "memory.consolidation",
+                    Map.of("chunksSelected", ct.chunksSelected(),
+                           "tokensBefore", ct.tokensBefore(),
+                           "tokensAfter", ct.tokensAfter(),
+                           "extractedFacts", ct.extractedFacts(),
+                           "requestId", requestId),
                     seqGenerator.incrementAndGet()
             ));
         };
+    }
+
+    /**
+     * Called when WebSocket disconnects. Flushes deferred episodic memory for the associated session.
+     */
+    public void onWebSocketDisconnect(String wsSessionId) {
+        Long sessionId = wsSessionToDbSession.remove(wsSessionId);
+        if (sessionId != null) {
+            agentRuntime.flushDeferredEpisodicMemory(sessionId);
+        }
+    }
+
+    private String resolveAgentId(SessionEntity session) {
+        String name = session.getAgentName();
+        if (name == null || name.isBlank()) {
+            return properties.getAgent().getName();
+        }
+        return name;
+    }
+
+    private String resolveUserId(SessionEntity session) {
+        String contextId = session.getContextId();
+        return contextId != null && !contextId.isBlank() ? contextId : "default";
     }
 
     private List<Message> convertToAiMessages(List<TranscriptMessageEntity> history) {

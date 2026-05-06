@@ -8,6 +8,7 @@ import java.util.List;
  * Encapsulates everything needed for a single agent run.
  *
  * @param sessionId          the session this run belongs to
+ * @param userId             the end-user identifier (for memory isolation); null falls back to "default"
  * @param agent              resolved agent configuration
  * @param userMessage        the user's input text
  * @param history            conversation history as Spring AI messages
@@ -16,10 +17,12 @@ import java.util.List;
  * @param skillsEnabled      skill filtering spec: null=none, "full"=all, or JSON array of skill names
  * @param planContext        optional Plan execution context injected into system prompt when a plan is active
  * @param forcePlan          if true, system prompt instructs agent to always create a plan first
- * @param activePlanId       ID of the plan being executed (null if no plan), used for pause check
+ * @param activePlanId              ID of the plan being executed (null if no plan), used for pause check
+ * @param planExecutionAssessment   optional structured plan step text for plan-mode memory scoring
  */
 public record AgentRunRequest(
         Long sessionId,
+        String userId,
         JavaClawProperties.Agent agent,
         String userMessage,
         List<org.springframework.ai.chat.messages.Message> history,
@@ -28,16 +31,17 @@ public record AgentRunRequest(
         String skillsEnabled,
         String planContext,
         boolean forcePlan,
-        Long activePlanId
+        Long activePlanId,
+        PlanExecutionAssessment planExecutionAssessment
 ) {
     public AgentRunRequest(Long sessionId, JavaClawProperties.Agent agent,
                            String userMessage, List<org.springframework.ai.chat.messages.Message> history) {
-        this(sessionId, agent, userMessage, history, null, null, null, null, false, null);
+        this(sessionId, null, agent, userMessage, history, null, null, null, null, false, null, null);
     }
 
     public AgentRunRequest(Long sessionId, JavaClawProperties.Agent agent,
                            String userMessage, List<org.springframework.ai.chat.messages.Message> history,
                            String toolsEnabled, String mcpToolsEnabled, String skillsEnabled) {
-        this(sessionId, agent, userMessage, history, toolsEnabled, mcpToolsEnabled, skillsEnabled, null, false, null);
+        this(sessionId, null, agent, userMessage, history, toolsEnabled, mcpToolsEnabled, skillsEnabled, null, false, null, null);
     }
 }

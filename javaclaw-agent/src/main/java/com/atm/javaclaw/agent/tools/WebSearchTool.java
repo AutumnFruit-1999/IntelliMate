@@ -39,7 +39,7 @@ public class WebSearchTool {
             @ToolParam(description = "搜索关键词") String query,
             @ToolParam(description = "最大结果数量（默认 5）", required = false) Integer maxResults
     ) {
-        int limit = (maxResults != null && maxResults > 0) ? Math.min(maxResults, 10) : 5;
+        int limit = (maxResults != null && maxResults > 0) ? maxResults : 5;
         log.info("Web search: query='{}', limit={}", query, limit);
 
         if (serpApiKey == null || serpApiKey.isBlank()) {

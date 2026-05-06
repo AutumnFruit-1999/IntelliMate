@@ -78,4 +78,22 @@ public sealed interface AgentEvent {
     ) implements AgentEvent {}
 
     record PlanCompleted(Long planId, String status) implements AgentEvent {}
+
+    // ───── Memory events ─────
+
+    record MemorySnapshot(
+            int tokenBudget, int tokenUsed, int tokenEstimated, float usageRatio,
+            int chunkCount, List<ChunkInfo> chunks
+    ) implements AgentEvent {}
+
+    record ChunkInfo(
+            String id, String type, String category,
+            float importance, int tokens, String contentPreview,
+            String createdAt
+    ) {}
+
+    record ConsolidationTriggered(
+            int chunksSelected, int tokensBefore, int tokensAfter,
+            List<String> extractedFacts
+    ) implements AgentEvent {}
 }
