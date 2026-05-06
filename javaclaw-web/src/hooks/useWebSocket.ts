@@ -9,6 +9,7 @@ import {
 import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import { usePlanStore } from "../stores/planStore";
+import { useMemoryStore } from "../stores/memoryStore";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/ws`;
@@ -180,6 +181,14 @@ export function useWebSocket() {
             console.log("[WS] plan.completed:", event.payload);
             usePlanStore.getState().handlePlanCompleted(event.payload);
             useChatStore.getState().snapshotStepGroup();
+            break;
+          }
+          case "memory.snapshot": {
+            useMemoryStore.getState().handleMemorySnapshot(event.payload as any);
+            break;
+          }
+          case "memory.consolidation": {
+            useMemoryStore.getState().handleConsolidation(event.payload as any);
             break;
           }
         }

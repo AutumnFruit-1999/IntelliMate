@@ -118,3 +118,52 @@ export function createPlanReorderSteps(
 ): RequestFrame {
   return createRequest("plan.reorder_steps", { planId, newOrder });
 }
+
+// Memory types
+export interface MemoryChunkInfo {
+  id: string;
+  category: string;
+  tokens: number;
+  importance: number;
+  preview: string;
+  timestamp: number;
+}
+
+export interface MemorySnapshotFrame {
+  type: "MEMORY_SNAPSHOT";
+  tokenBudget: number;
+  tokenUsed: number;
+  /** Per-chunk heuristic sum when provided by the server. */
+  tokenEstimated?: number;
+  usageRatio: number;
+  chunks: MemoryChunkInfo[];
+}
+
+export interface ConsolidationTriggeredFrame {
+  type: "CONSOLIDATION_TRIGGERED";
+  removedChunks: number;
+  tokensFreed: number;
+  factsExtracted: number;
+}
+
+export interface MemoryConfig {
+  key: string;
+  value: string;
+  category: string;
+  description: string;
+}
+
+export interface MemoryConfigGroup {
+  [category: string]: MemoryConfig[];
+}
+
+export interface LongTermMemoryEntry {
+  id: number;
+  userId: string;
+  memoryType: string;
+  content: string;
+  importance: number;
+  accessCount: number;
+  lastAccessTime: string;
+  createdAt: string;
+}

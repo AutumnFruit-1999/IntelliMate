@@ -510,3 +510,78 @@ export function deleteSkillFile(
     method: "DELETE",
   });
 }
+
+// ─── Memory System ───
+
+export interface MemoryConfigItem {
+  value: string;
+  default: string;
+  description: string;
+  type: string;
+}
+
+export interface MemoryConfigResponse {
+  working: Record<string, MemoryConfigItem>;
+  consolidation: Record<string, MemoryConfigItem>;
+  longTerm: Record<string, MemoryConfigItem>;
+}
+
+export interface MemoryStatsResponse {
+  episodicCount: number;
+  semanticCount: number;
+  proceduralCount: number;
+  totalCount: number;
+}
+
+export interface LongTermMemoryItem {
+  id: number;
+  userId: string;
+  agentId: string;
+  memoryType: string;
+  content: string;
+  importance: number;
+  accessCount: number;
+  lastAccessedAt: string | null;
+  createdAt: string;
+}
+
+/** Row from `agent_memory_archive` (cold-archived long-term memories). */
+export interface ArchivedMemoryItem extends LongTermMemoryItem {
+  archivedAt: string;
+}
+
+export function fetchMemoryConfig(): Promise<MemoryConfigResponse> {
+  return request<MemoryConfigResponse>("/api/memory/config");
+}
+
+export function updateMemoryConfig(updates: Record<string, string>): Promise<{ success: string }> {
+  return request("/api/memory/config", {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+}
+
+export function resetMemoryConfig(): Promise<{ success: string }> {
+  return request("/api/memory/config/reset", { method: "POST" });
+}
+
+export function fetchMemoryStats(userId = "default", agentId = "default"): Promise<MemoryStatsResponse> {
+  const params = new URLSearchParams({ userId, agentId });
+  return request<MemoryStatsResponse>(`/api/memory/stats?${params}`);
+}
+
+export function fetchLongTermMemories(userId?: string, type?: string, agentId = "default"): Promise<LongTermMemoryItem[]> {
+  const params = new URLSearchParams({ agentId });
+  if (userId) params.set("userId", userId);
+  if (type) params.set("type", type);
+  return request<LongTermMemoryItem[]>(`/api/memory/long-term?${params}`);
+}
+
+export function fetchArchivedMemories(userId = "default", agentId = "default"): Promise<ArchivedMemoryItem[]> {
+  const params = new URLSearchParams({ userId, agentId });
+  return request<ArchivedMemoryItem[]>(`/api/memory/archive?${params}`);
+}
+
+export function deleteLongTermMemory(id: number): Promise<{ success: string }> {
+  return request(`/api/memory/long-term/${id}`, { method: "DELETE" });
+}
