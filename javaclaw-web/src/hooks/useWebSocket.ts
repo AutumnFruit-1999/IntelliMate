@@ -88,7 +88,8 @@ export function useWebSocket() {
                 });
               }
             }
-            if (planState.plan) {
+            if (planState.plan &&
+                !["completed", "cancelled", "failed"].includes(planState.plan.status)) {
               store.snapshotStepGroup();
             }
             break;

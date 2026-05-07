@@ -48,7 +48,9 @@ export default function MessageBubble({ message, isLastAssistantWithTools }: Mes
   const planActive =
     plan &&
     plan.status !== "draft" &&
-    plan.status !== "cancelled";
+    plan.status !== "cancelled" &&
+    plan.status !== "completed" &&
+    plan.status !== "failed";
   const hasPlanTools = hasToolCalls && message.toolCalls!.some(
     (tc) => tc.name === "updatePlan" || tc.name === "writePlan",
   );
