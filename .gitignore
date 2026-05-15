@@ -44,10 +44,17 @@ target/
 *.iml
 *.ipr
 
+### macOS ###
+.DS_Store
+
+### Frontend build ###
+**/dist/
+*.pid
+*.tsbuildinfo
+
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/
-/dist/
 /nbdist/
 /.nb-gradle/
 build/
