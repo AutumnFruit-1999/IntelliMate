@@ -2,7 +2,7 @@
 
 > 调研时间: 2026-03-12  
 > 调研对象: OpenClaw、DeerFlow 2.0、AgentSkills 开放标准  
-> 调研目的: 为 JavaClaw 项目引入 Skills 功能提供设计参考
+> 调研目的: 为 IntelliMate 项目引入 Skills 功能提供设计参考
 
 ---
 
@@ -350,12 +350,12 @@ these instructions...
 - 优势: 跨平台通用性最强，三阶段加载设计精巧，27+ Agent 兼容
 - 劣势: 仅定义格式规范，具体运行时需自行实现
 
-### 5.2 对 JavaClaw 的启示
+### 5.2 对 IntelliMate 的启示
 
-1. **格式兼容 AgentSkills 标准**: 确保 JavaClaw 的 Skills 格式与开放标准兼容，便于生态互通
+1. **格式兼容 AgentSkills 标准**: 确保 IntelliMate 的 Skills 格式与开放标准兼容，便于生态互通
 2. **借鉴 OpenClaw 的 Gating 和配置**: 实现依赖检查和 per-skill 配置覆盖
 3. **参考 DeerFlow 的渐进加载**: 减少 Skills 对 Token 预算的消耗
-4. **结合自身特点**: JavaClaw 使用数据库存储 + 前端管理界面，比纯文件系统更适合 Web 场景
+4. **结合自身特点**: IntelliMate 使用数据库存储 + 前端管理界面，比纯文件系统更适合 Web 场景
 5. **与现有 Tools/MCP 体系协同**: Skills 作为 Tools 上层编排，不替代而是增强
 
 ---

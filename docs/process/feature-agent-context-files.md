@@ -2,7 +2,7 @@
 
 ## 1. 需求背景
 
-OpenClaw 为每个智能体（Agent）维护三个核心上下文文件，在每次会话开始时自动注入到 System Prompt 中，赋予 AI 助手持久化的"性格"、"用户认知"和"行为规范"。JavaClaw 需要对标实现该功能，并基于数据库存储以支持多智能体独立配置。
+OpenClaw 为每个智能体（Agent）维护三个核心上下文文件，在每次会话开始时自动注入到 System Prompt 中，赋予 AI 助手持久化的"性格"、"用户认知"和"行为规范"。IntelliMate 需要对标实现该功能，并基于数据库存储以支持多智能体独立配置。
 
 ---
 
@@ -95,11 +95,11 @@ async function runAgent(session, userMessage) {
 
 ---
 
-## 3. JavaClaw 实现方案
+## 3. IntelliMate 实现方案
 
 ### 3.1 与 OpenClaw 的差异
 
-| 方面 | OpenClaw | JavaClaw |
+| 方面 | OpenClaw | IntelliMate |
 |------|----------|----------|
 | **存储** | 文件系统 (`~/.openclaw/workspace/*.md`) | MySQL 数据库 (`agent` 表新增字段) |
 | **多智能体** | 每个 agent 独立 workspace 目录 | 每个 agent 独立数据库行 |
@@ -176,13 +176,13 @@ agent
 |------|------|------|
 | DB | `V2__agent_context_files.sql` | **新增** — ALTER TABLE 加 3 列 |
 | Entity | `AgentEntity.java` | 新增 `soulMd`, `userMd`, `agentsMd` 字段 |
-| Config Model | `JavaClawProperties.Agent` | 新增 `soulMd`, `userMd`, `agentsMd` 字段 |
+| Config Model | `IntelliMateProperties.Agent` | 新增 `soulMd`, `userMd`, `agentsMd` 字段 |
 | Config Service | `AgentConfigService.toAgentConfig()` | 映射 DB entity → Agent config 新字段 |
 | Agent Runtime | `AgentRuntime.buildSystemPrompt()` | 重写为多段拼接逻辑 |
 
 ### 3.5 对应 OpenClaw 功能映射
 
-| OpenClaw 功能 | JavaClaw 对应实现 | 状态 |
+| OpenClaw 功能 | IntelliMate 对应实现 | 状态 |
 |---------------|------------------|------|
 | `workspace/SOUL.md` 文件 | `agent.soul_md` 数据库字段 | 本次实现 |
 | `workspace/USER.md` 文件 | `agent.user_md` 数据库字段 | 本次实现 |
@@ -205,7 +205,7 @@ agent
 
 ```
 ┌─────────── Sidebar ──────────┐
-│  JavaClaw                [X] │
+│  IntelliMate                [X] │
 │ ─────────────────────────── │
 │  快捷命令                     │
 │  [↻] 重置会话                 │
@@ -230,7 +230,7 @@ agent
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  智能体配置 — javaclaw                       [X]  │
+│  智能体配置 — intellimate                       [X]  │
 ├──────────────────────────────────────────────────┤
 │  [ SOUL ]   [ USER ]   [ AGENTS ]    ← Tab 切换  │
 ├──────────────────────────────────────────────────┤
@@ -271,7 +271,7 @@ GET /api/agent/{name}
 
 Response 200:
 {
-  "name": "javaclaw",
+  "name": "intellimate",
   "model": "qwen-plus",
   "soulMd": "你是一个友好的技术助手...",
   "userMd": "我是一名后端开发...",
@@ -387,10 +387,10 @@ interface AgentContextEditorProps {
 App.tsx 设置 modalOpen=true, initialTab='soul'
         │
         ▼
-AgentConfigModal 渲染，调用 agentStore.fetchConfig('javaclaw')
+AgentConfigModal 渲染，调用 agentStore.fetchConfig('intellimate')
         │
         ▼
-GET /api/agent/javaclaw → 加载数据填充三个 Tab
+GET /api/agent/intellimate → 加载数据填充三个 Tab
         │
         ▼
 用户编辑 SOUL 内容 → agentStore.updateField('soulMd', newValue)
@@ -399,7 +399,7 @@ GET /api/agent/javaclaw → 加载数据填充三个 Tab
 用户点击 [保存]
         │
         ▼
-PUT /api/agent/javaclaw/context → 后端更新 DB
+PUT /api/agent/intellimate/context → 后端更新 DB
         │
         ▼
 下次 LLM 调用时，AgentRuntime.buildSystemPrompt() 

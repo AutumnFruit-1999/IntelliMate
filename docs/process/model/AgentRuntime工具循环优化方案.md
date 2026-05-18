@@ -3,7 +3,7 @@
 > 日期: 2026-03-10  
 > 状态: Draft  
 > 前置文档: [工具循环调研报告.md](工具循环调研报告.md)  
-> 核心文件: `javaclaw-agent/.../runtime/AgentRuntime.java`
+> 核心文件: `intellimate-agent/.../runtime/AgentRuntime.java`
 
 ---
 
@@ -89,10 +89,10 @@ private static String truncateToolResult(String result, int maxChars) {
 - 文件结尾含 return/错误信息等关键结果
 - 命令输出的最后几行通常是 exit code 或错误摘要
 
-**可配置化**: `MAX_TOOL_RESULT_CHARS` 应从 `JavaClawProperties.Agent` 读取：
+**可配置化**: `MAX_TOOL_RESULT_CHARS` 应从 `IntelliMateProperties.Agent` 读取：
 
 ```java
-// JavaClawProperties.Agent 新增:
+// IntelliMateProperties.Agent 新增:
 private int maxToolResultChars = 12_000;
 ```
 
@@ -116,7 +116,7 @@ private int maxToolResultChars = 12_000;
 新增循环检测器：
 
 ```java
-// 新建: javaclaw-agent/.../runtime/ToolCallLoopDetector.java
+// 新建: intellimate-agent/.../runtime/ToolCallLoopDetector.java
 
 public class ToolCallLoopDetector {
 
@@ -226,7 +226,7 @@ switch (status) {
 新增 token 追踪器（字符级近似，避免依赖 tokenizer）：
 
 ```java
-// 新建: javaclaw-agent/.../runtime/ContextWindowTracker.java
+// 新建: intellimate-agent/.../runtime/ContextWindowTracker.java
 
 public class ContextWindowTracker {
 
@@ -294,7 +294,7 @@ if (tracker.isOverLimit()) {
 }
 ```
 
-**模型 context window 配置**: 在 `model_definition` 表中新增 `context_window` 字段，或在 `JavaClawProperties` 中配置默认值。
+**模型 context window 配置**: 在 `model_definition` 表中新增 `context_window` 字段，或在 `IntelliMateProperties` 中配置默认值。
 
 **影响分析**:
 - 字符级近似足够准确（3.5 chars/token 对中英文混合偏保守）
@@ -603,7 +603,7 @@ private boolean isRetryableError(Throwable e) {
 当 history 消息超过阈值时，将旧的 tool result 内容替换为摘要占位符：
 
 ```java
-// 新建: javaclaw-agent/.../runtime/ContextCondenser.java
+// 新建: intellimate-agent/.../runtime/ContextCondenser.java
 
 public class ContextCondenser {
 
@@ -697,7 +697,7 @@ public Mono<String> summarizeHistory(List<Message> oldMessages, ChatModel model)
 **1. 定义高危工具列表**:
 
 ```java
-// JavaClawProperties.Agent 新增:
+// IntelliMateProperties.Agent 新增:
 private List<String> approvalRequiredTools = List.of("exec", "writeFile", "fileEdit");
 ```
 
@@ -774,7 +774,7 @@ return approvalSink.asMono()
 **具体方案**:
 
 ```java
-// 新建: javaclaw-agent/.../runtime/ToolResultCache.java
+// 新建: intellimate-agent/.../runtime/ToolResultCache.java
 
 public class ToolResultCache {
 
@@ -880,7 +880,7 @@ P2 (1-2 周):
 | 文件 | 改动 |
 |------|------|
 | `AgentRuntime.java` | processToolCalls() 加截断, executeLoopTurn() 加循环检测 + token 追踪 + 超时 |
-| `JavaClawProperties.java` | Agent 新增 maxToolResultChars, maxContextTokens |
+| `IntelliMateProperties.java` | Agent 新增 maxToolResultChars, maxContextTokens |
 
 ### P1 修改文件
 

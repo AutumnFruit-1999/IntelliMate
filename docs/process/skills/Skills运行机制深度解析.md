@@ -326,7 +326,7 @@ allowed-tools: Bash(python:*) Read Write
 - 这是**安全控制**，不是功能绑定
 - 不在列表里的工具，Agent 在执行这个 Skill 时不应该调用
 
-**在 JavaClaw 的场景中**：我们的 Agent 已经有了 tool callback 的权限控制（`toolsEnabled`），所以 `allowed-tools` 的安全控制语义可以与现有的 tools 过滤机制结合，**不需要在 Skill 层面额外绑定工具**。
+**在 IntelliMate 的场景中**：我们的 Agent 已经有了 tool callback 的权限控制（`toolsEnabled`），所以 `allowed-tools` 的安全控制语义可以与现有的 tools 过滤机制结合，**不需要在 Skill 层面额外绑定工具**。
 
 ---
 
@@ -376,7 +376,7 @@ bash: python scripts/extract_fields.py input.pdf
 
 ---
 
-## 5. 对 JavaClaw 设计方案的修正
+## 5. 对 IntelliMate 设计方案的修正
 
 ### 5.1 移除 `allowed_tools` 字段
 

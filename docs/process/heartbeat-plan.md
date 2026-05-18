@@ -40,20 +40,20 @@
 ### 前端新增文件
 | 文件路径 | 职责 |
 |---------|------|
-| `javaclaw-web/src/components/HeartbeatConfigPanel.tsx` | 心跳配置 UI |
-| `javaclaw-web/src/components/TaskManager.tsx` | 任务管理 UI |
-| `javaclaw-web/src/lib/heartbeatApi.ts` | 心跳相关 API 调用 |
+| `intellimate-web/src/components/HeartbeatConfigPanel.tsx` | 心跳配置 UI |
+| `intellimate-web/src/components/TaskManager.tsx` | 任务管理 UI |
+| `intellimate-web/src/lib/heartbeatApi.ts` | 心跳相关 API 调用 |
 
 ### 前端修改文件
 | 文件路径 | 修改内容 |
 |---------|---------|
-| `javaclaw-web/src/components/AgentConfigModal.tsx` | 添加「心跳」Tab |
+| `intellimate-web/src/components/AgentConfigModal.tsx` | 添加「心跳」Tab |
 
 ---
 
 ## 任务 1：数据库迁移（V23）
 
-**文件：** `javaclaw-gateway/src/main/resources/db/migration/V23__heartbeat_tables.sql`
+**文件：** `intellimate-gateway/src/main/resources/db/migration/V23__heartbeat_tables.sql`
 
 - [ ] **步骤 1：创建迁移文件**
 
@@ -119,17 +119,17 @@ CREATE TABLE offline_message (
 - [ ] **步骤 2：启动项目验证迁移**
 
 ```bash
-mvn spring-boot:run -pl javaclaw-gateway -q
+mvn spring-boot:run -pl intellimate-gateway -q
 # 验证：
 docker exec ba8cab9397fc mysql -uroot -p'NyD0+oFDoOB+9cdVtnMonWFf4ZkDpTTs' \
-  -e "SELECT version, description, success FROM javaclaw.flyway_schema_history WHERE version='23';"
+  -e "SELECT version, description, success FROM intellimate.flyway_schema_history WHERE version='23';"
 # 预期：version=23, success=1
 ```
 
 - [ ] **步骤 3：Commit**
 
 ```bash
-git add javaclaw-gateway/src/main/resources/db/migration/V23__heartbeat_tables.sql
+git add intellimate-gateway/src/main/resources/db/migration/V23__heartbeat_tables.sql
 git commit -m "feat(heartbeat): add database tables (config, log, task, offline_message)"
 ```
 
@@ -138,15 +138,15 @@ git commit -m "feat(heartbeat): add database tables (config, log, task, offline_
 ## 任务 2：实体类
 
 **文件：**
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/HeartbeatConfigEntity.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/HeartbeatLogEntity.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/AgentTaskEntity.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/OfflineMessageEntity.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/HeartbeatConfigEntity.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/HeartbeatLogEntity.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/AgentTaskEntity.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/OfflineMessageEntity.java`
 
 - [ ] **步骤 1：HeartbeatConfigEntity**
 
 ```java
-package com.atm.javaclaw.gateway.entity;
+package com.atm.intellimate.gateway.entity;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
@@ -193,7 +193,7 @@ public class HeartbeatConfigEntity {
 - [ ] **步骤 2：AgentTaskEntity**
 
 ```java
-package com.atm.javaclaw.gateway.entity;
+package com.atm.intellimate.gateway.entity;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
@@ -221,7 +221,7 @@ public class AgentTaskEntity {
 - [ ] **步骤 3：HeartbeatLogEntity**
 
 ```java
-package com.atm.javaclaw.gateway.entity;
+package com.atm.intellimate.gateway.entity;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
@@ -246,7 +246,7 @@ public class HeartbeatLogEntity {
 - [ ] **步骤 4：OfflineMessageEntity**
 
 ```java
-package com.atm.javaclaw.gateway.entity;
+package com.atm.intellimate.gateway.entity;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
@@ -270,16 +270,16 @@ public class OfflineMessageEntity {
 - [ ] **步骤 5：编译验证**
 
 ```bash
-mvn compile -pl javaclaw-gateway -q
+mvn compile -pl intellimate-gateway -q
 ```
 
 - [ ] **步骤 6：Commit**
 
 ```bash
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/HeartbeatConfigEntity.java
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/HeartbeatLogEntity.java
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/AgentTaskEntity.java
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/OfflineMessageEntity.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/HeartbeatConfigEntity.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/HeartbeatLogEntity.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/AgentTaskEntity.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/OfflineMessageEntity.java
 git commit -m "feat(heartbeat): add entity classes for heartbeat system"
 ```
 
@@ -288,17 +288,17 @@ git commit -m "feat(heartbeat): add entity classes for heartbeat system"
 ## 任务 3：Repository 接口
 
 **文件：**
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/repository/HeartbeatConfigRepository.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/repository/HeartbeatLogRepository.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/repository/AgentTaskRepository.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/repository/OfflineMessageRepository.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/HeartbeatConfigRepository.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/HeartbeatLogRepository.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/AgentTaskRepository.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/OfflineMessageRepository.java`
 
 - [ ] **步骤 1：HeartbeatConfigRepository**
 
 ```java
-package com.atm.javaclaw.gateway.repository;
+package com.atm.intellimate.gateway.repository;
 
-import com.atm.javaclaw.gateway.entity.HeartbeatConfigEntity;
+import com.atm.intellimate.gateway.entity.HeartbeatConfigEntity;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -312,9 +312,9 @@ public interface HeartbeatConfigRepository extends ReactiveCrudRepository<Heartb
 - [ ] **步骤 2：HeartbeatLogRepository**
 
 ```java
-package com.atm.javaclaw.gateway.repository;
+package com.atm.intellimate.gateway.repository;
 
-import com.atm.javaclaw.gateway.entity.HeartbeatLogEntity;
+import com.atm.intellimate.gateway.entity.HeartbeatLogEntity;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
@@ -336,9 +336,9 @@ public interface HeartbeatLogRepository extends ReactiveCrudRepository<Heartbeat
 - [ ] **步骤 3：AgentTaskRepository**
 
 ```java
-package com.atm.javaclaw.gateway.repository;
+package com.atm.intellimate.gateway.repository;
 
-import com.atm.javaclaw.gateway.entity.AgentTaskEntity;
+import com.atm.intellimate.gateway.entity.AgentTaskEntity;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
@@ -363,9 +363,9 @@ public interface AgentTaskRepository extends ReactiveCrudRepository<AgentTaskEnt
 - [ ] **步骤 4：OfflineMessageRepository**
 
 ```java
-package com.atm.javaclaw.gateway.repository;
+package com.atm.intellimate.gateway.repository;
 
-import com.atm.javaclaw.gateway.entity.OfflineMessageEntity;
+import com.atm.intellimate.gateway.entity.OfflineMessageEntity;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -387,15 +387,15 @@ public interface OfflineMessageRepository extends ReactiveCrudRepository<Offline
 - [ ] **步骤 5：编译验证**
 
 ```bash
-mvn compile -pl javaclaw-gateway -q
+mvn compile -pl intellimate-gateway -q
 ```
 
 - [ ] **步骤 6：Commit**
 
 ```bash
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/repository/Heartbeat*.java
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/repository/AgentTaskRepository.java
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/repository/OfflineMessageRepository.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/Heartbeat*.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/AgentTaskRepository.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/OfflineMessageRepository.java
 git commit -m "feat(heartbeat): add repository interfaces"
 ```
 
@@ -404,14 +404,14 @@ git commit -m "feat(heartbeat): add repository interfaces"
 ## 任务 4：LifecycleState + SessionRegistry
 
 **文件：**
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/heartbeat/LifecycleState.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/websocket/SessionRegistry.java`
-- 修改：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/websocket/GatewayWebSocketHandler.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/heartbeat/LifecycleState.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/websocket/SessionRegistry.java`
+- 修改：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/websocket/GatewayWebSocketHandler.java`
 
 - [ ] **步骤 1：LifecycleState 枚举**
 
 ```java
-package com.atm.javaclaw.gateway.heartbeat;
+package com.atm.intellimate.gateway.heartbeat;
 
 import java.time.LocalTime;
 
@@ -453,10 +453,10 @@ public enum LifecycleState {
 - [ ] **步骤 2：SessionRegistry**
 
 ```java
-package com.atm.javaclaw.gateway.websocket;
+package com.atm.intellimate.gateway.websocket;
 
-import com.atm.javaclaw.core.protocol.EventFrame;
-import com.atm.javaclaw.core.protocol.GatewayFrame;
+import com.atm.intellimate.core.protocol.EventFrame;
+import com.atm.intellimate.core.protocol.GatewayFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -523,9 +523,9 @@ public class SessionRegistry {
 - [ ] **步骤 5：Commit**
 
 ```bash
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/heartbeat/LifecycleState.java
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/websocket/SessionRegistry.java
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/websocket/GatewayWebSocketHandler.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/heartbeat/LifecycleState.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/websocket/SessionRegistry.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/websocket/GatewayWebSocketHandler.java
 git commit -m "feat(heartbeat): add LifecycleState enum and SessionRegistry"
 ```
 
@@ -534,16 +534,16 @@ git commit -m "feat(heartbeat): add LifecycleState enum and SessionRegistry"
 ## 任务 5：HeartbeatEngine + HeartbeatScheduler
 
 **文件：**
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/heartbeat/HeartbeatEngine.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/heartbeat/HeartbeatContextBuilder.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/heartbeat/HeartbeatScheduler.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/heartbeat/HeartbeatEngine.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/heartbeat/HeartbeatContextBuilder.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/heartbeat/HeartbeatScheduler.java`
 
 - [ ] **步骤 1：HeartbeatContextBuilder**
 
 ```java
-package com.atm.javaclaw.gateway.heartbeat;
+package com.atm.intellimate.gateway.heartbeat;
 
-import com.atm.javaclaw.gateway.entity.AgentTaskEntity;
+import com.atm.intellimate.gateway.entity.AgentTaskEntity;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -598,11 +598,11 @@ public class HeartbeatContextBuilder {
 - [ ] **步骤 2：HeartbeatEngine**
 
 ```java
-package com.atm.javaclaw.gateway.heartbeat;
+package com.atm.intellimate.gateway.heartbeat;
 
-import com.atm.javaclaw.gateway.entity.*;
-import com.atm.javaclaw.gateway.repository.*;
-import com.atm.javaclaw.gateway.websocket.SessionRegistry;
+import com.atm.intellimate.gateway.entity.*;
+import com.atm.intellimate.gateway.repository.*;
+import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -756,9 +756,9 @@ public class HeartbeatEngine {
 - [ ] **步骤 3：HeartbeatScheduler**
 
 ```java
-package com.atm.javaclaw.gateway.heartbeat;
+package com.atm.intellimate.gateway.heartbeat;
 
-import com.atm.javaclaw.gateway.repository.HeartbeatConfigRepository;
+import com.atm.intellimate.gateway.repository.HeartbeatConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -796,13 +796,13 @@ public class HeartbeatScheduler {
 - [ ] **步骤 4：编译验证**
 
 ```bash
-mvn compile -pl javaclaw-gateway -q
+mvn compile -pl intellimate-gateway -q
 ```
 
 - [ ] **步骤 5：Commit**
 
 ```bash
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/heartbeat/
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/heartbeat/
 git commit -m "feat(heartbeat): add HeartbeatEngine, ContextBuilder, and Scheduler"
 ```
 
@@ -811,18 +811,18 @@ git commit -m "feat(heartbeat): add HeartbeatEngine, ContextBuilder, and Schedul
 ## 任务 6：HTTP API
 
 **文件：**
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/http/HeartbeatController.java`
-- 创建：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/http/TaskController.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/http/HeartbeatController.java`
+- 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/http/TaskController.java`
 
 - [ ] **步骤 1：HeartbeatController**
 
 ```java
-package com.atm.javaclaw.gateway.http;
+package com.atm.intellimate.gateway.http;
 
-import com.atm.javaclaw.gateway.entity.HeartbeatConfigEntity;
-import com.atm.javaclaw.gateway.heartbeat.LifecycleState;
-import com.atm.javaclaw.gateway.repository.HeartbeatConfigRepository;
-import com.atm.javaclaw.gateway.repository.HeartbeatLogRepository;
+import com.atm.intellimate.gateway.entity.HeartbeatConfigEntity;
+import com.atm.intellimate.gateway.heartbeat.LifecycleState;
+import com.atm.intellimate.gateway.repository.HeartbeatConfigRepository;
+import com.atm.intellimate.gateway.repository.HeartbeatLogRepository;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -937,10 +937,10 @@ public class HeartbeatController {
 - [ ] **步骤 2：TaskController**
 
 ```java
-package com.atm.javaclaw.gateway.http;
+package com.atm.intellimate.gateway.http;
 
-import com.atm.javaclaw.gateway.entity.AgentTaskEntity;
-import com.atm.javaclaw.gateway.repository.AgentTaskRepository;
+import com.atm.intellimate.gateway.entity.AgentTaskEntity;
+import com.atm.intellimate.gateway.repository.AgentTaskRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -1017,14 +1017,14 @@ public class TaskController {
 - [ ] **步骤 3：编译验证**
 
 ```bash
-mvn compile -pl javaclaw-gateway -q
+mvn compile -pl intellimate-gateway -q
 ```
 
 - [ ] **步骤 4：Commit**
 
 ```bash
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/http/HeartbeatController.java
-git add javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/http/TaskController.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/http/HeartbeatController.java
+git add intellimate-gateway/src/main/java/com/atm/intellimate/gateway/http/TaskController.java
 git commit -m "feat(heartbeat): add REST API controllers for heartbeat config and task management"
 ```
 
@@ -1033,10 +1033,10 @@ git commit -m "feat(heartbeat): add REST API controllers for heartbeat config an
 ## 任务 7：前端 UI
 
 **文件：**
-- 创建：`javaclaw-web/src/lib/heartbeatApi.ts`
-- 创建：`javaclaw-web/src/components/HeartbeatConfigPanel.tsx`
-- 创建：`javaclaw-web/src/components/TaskManager.tsx`
-- 修改：`javaclaw-web/src/components/AgentConfigModal.tsx`
+- 创建：`intellimate-web/src/lib/heartbeatApi.ts`
+- 创建：`intellimate-web/src/components/HeartbeatConfigPanel.tsx`
+- 创建：`intellimate-web/src/components/TaskManager.tsx`
+- 修改：`intellimate-web/src/components/AgentConfigModal.tsx`
 
 - [ ] **步骤 1：heartbeatApi.ts - API 调用函数**
 - [ ] **步骤 2：HeartbeatConfigPanel.tsx - 配置面板**（开关、时间、间隔、prompt）
@@ -1045,16 +1045,16 @@ git commit -m "feat(heartbeat): add REST API controllers for heartbeat config an
 - [ ] **步骤 5：TypeScript 类型检查**
 
 ```bash
-cd javaclaw-web && npx tsc --noEmit
+cd intellimate-web && npx tsc --noEmit
 ```
 
 - [ ] **步骤 6：Commit**
 
 ```bash
-git add javaclaw-web/src/lib/heartbeatApi.ts
-git add javaclaw-web/src/components/HeartbeatConfigPanel.tsx
-git add javaclaw-web/src/components/TaskManager.tsx
-git add javaclaw-web/src/components/AgentConfigModal.tsx
+git add intellimate-web/src/lib/heartbeatApi.ts
+git add intellimate-web/src/components/HeartbeatConfigPanel.tsx
+git add intellimate-web/src/components/TaskManager.tsx
+git add intellimate-web/src/components/AgentConfigModal.tsx
 git commit -m "feat(heartbeat): add frontend UI for heartbeat config and task management"
 ```
 

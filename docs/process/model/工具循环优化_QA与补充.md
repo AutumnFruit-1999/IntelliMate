@@ -193,7 +193,7 @@ public LoopStatus check(String toolName, String arguments) {
 }
 ```
 
-白名单应在 Agent 配置中可设置（`JavaClawProperties.Agent` 或数据库 `agent.config_json`），让用户根据场景自行调整。
+白名单应在 Agent 配置中可设置（`IntelliMateProperties.Agent` 或数据库 `agent.config_json`），让用户根据场景自行调整。
 
 ### 模型侧的辅助处理
 
@@ -714,7 +714,7 @@ sessionManager.getHistory(session.getId(), 50).collectList()
 - 如果一轮对话有 10 次 tool call（10 条 tool result + 10 条 assistant），50 条只能覆盖约 2.5 轮对话
 - 无法根据模型 context window 大小动态调整
 
-**修正**: 从 Agent 配置或 `JavaClawProperties` 读取，默认值可保持 50 但支持调整。
+**修正**: 从 Agent 配置或 `IntelliMateProperties` 读取，默认值可保持 50 但支持调整。
 
 ### 11.3 工具 description 缺少大文件引导（严重度: 中）
 

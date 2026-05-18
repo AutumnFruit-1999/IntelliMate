@@ -2,7 +2,7 @@
 
 ## 1. 执行模式总结
 
-当前 JavaClaw 的模型执行是**单轮一问一答 + 流式输出**模式：
+当前 IntelliMate 的模型执行是**单轮一问一答 + 流式输出**模式：
 
 - 用户发送一条消息 → LLM 返回一条完整回复
 - 回复通过 **流式 token** 实时推送到前端（非等待完成后一次性返回）
@@ -26,7 +26,7 @@
 useWebSocket.sendMessage()
     │ 构建 RequestFrame
     │ {type:"request", method:"conversation.message",
-    │  params:{text:"你好", agentName:"javaclaw"}}
+    │  params:{text:"你好", agentName:"intellimate"}}
     │
     ├─── WebSocket ──────────────────► GatewayWebSocketHandler
     │                                       │
@@ -329,7 +329,7 @@ Spring AI 的 `ChatClient.stream()` 内部自动处理 Tool Calling 循环：
 
 ## 7. 与 OpenClaw 的对比
 
-| 方面 | OpenClaw | JavaClaw (当前) |
+| 方面 | OpenClaw | IntelliMate (当前) |
 |------|----------|-----------------|
 | 执行模式 | Agent Loop（多轮自主思考） | 单轮一问一答 + Tool Calling |
 | 流式输出 | 支持 | 支持 |

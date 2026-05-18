@@ -1,0 +1,94 @@
+server:
+  port: ${INTELLIMATE_PORT:3007}
+
+spring:
+  application:
+    name: intellimate-gateway
+
+  # R2DBC reactive datasource (runtime queries)
+  r2dbc:
+    url: r2dbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:intellimate}?sslMode=REQUIRED
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:NyD0+oFDoOB+9cdVtnMonWFf4ZkDpTTs}
+    pool:
+      initial-size: 5
+      max-size: 20
+      max-idle-time: 30m
+
+  flyway:
+    enabled: true
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:intellimate}?useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
+    user: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:NyD0+oFDoOB+9cdVtnMonWFf4ZkDpTTs}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:sk-8b71fb8815884080b52bd3b670b3b599}
+      chat:
+        options:
+          model: ${INTELLIMATE_AGENT_MODEL:qwen-plus}
+    mcp:
+      client:
+        enabled: false
+
+intellimate:
+  server:
+    port: ${INTELLIMATE_PORT:3007}
+    host: 0.0.0.0
+  security:
+    auth-token: ${INTELLIMATE_AUTH_TOKEN:}
+    crypto-key: ${INTELLIMATE_CRYPTO_KEY:}
+    dm-pairing-enabled: false
+  agent:
+    name: ${INTELLIMATE_AGENT_NAME:intellimate}
+    model: ${INTELLIMATE_AGENT_MODEL:qwen-max}
+    max-turns: 128
+    timeout-seconds: 300
+    max-tool-result-chars: 16000
+    max-context-tokens: 128000
+    tool-execution-timeout-seconds: 60
+    max-parallel-tool-calls: 8
+    history-limit: 50
+    loop-detector-window-size: 8
+    loop-detector-warn-threshold: 3
+    loop-detector-terminate-threshold: 5
+    loop-detector-excluded-tools: []
+    non-retryable-tools: []
+    approval-required-tools: []
+    enable-parallel-tool-calls: true
+    condenser-keep-recent: 20
+    condenser-summary-length: 200
+    condenser-min-turns-between: 5
+    plan-max-steps: 20
+    plan-step-timeout-seconds: 120
+    plan-approval-timeout-seconds: 600
+  skills:
+    dir: ${INTELLIMATE_SKILLS_DIR:./skills/}
+  scheduler:
+    enabled: true
+    tick-period-seconds: 10
+    pool-size: 4
+    shutdown-await-seconds: 30
+    log-retention-days: 30
+    default-timeout-ms: 300000
+    max-concurrent-jobs: 8
+    config-reload-debounce-ms: 500
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.atm.intellimate: DEBUG
+    org.springframework.data.r2dbc: DEBUG
+    org.springframework.web.reactive: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

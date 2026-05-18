@@ -4,7 +4,7 @@
 
 ### 1.1 当前执行模式
 
-JavaClaw 当前采用**单轮一问一答 + 流式输出**模式：
+IntelliMate 当前采用**单轮一问一答 + 流式输出**模式：
 
 ```
 用户消息 → 单次 LLM 调用 → 流式 token 输出 → 完成
@@ -129,12 +129,12 @@ private Flux<String> executeRun(AgentRunRequest request) {
 
 ### 3.1 新增 AgentEvent 类型体系
 
-**文件**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/runtime/AgentEvent.java`（新建）
+**文件**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/runtime/AgentEvent.java`（新建）
 
 Agent Loop 的所有事件通过一个 sealed interface 统一建模：
 
 ```java
-package com.atm.javaclaw.agent.runtime;
+package com.atm.intellimate.agent.runtime;
 
 public sealed interface AgentEvent {
 
@@ -169,7 +169,7 @@ public sealed interface AgentEvent {
 
 ### 3.2 AgentRuntime 改造
 
-**文件**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/runtime/AgentRuntime.java`
+**文件**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/runtime/AgentRuntime.java`
 
 核心变更：从 `ChatClient` 切换到 `StreamingChatModel` + `ToolCallingManager`，实现用户控制的 Agent Loop。
 
@@ -437,7 +437,7 @@ private record AgentLoopContext(
 
 ### 3.3 RunQueueManager 泛型改造
 
-**文件**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/runtime/RunQueueManager.java`
+**文件**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/runtime/RunQueueManager.java`
 
 将 `Flux<String>` 泛型改为 `Flux<AgentEvent>`：
 
@@ -455,7 +455,7 @@ public synchronized Flux<AgentEvent> enqueue(
 
 ### 3.4 ToolsEngine 扩展
 
-**文件**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/tools/ToolsEngine.java`
+**文件**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/tools/ToolsEngine.java`
 
 新增按名称查找单个 ToolCallback 的方法，供 Agent Loop 执行工具时使用：
 
@@ -473,7 +473,7 @@ public ToolCallback getCallbackByName(String toolName) {
 
 ## 4. MessagePipeline 适配
 
-**文件**: `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/pipeline/MessagePipeline.java`
+**文件**: `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/pipeline/MessagePipeline.java`
 
 ### 4.1 事件映射
 
@@ -701,7 +701,7 @@ finishStreaming()
 
 ### 6.1 ChatMessage 模型扩展
 
-**文件**: `javaclaw-web/src/stores/chatStore.ts`
+**文件**: `intellimate-web/src/stores/chatStore.ts`
 
 ```typescript
 export interface ToolCallInfo {
@@ -797,7 +797,7 @@ updateToolResult: (requestId, toolCallId, result, success) => {
 
 ### 6.3 useWebSocket 事件处理
 
-**文件**: `javaclaw-web/src/hooks/useWebSocket.ts`
+**文件**: `intellimate-web/src/hooks/useWebSocket.ts`
 
 在 `onEvent` switch 中新增三种事件处理：
 
@@ -842,7 +842,7 @@ onEvent: (event: EventFrame) => {
 
 #### 6.4.1 ToolCallCard 组件（新建）
 
-**文件**: `javaclaw-web/src/components/ToolCallCard.tsx`
+**文件**: `intellimate-web/src/components/ToolCallCard.tsx`
 
 ```typescript
 import { useState } from "react";
@@ -911,7 +911,7 @@ function formatJson(str: string): string {
 
 #### 6.4.2 MessageBubble 改造
 
-**文件**: `javaclaw-web/src/components/MessageBubble.tsx`
+**文件**: `intellimate-web/src/components/MessageBubble.tsx`
 
 在 assistant 消息气泡中，插入 ToolCallCard 组件：
 
@@ -1020,18 +1020,18 @@ assistant 消息气泡中，工具调用以卡片形式嵌入文本流之间：
 
 | 模块 | 文件 | 变更类型 | 说明 |
 |------|------|----------|------|
-| **javaclaw-agent** | `AgentEvent.java` | **新建** | Agent Loop 事件类型 |
-| **javaclaw-agent** | `AgentRuntime.java` | **重写** | 从 ChatClient 切换到 ChatModel + Agent Loop |
-| **javaclaw-agent** | `RunQueueManager.java` | **修改** | 泛型 `String` → `AgentEvent` |
-| **javaclaw-agent** | `ToolsEngine.java` | **扩展** | 新增 `getCallbackByName()` |
-| **javaclaw-agent** | `AgentRunRequest.java` | 不变 | — |
-| **javaclaw-gateway** | `MessagePipeline.java` | **修改** | 消费 `Flux<AgentEvent>`，映射为 `EventFrame` |
-| **javaclaw-gateway** | `MessagePipeline.java` | **扩展** | `convertToAiMessages()` 支持 `tool` role |
-| **javaclaw-core** | `JavaClawProperties.java` | 不变 | `maxTurns` 已存在 |
-| **javaclaw-web** | `chatStore.ts` | **扩展** | ChatMessage 新增 toolCalls 等字段和 actions |
-| **javaclaw-web** | `useWebSocket.ts` | **扩展** | 新增 3 种事件处理 |
-| **javaclaw-web** | `ToolCallCard.tsx` | **新建** | 工具调用卡片组件 |
-| **javaclaw-web** | `MessageBubble.tsx` | **修改** | 嵌入 ToolCallCard |
+| **intellimate-agent** | `AgentEvent.java` | **新建** | Agent Loop 事件类型 |
+| **intellimate-agent** | `AgentRuntime.java` | **重写** | 从 ChatClient 切换到 ChatModel + Agent Loop |
+| **intellimate-agent** | `RunQueueManager.java` | **修改** | 泛型 `String` → `AgentEvent` |
+| **intellimate-agent** | `ToolsEngine.java` | **扩展** | 新增 `getCallbackByName()` |
+| **intellimate-agent** | `AgentRunRequest.java` | 不变 | — |
+| **intellimate-gateway** | `MessagePipeline.java` | **修改** | 消费 `Flux<AgentEvent>`，映射为 `EventFrame` |
+| **intellimate-gateway** | `MessagePipeline.java` | **扩展** | `convertToAiMessages()` 支持 `tool` role |
+| **intellimate-core** | `IntelliMateProperties.java` | 不变 | `maxTurns` 已存在 |
+| **intellimate-web** | `chatStore.ts` | **扩展** | ChatMessage 新增 toolCalls 等字段和 actions |
+| **intellimate-web** | `useWebSocket.ts` | **扩展** | 新增 3 种事件处理 |
+| **intellimate-web** | `ToolCallCard.tsx` | **新建** | 工具调用卡片组件 |
+| **intellimate-web** | `MessageBubble.tsx` | **修改** | 嵌入 ToolCallCard |
 | **数据库** | `transcript_message` | 不变 | 已有 `tool_call_id`、`tool_name`、`metadata_json` |
 
 ---

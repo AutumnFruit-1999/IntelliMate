@@ -1,4 +1,4 @@
-# JavaClaw WebSocket 架构文档
+# IntelliMate WebSocket 架构文档
 
 ## 目录
 
@@ -15,7 +15,7 @@
 
 ## 1. 总体架构概览
 
-JavaClaw 的 WebSocket 通信采用 **全双工、事件驱动** 的架构，基于 Spring WebFlux Reactive WebSocket 构建。前端通过单一 `/ws` 端点与后端网关建立持久连接，所有用户消息、Agent 流式响应、工具调用与审批均在此通道内完成。
+IntelliMate 的 WebSocket 通信采用 **全双工、事件驱动** 的架构，基于 Spring WebFlux Reactive WebSocket 构建。前端通过单一 `/ws` 端点与后端网关建立持久连接，所有用户消息、Agent 流式响应、工具调用与审批均在此通道内完成。
 
 ```mermaid
 flowchart LR
@@ -330,7 +330,7 @@ Agent 执行过程中产生的事件，使用 Java sealed interface 定义 8 种
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `sessionId` | `Long` | 所属会话 ID |
-| `agent` | `JavaClawProperties.Agent` | Agent 配置（模型、最大轮数、超时等） |
+| `agent` | `IntelliMateProperties.Agent` | Agent 配置（模型、最大轮数、超时等） |
 | `userMessage` | `String` | 用户输入文本 |
 | `history` | `List<Message>` | 对话历史（Spring AI Message 格式） |
 | `toolsEnabled` | `String` | 内置/自定义工具过滤规则 |
@@ -906,37 +906,37 @@ flowchart TB
 
 | 模块 | 文件路径 | 职责 |
 |------|---------|------|
-| 协议 | `javaclaw-core/.../protocol/GatewayFrame.java` | 帧类型 sealed interface |
-| 协议 | `javaclaw-core/.../protocol/EventFrame.java` | 事件帧 record |
-| 协议 | `javaclaw-core/.../protocol/RequestFrame.java` | 请求帧 record |
-| 协议 | `javaclaw-core/.../protocol/ResponseFrame.java` | 响应帧 record |
-| 网关 | `javaclaw-gateway/.../websocket/GatewayWebSocketHandler.java` | WebSocket 核心处理器 |
-| 网关 | `javaclaw-gateway/.../websocket/WebSocketRouterConfig.java` | `/ws` 路由配置 |
-| 网关 | `javaclaw-gateway/.../websocket/ProtocolCodec.java` | JSON 编解码 |
-| 管道 | `javaclaw-gateway/.../pipeline/MessagePipeline.java` | 请求处理、事件映射 |
-| 管道 | `javaclaw-gateway/.../pipeline/CommandHandler.java` | 斜杠命令处理 |
-| 运行时 | `javaclaw-agent/.../runtime/AgentRuntime.java` | Agent 循环执行引擎 |
-| 运行时 | `javaclaw-agent/.../runtime/AgentEvent.java` | Agent 事件类型定义 |
-| 运行时 | `javaclaw-agent/.../runtime/AgentRunRequest.java` | 运行请求封装 |
-| 运行时 | `javaclaw-agent/.../runtime/RunQueueManager.java` | 每 Session FIFO 队列 |
-| 运行时 | `javaclaw-agent/.../runtime/ToolApprovalGate.java` | 工具审批门控 |
-| 运行时 | `javaclaw-agent/.../runtime/ToolCallLoopDetector.java` | 工具调用循环检测 |
-| 运行时 | `javaclaw-agent/.../runtime/ContextWindowTracker.java` | 上下文窗口跟踪 |
-| 运行时 | `javaclaw-agent/.../runtime/ContextCondenser.java` | 上下文压缩 |
-| 运行时 | `javaclaw-agent/.../runtime/ToolResultCache.java` | 工具结果缓存 |
-| 会话 | `javaclaw-gateway/.../session/SessionManager.java` | 会话管理接口 |
-| 会话 | `javaclaw-gateway/.../session/SessionManagerImpl.java` | 会话管理实现 |
-| 安全 | `javaclaw-gateway/.../security/SecurityService.java` | Token 校验、Allowlist |
+| 协议 | `intellimate-core/.../protocol/GatewayFrame.java` | 帧类型 sealed interface |
+| 协议 | `intellimate-core/.../protocol/EventFrame.java` | 事件帧 record |
+| 协议 | `intellimate-core/.../protocol/RequestFrame.java` | 请求帧 record |
+| 协议 | `intellimate-core/.../protocol/ResponseFrame.java` | 响应帧 record |
+| 网关 | `intellimate-gateway/.../websocket/GatewayWebSocketHandler.java` | WebSocket 核心处理器 |
+| 网关 | `intellimate-gateway/.../websocket/WebSocketRouterConfig.java` | `/ws` 路由配置 |
+| 网关 | `intellimate-gateway/.../websocket/ProtocolCodec.java` | JSON 编解码 |
+| 管道 | `intellimate-gateway/.../pipeline/MessagePipeline.java` | 请求处理、事件映射 |
+| 管道 | `intellimate-gateway/.../pipeline/CommandHandler.java` | 斜杠命令处理 |
+| 运行时 | `intellimate-agent/.../runtime/AgentRuntime.java` | Agent 循环执行引擎 |
+| 运行时 | `intellimate-agent/.../runtime/AgentEvent.java` | Agent 事件类型定义 |
+| 运行时 | `intellimate-agent/.../runtime/AgentRunRequest.java` | 运行请求封装 |
+| 运行时 | `intellimate-agent/.../runtime/RunQueueManager.java` | 每 Session FIFO 队列 |
+| 运行时 | `intellimate-agent/.../runtime/ToolApprovalGate.java` | 工具审批门控 |
+| 运行时 | `intellimate-agent/.../runtime/ToolCallLoopDetector.java` | 工具调用循环检测 |
+| 运行时 | `intellimate-agent/.../runtime/ContextWindowTracker.java` | 上下文窗口跟踪 |
+| 运行时 | `intellimate-agent/.../runtime/ContextCondenser.java` | 上下文压缩 |
+| 运行时 | `intellimate-agent/.../runtime/ToolResultCache.java` | 工具结果缓存 |
+| 会话 | `intellimate-gateway/.../session/SessionManager.java` | 会话管理接口 |
+| 会话 | `intellimate-gateway/.../session/SessionManagerImpl.java` | 会话管理实现 |
+| 安全 | `intellimate-gateway/.../security/SecurityService.java` | Token 校验、Allowlist |
 
 ### 前端 (TypeScript/React)
 
 | 文件路径 | 职责 |
 |---------|------|
-| `javaclaw-web/src/lib/protocol.ts` | 协议类型定义、工具函数 |
-| `javaclaw-web/src/lib/wsClient.ts` | WebSocket 客户端封装 |
-| `javaclaw-web/src/hooks/useWebSocket.ts` | React Hook，事件分发 |
-| `javaclaw-web/src/stores/chatStore.ts` | 聊天状态管理 (Zustand) |
-| `javaclaw-web/src/stores/agentStore.ts` | Agent 配置状态 |
-| `javaclaw-web/src/components/MessageBubble.tsx` | 消息渲染 |
-| `javaclaw-web/src/components/ToolCallGroup.tsx` | 工具调用分组展示 |
-| `javaclaw-web/src/components/ToolCallCard.tsx` | 单个工具调用卡片 |
+| `intellimate-web/src/lib/protocol.ts` | 协议类型定义、工具函数 |
+| `intellimate-web/src/lib/wsClient.ts` | WebSocket 客户端封装 |
+| `intellimate-web/src/hooks/useWebSocket.ts` | React Hook，事件分发 |
+| `intellimate-web/src/stores/chatStore.ts` | 聊天状态管理 (Zustand) |
+| `intellimate-web/src/stores/agentStore.ts` | Agent 配置状态 |
+| `intellimate-web/src/components/MessageBubble.tsx` | 消息渲染 |
+| `intellimate-web/src/components/ToolCallGroup.tsx` | 工具调用分组展示 |
+| `intellimate-web/src/components/ToolCallCard.tsx` | 单个工具调用卡片 |

@@ -2,13 +2,13 @@
 
 > 日期: 2026-03-12  
 > 状态: Final  
-> 目标: 分析主流开源项目的多 Agent 协作体系，为 JavaClaw 提供设计参考
+> 目标: 分析主流开源项目的多 Agent 协作体系，为 IntelliMate 提供设计参考
 
 ---
 
 ## 1. 调研背景
 
-JavaClaw 当前已实现「多 Agent 管理」——用户可创建多个独立 Agent 并在前端自由切换。但每条消息仍由单个 Agent 独立处理，Agent 之间无法：
+IntelliMate 当前已实现「多 Agent 管理」——用户可创建多个独立 Agent 并在前端自由切换。但每条消息仍由单个 Agent 独立处理，Agent 之间无法：
 - 委派子任务给其他 Agent
 - 在执行过程中移交控制权
 - 并行协作后汇聚结果
@@ -78,9 +78,9 @@ Supervisor Agent
 - 工具独立配置：Supervisor 有 DelegateTool，子 Agent 有各自的工具集
 - 通过 `register_tool` 按需注册
 
-#### 对 JavaClaw 的启示
+#### 对 IntelliMate 的启示
 
-- **DelegateTool 模式非常适合 JavaClaw**：Agent 通过 tool call 触发委派，无需修改 LLM 调用链
+- **DelegateTool 模式非常适合 IntelliMate**：Agent 通过 tool call 触发委派，无需修改 LLM 调用链
 - 共享文件系统 + 独立对话的隔离策略可直接复用
 - spawn/delegate 两阶段设计允许灵活的任务编排
 
@@ -134,7 +134,7 @@ Coordinator → Planner → [Human Feedback]
 - Reporter 拥有报告生成和格式化工具
 - 支持 MCP Server 和自定义 Python 函数作为工具
 
-#### 对 JavaClaw 的启示
+#### 对 IntelliMate 的启示
 
 - 固定流水线适合**特定场景**（如研究报告），但通用性不如 Supervisor
 - Human Feedback 节点的设计值得借鉴——用户可以在关键环节介入
@@ -183,7 +183,7 @@ Judge (评估每轮结果，决定是否继续)
 - 每轮最多 25 个 tool call
 - Planner 有代码搜索和探索专用工具
 
-#### 对 JavaClaw 的启示
+#### 对 IntelliMate 的启示
 
 - **并行隔离策略**是亮点：Git worktree + SVFS 解决了并发写冲突
 - Planner/Worker 分离适合大规模重构场景
@@ -245,7 +245,7 @@ Supervisor 模式:
 - Supervisor 可以没有工具（纯路由）或有自己的工具
 - Worker 按专业领域配置工具
 
-#### 对 JavaClaw 的启示
+#### 对 IntelliMate 的启示
 
 - **StateGraph 模型是最灵活的编排方案**，但实现复杂度高
 - **Supervisor + Handoff 混合模式**是生产级推荐方案
@@ -305,7 +305,7 @@ CrewAI 的 Agent 定义最具表达力：
 - 支持 API、数据库、本地工具
 - Crew 级别可配置 `max_rpm`（速率限制）
 
-#### 对 JavaClaw 的启示
+#### 对 IntelliMate 的启示
 
 - **Role/Goal/Backstory 三元组**是优秀的角色定义模型，比纯 system prompt 更结构化
 - Flow + Crew 双层设计值得借鉴：Flow 管理业务逻辑，Crew 管理 Agent 协作
@@ -358,7 +358,7 @@ GroupChatManager
 - 每个 Agent 独立配置工具
 - `AgentTools` 接口
 
-#### 对 JavaClaw 的启示
+#### 对 IntelliMate 的启示
 
 - GroupChat 模式适合**头脑风暴/讨论**场景，但不适合**任务执行**
 - 完全共享上下文的方式 token 消耗过大，不推荐用于生产
@@ -478,7 +478,7 @@ GroupChatManager
 
 ---
 
-## 6. 对 JavaClaw 的综合建议
+## 6. 对 IntelliMate 的综合建议
 
 ### 6.1 推荐模式
 

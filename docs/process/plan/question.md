@@ -30,4 +30,4 @@
 
 
 
-1. 在plan执行的过程中可以不用模型的输出，见图片/Users/user/Documents/code/GitHub/JavaClaw/docs/process/plan/image.png，不用输出 【好的，我将开始执行计划。首先标记第0步为进行中状态。现在开始执行步骤0：创建项目目录结构。我将创建后端、前端、数据库和 Docker 配置所需的目录。】这句句话，有执行的过程就可以，在plan执行完成之后输出过程和总结就可以了
+1. 在plan执行的过程中可以不用模型的输出，见图片/Users/user/Documents/code/GitHub/IntelliMate/docs/process/plan/image.png，不用输出 【好的，我将开始执行计划。首先标记第0步为进行中状态。现在开始执行步骤0：创建项目目录结构。我将创建后端、前端、数据库和 Docker 配置所需的目录。】这句句话，有执行的过程就可以，在plan执行完成之后输出过程和总结就可以了

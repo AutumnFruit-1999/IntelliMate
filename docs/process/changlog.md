@@ -1,4 +1,4 @@
-# JavaClaw 变更记录
+# IntelliMate 变更记录
 
 > 格式：时间 | 类型 | 描述 | 后端改动 | 前端改动
 
@@ -146,14 +146,14 @@
 
 ### 后端 — Skills Discovery SPI + AgentRuntime 注入
 
-- 新增 `SkillContentProvider.java`（javaclaw-agent，SPI 接口）：`resolveSkillSummaries()`、`getSkillsBasePath()`、`SkillSummary` record
-- 新增 `SkillContentProviderImpl.java`（javaclaw-gateway，SPI 实现）：支持 null/full/JSON array 三种 skillsEnabled 规格解析，从 DB 查询启用的 Skill 返回摘要
+- 新增 `SkillContentProvider.java`（intellimate-agent，SPI 接口）：`resolveSkillSummaries()`、`getSkillsBasePath()`、`SkillSummary` record
+- 新增 `SkillContentProviderImpl.java`（intellimate-gateway，SPI 实现）：支持 null/full/JSON array 三种 skillsEnabled 规格解析，从 DB 查询启用的 Skill 返回摘要
 - `AgentRuntime.java`：注入 `SkillContentProvider`，`buildSystemPrompt` 新增 `skillsEnabled` 参数，新增 `buildSkillsDiscovery()` 方法生成 Discovery 索引（仅注入 name + description + SKILL.md 路径）
 
 ### 后端 — 文件系统管理 + 配置
 
 - 新增 `SkillFileService.java`：Skill 目录创建/删除/内容读写/子目录列举（scripts/references/assets）
-- `application.yml`：新增 `javaclaw.skills.dir` 配置项（默认 `./skills`）
+- `application.yml`：新增 `intellimate.skills.dir` 配置项（默认 `./skills`）
 
 ### 前端 — API 层 + 状态管理
 
@@ -351,8 +351,8 @@
 
 **后端改造：**
 - `AgentRuntime.java`：注入 `ChatModelRegistry` 替换直接的 `ChatModel`，per-request 模型解析 + `ToolCallingChatOptions.model()` 设置
-- `JavaClawApplication.java`：exclude `OpenAiAutoConfiguration` 和 `AnthropicAutoConfiguration`
-- `JavaClawProperties.java`：Security 新增 `cryptoKey` 字段
+- `IntelliMateApplication.java`：exclude `OpenAiAutoConfiguration` 和 `AnthropicAutoConfiguration`
+- `IntelliMateProperties.java`：Security 新增 `cryptoKey` 字段
 - `application.yml`：新增 `crypto-key` 配置项
 - `pom.xml`（agent + gateway）：新增 `spring-ai-starter-model-openai` 和 `spring-ai-starter-model-anthropic` 依赖
 
@@ -377,14 +377,14 @@
 
 | 类型 | Feature |
 |------|---------|
-| 描述 | 搭建 JavaClaw 多模块项目骨架，技术栈为 Spring Boot 3.4.3 + WebFlux + R2DBC + Flyway + Spring AI Alibaba（DashScope） |
+| 描述 | 搭建 IntelliMate 多模块项目骨架，技术栈为 Spring Boot 3.4.3 + WebFlux + R2DBC + Flyway + Spring AI Alibaba（DashScope） |
 
 **后端改动：**
-- 创建 Maven 父 POM + 4 个子模块：`javaclaw-core`、`javaclaw-channel-api`、`javaclaw-agent`、`javaclaw-gateway`
-- `javaclaw-core`：`JavaClawProperties`、`SessionKey`、`SessionMetadata`、WebSocket 协议帧（`GatewayFrame`、`EventFrame`、`RequestFrame`、`ResponseFrame`）
-- `javaclaw-channel-api`：Channel SPI 接口
-- `javaclaw-agent`：`AgentRuntime`、`RunQueueManager`、`AgentRunRequest`、`ToolsEngine`、6 个工具类（`ExecTool`、`FileReadTool`、`FileWriteTool`、`FileEditTool`、`WebSearchTool`、`WebFetchTool`）
-- `javaclaw-gateway`：`JavaClawApplication`、`WebSocketHandler`、`MessagePipeline`、`CommandHandler`、`SessionManager`、`AgentConfigService`、`AuditService`，Flyway 迁移脚本 `V1__init_schema.sql`（7 张表）
+- 创建 Maven 父 POM + 4 个子模块：`intellimate-core`、`intellimate-channel-api`、`intellimate-agent`、`intellimate-gateway`
+- `intellimate-core`：`IntelliMateProperties`、`SessionKey`、`SessionMetadata`、WebSocket 协议帧（`GatewayFrame`、`EventFrame`、`RequestFrame`、`ResponseFrame`）
+- `intellimate-channel-api`：Channel SPI 接口
+- `intellimate-agent`：`AgentRuntime`、`RunQueueManager`、`AgentRunRequest`、`ToolsEngine`、6 个工具类（`ExecTool`、`FileReadTool`、`FileWriteTool`、`FileEditTool`、`WebSearchTool`、`WebFetchTool`）
+- `intellimate-gateway`：`IntelliMateApplication`、`WebSocketHandler`、`MessagePipeline`、`CommandHandler`、`SessionManager`、`AgentConfigService`、`AuditService`，Flyway 迁移脚本 `V1__init_schema.sql`（7 张表）
 - `application.yml` 全套配置（R2DBC、Flyway、DashScope、CORS）
 
 **前端改动：** 无
@@ -398,7 +398,7 @@
 | 描述 | 自定义 `HealthEndpoint` 与 Spring Boot Actuator 同名 Bean 冲突导致启动失败 |
 
 **后端改动：**
-- 删除 `javaclaw-gateway/.../http/HealthEndpoint.java`
+- 删除 `intellimate-gateway/.../http/HealthEndpoint.java`
 - 修改 `application.yml` 配置 Actuator 端点暴露
 
 **前端改动：** 无
@@ -412,7 +412,7 @@
 | 描述 | DashScope 多个自动配置类（Agent、Embedding、Image 等）依赖 Servlet 栈的 `RestClient.Builder`，在 WebFlux 环境下启动失败 |
 
 **后端改动：**
-- 修改 `JavaClawApplication.java`：`@SpringBootApplication(exclude = {...})` 排除 6 个非 Chat 的 DashScope 自动配置类
+- 修改 `IntelliMateApplication.java`：`@SpringBootApplication(exclude = {...})` 排除 6 个非 Chat 的 DashScope 自动配置类
 
 **前端改动：** 无
 
@@ -426,7 +426,7 @@
 
 **后端改动：**
 - 修改 `application.yml`：改用 `spring.flyway.url/user/password` 独立 JDBC 连接
-- 修改 `javaclaw-gateway/pom.xml`：移除 `spring-boot-starter-jdbc`，保留 `mysql-connector-j`
+- 修改 `intellimate-gateway/pom.xml`：移除 `spring-boot-starter-jdbc`，保留 `mysql-connector-j`
 
 **前端改动：** 无
 
@@ -456,13 +456,13 @@
 
 | 类型 | Feature |
 |------|---------|
-| 描述 | 创建 `javaclaw-web` 前端项目（React 19 + TypeScript + Vite 6 + Tailwind CSS 4 + Zustand），实现完整聊天界面 |
+| 描述 | 创建 `intellimate-web` 前端项目（React 19 + TypeScript + Vite 6 + Tailwind CSS 4 + Zustand），实现完整聊天界面 |
 
 **后端改动：**
 - `WebSocketHandler`：增加 CORS 配置允许前端开发服务器连接
 
 **前端改动：**
-- 新建 `javaclaw-web/` 项目，`package.json` + `vite.config.ts` + `tailwind.config.ts`
+- 新建 `intellimate-web/` 项目，`package.json` + `vite.config.ts` + `tailwind.config.ts`
 - `WsClient`：WebSocket 客户端，自动重连、心跳、token 认证
 - `protocol.ts`：`RequestFrame` / `ResponseFrame` / `EventFrame` 协议定义
 - `chatStore.ts`（Zustand）：消息状态管理，流式追加
@@ -545,7 +545,7 @@
 
 | 类型 | Fix |
 |------|-----|
-| 描述 | `GET /api/agent/javaclaw` 返回 404，因为 DB 中无 agent 记录但 Controller 未做回退 |
+| 描述 | `GET /api/agent/intellimate` 返回 404，因为 DB 中无 agent 记录但 Controller 未做回退 |
 
 **后端改动：**
 - 修改 `AgentController.java`：`getAgent()` 使用 `.defaultIfEmpty()` 回退到 yml 默认值；`updateContext()` 实现 upsert（无记录时自动创建）
@@ -603,7 +603,7 @@
 
 | 类型 | Feature |
 |------|---------|
-| 描述 | 参照 OpenClaw 的工具管理机制，为 JavaClaw 增加工具分组、工具列表 API 和前端工具配置 UI。在 AgentConfigModal 中新增"工具"标签页，支持 Profile 快速选择和单个工具开关 |
+| 描述 | 参照 OpenClaw 的工具管理机制，为 IntelliMate 增加工具分组、工具列表 API 和前端工具配置 UI。在 AgentConfigModal 中新增"工具"标签页，支持 Profile 快速选择和单个工具开关 |
 
 **后端改动：**
 - 新建 `ToolGroup.java`：枚举定义 FS / RUNTIME / WEB 三个工具分组
@@ -660,7 +660,7 @@
 - 新增 Flyway 迁移 `V4__dynamic_tools.sql`：创建 `tool_definition` 表（name、type、description、parameters_schema、execution_config、timeout_seconds、group_name、agent_name、enabled）
 - 新建 `ToolDefinitionEntity.java`：对应 `tool_definition` 表
 - 新建 `ToolDefinitionRepository.java`：`findAllByEnabled()`、`findByName()`
-- 新建 `javaclaw-agent/tools/dynamic/` 包：
+- 新建 `intellimate-agent/tools/dynamic/` 包：
   - `HttpExecutionConfig` record：HTTP 调用配置（url、method、headers、bodyTemplate、responseExtract）
   - `DynamicToolDefinition` record：便携式工具定义，与 Entity 解耦
   - `HttpToolCallback`：实现 `ToolCallback` 接口，解析 JSON 参数 → 模板变量替换（`${param}`、`${env:VAR}`） → WebClient HTTP 调用 → JSONPath 响应提取
@@ -679,7 +679,7 @@
   - `POST /api/tool-definitions/{id}/test`：测试执行（传入参数 → 调用 HttpToolCallback → 返回结果/耗时）
   - 每个 CUD 操作完成后调用 `dynamicToolProvider.reload()` + `toolsEngine.refresh()` 热重载
 - 改造 `ToolController.java`：`groups` 改用 `toolsEngine.getAllGroups()`
-- `javaclaw-agent/pom.xml` 新增 `spring-boot-starter-webflux`（WebClient）和 `json-path`（JSONPath 提取）
+- `intellimate-agent/pom.xml` 新增 `spring-boot-starter-webflux`（WebClient）和 `json-path`（JSONPath 提取）
 
 **前端改动：**
 - 修改 `api.ts`：新增 `ToolDefinition`、`ToolDefinitionCreate`、`ToolTestRequest`、`ToolTestResult` 接口；新增 `fetchToolDefinitions()`、`createToolDefinition()`、`updateToolDefinition()`、`deleteToolDefinition()`、`testToolDefinition()` 函数；`ToolInfo` 增加 `source` 字段
@@ -694,15 +694,15 @@
 
 | 类型 | Feature |
 |------|---------|
-| 描述 | 实现工具动态配置 P1 阶段：前端配置 MCP Server 连接，JavaClaw 作为 MCP Client 自动发现并注册远程工具。支持 SSE / STDIO 传输类型，工具名前缀隔离 |
+| 描述 | 实现工具动态配置 P1 阶段：前端配置 MCP Server 连接，IntelliMate 作为 MCP Client 自动发现并注册远程工具。支持 SSE / STDIO 传输类型，工具名前缀隔离 |
 
 **后端改动：**
 - 新增 Flyway 迁移 `V5__mcp_server.sql`：创建 `mcp_server` 表（name、server_url、transport_type、auth_config、agent_name、enabled、last_connected_at、tools_discovered）
 - 新建 `McpServerEntity.java`：对应 `mcp_server` 表
 - 新建 `McpServerRepository.java`：`findAllByEnabled()`、`findByName()`
-- `javaclaw-gateway/pom.xml` 新增 `spring-ai-starter-mcp-client-webflux` 依赖
+- `intellimate-gateway/pom.xml` 新增 `spring-ai-starter-mcp-client-webflux` 依赖
 - `application.yml` 新增 `spring.ai.mcp.client.enabled: false` 禁用 MCP 自动配置（程序化管理客户端）
-- 新建 `javaclaw-agent/tools/mcp/` 包：
+- 新建 `intellimate-agent/tools/mcp/` 包：
   - `McpToolProvider` 接口：定义 `getAllCallbacks()` / `getServerToolNames()`
   - `PrefixedToolCallback`：包装 `ToolCallback`，为工具名添加 `mcp_{serverName}_` 前缀避免冲突
 - 新建 `McpToolProviderImpl.java`（gateway/service）：
@@ -829,6 +829,6 @@
 | 2026-03-11 | `doc/process/model-execution-flow.md` | 模型执行流程记录 |
 | 2026-03-11 | `doc/process/tech-agent-loop.md` | Agent Loop 技术设计 |
 | 2026-03-11 | `doc/process/tool/OpenClaw-tools-designer.md` | OpenClaw 工具管理分析 |
-| 2026-03-11 | `doc/process/tool/JavaClaw_tools-designer.md` | JavaClaw 工具管理设计 |
+| 2026-03-11 | `doc/process/tool/IntelliMate_tools-designer.md` | IntelliMate 工具管理设计 |
 | 2026-03-11 | `doc/process/tool/工具动态配置_设计方案.md` | 工具动态配置产品设计 |
 | 2026-03-11 | `doc/process/tool/工具动态配置_技术方案.md` | 工具动态配置技术方案 |

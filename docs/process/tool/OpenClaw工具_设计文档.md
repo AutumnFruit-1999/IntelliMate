@@ -1,7 +1,7 @@
 # OpenClaw 工具管理机制分析
 
 > 本文档分析 OpenClaw 的工具（Tool）管理体系，包括定义、注册、配置、分组和 UI 页面控制。
-> 供 JavaClaw 改造参考。
+> 供 IntelliMate 改造参考。
 
 ---
 

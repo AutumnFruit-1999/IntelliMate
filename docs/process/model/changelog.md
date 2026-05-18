@@ -55,7 +55,7 @@
 - 输出超限时头尾保留截断（各保留 4000 字符）
 - 更新 `@Tool` description，告知 LLM 截断行为
 
-### JavaClawProperties.java
+### IntelliMateProperties.java
 
 Agent 类新增 14 个配置字段：
 
@@ -90,7 +90,7 @@ Agent 类新增 14 个配置字段：
 
 ### application.yml
 
-- `javaclaw.agent` 下新增全部 14 个新配置项及默认值
+- `intellimate.agent` 下新增全部 14 个新配置项及默认值
 
 ---
 

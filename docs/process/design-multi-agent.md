@@ -2,7 +2,7 @@
 
 ## 1. 功能概述
 
-JavaClaw 需要支持创建和管理多个独立的智能体（Agent），每个智能体拥有独立的：
+IntelliMate 需要支持创建和管理多个独立的智能体（Agent），每个智能体拥有独立的：
 - 名称和模型配置
 - SOUL / USER / AGENTS 上下文文件
 - 工具权限（tools_enabled）
@@ -21,7 +21,7 @@ JavaClaw 需要支持创建和管理多个独立的智能体（Agent），每个
 │ ┌─────────────────────┐ │ ┌─────────────────────────┐   │
 │ │ 智能体列表           │ │ │ [当前Agent名] ● 已连接   │   │
 │ │ ┌─────────────┐     │ │ └─────────────────────────┘   │
-│ │ │ ★ javaclaw  │ ←活跃│ │                               │
+│ │ │ ★ intellimate  │ ←活跃│ │                               │
 │ │ └─────────────┘     │ │  ChatPanel                    │
 │ │ ┌─────────────┐     │ │ ┌─────────────────────────┐   │
 │ │ │   coder     │     │ │ │                           │   │
@@ -161,7 +161,7 @@ contextId = wsSessionId + ":" + agentName
   "event": "session.welcome",
   "payload": {
     "wsSessionId": "abc123",
-    "defaultAgent": "javaclaw"
+    "defaultAgent": "intellimate"
   }
 }
 ```

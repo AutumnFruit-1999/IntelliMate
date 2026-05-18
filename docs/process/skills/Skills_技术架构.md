@@ -1,4 +1,4 @@
-# JavaClaw Skills 技术架构
+# IntelliMate Skills 技术架构
 
 > 版本: v2.0  
 > 日期: 2026-03-12  
@@ -83,7 +83,7 @@ ALTER TABLE `agent`
 
 ### 4.1 Skills 根目录
 
-配置项: `javaclaw.skills.dir` (默认: `./skills`)
+配置项: `intellimate.skills.dir` (默认: `./skills`)
 
 ```
 {skills.dir}/
@@ -104,7 +104,7 @@ ALTER TABLE `agent`
 
 ### 4.2 SkillFileService
 
-文件: `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/service/SkillFileService.java`
+文件: `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/service/SkillFileService.java`
 
 负责 Skill 目录的文件系统操作:
 
@@ -112,7 +112,7 @@ ALTER TABLE `agent`
 @Service
 public class SkillFileService {
 
-    @Value("${javaclaw.skills.dir:./skills}")
+    @Value("${intellimate.skills.dir:./skills}")
     private String skillsDir;
 
     /** 创建 Skill 目录, 写入 SKILL.md */
@@ -266,7 +266,7 @@ private String skillsEnabled;
 
 // ResolvedAgentConfig.java
 public record ResolvedAgentConfig(
-    JavaClawProperties.Agent agent,
+    IntelliMateProperties.Agent agent,
     String toolsEnabled,
     String mcpToolsEnabled,
     String skillsEnabled
@@ -275,7 +275,7 @@ public record ResolvedAgentConfig(
 // AgentRunRequest.java
 public record AgentRunRequest(
     Long sessionId,
-    JavaClawProperties.Agent agent,
+    IntelliMateProperties.Agent agent,
     String userMessage,
     List<Message> history,
     String toolsEnabled,
@@ -286,10 +286,10 @@ public record AgentRunRequest(
 
 ### 5.5 SkillContentProvider (SPI)
 
-接口定义在 `javaclaw-agent`:
+接口定义在 `intellimate-agent`:
 
 ```java
-package com.atm.javaclaw.agent.skills;
+package com.atm.intellimate.agent.skills;
 
 import java.util.List;
 
@@ -309,7 +309,7 @@ public interface SkillContentProvider {
 
 **注意**: SPI 只返回 `name + description`（Discovery 阶段），**不返回完整 content**。完整内容由 Agent 在 Activation 阶段自主读取文件。
 
-实现类在 `javaclaw-gateway`:
+实现类在 `intellimate-gateway`:
 
 ```java
 @Component
@@ -352,7 +352,7 @@ public class SkillContentProviderImpl implements SkillContentProvider {
 修改 `buildSystemPrompt` 方法, **仅注入索引**:
 
 ```java
-private String buildSystemPrompt(JavaClawProperties.Agent agentConfig, String skillsEnabled) {
+private String buildSystemPrompt(IntelliMateProperties.Agent agentConfig, String skillsEnabled) {
     StringBuilder sb = new StringBuilder();
 
     appendSection(sb, "SOUL", agentConfig.getSoulMd());
@@ -563,7 +563,7 @@ export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp" | "skills"
 | `AgentRuntime.java` | buildSystemPrompt 注入 Discovery 索引 |
 | `AgentController.java` | getConfig/update 支持 skillsEnabled |
 | `MessagePipeline.java` | 传递 skillsEnabled |
-| `application.yml` | + javaclaw.skills.dir 配置项 |
+| `application.yml` | + intellimate.skills.dir 配置项 |
 
 ### 前端新增
 
@@ -820,7 +820,7 @@ const filteredSkills = useMemo(() =>
 
 当 Agent 启用了大量 Skills (10+) 时，仅靠 system prompt 中的索引列表可能不够（Agent 无法直接 file_read 时的降级方案）。提供一个内置工具供 Agent 按名称查询 Skill 完整内容。
 
-文件: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/tools/builtin/GetSkillContentTool.java`
+文件: `intellimate-agent/src/main/java/com/atm/intellimate/agent/tools/builtin/GetSkillContentTool.java`
 
 ```java
 @Component
@@ -887,7 +887,7 @@ if (skillsEnabled != null && !skillsEnabled.isBlank() && getSkillContentTool != 
 
 ### 9.5 内置 Skills 包
 
-预置一批常用 Skills，随项目一起分发。存放在 `javaclaw-gateway/src/main/resources/builtin-skills/` 下:
+预置一批常用 Skills，随项目一起分发。存放在 `intellimate-gateway/src/main/resources/builtin-skills/` 下:
 
 ```
 builtin-skills/

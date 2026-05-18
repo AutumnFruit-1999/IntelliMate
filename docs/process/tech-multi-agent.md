@@ -9,7 +9,7 @@ Frontend                    Backend
 ┌──────────┐    WS    ┌──────────────────────┐
 │ App.tsx  │◄────────►│ GatewayWebSocketHandler│
 │ (硬编码   │         │         │              │
-│ javaclaw)│         │    MessagePipeline     │
+│ intellimate)│         │    MessagePipeline     │
 └──────────┘         │    │    │              │
                      │ SessionMgr AgentRuntime│
                      │    │         │          │
@@ -45,7 +45,7 @@ Frontend                        Backend
 
 ### 2.1 AgentController 扩展
 
-当前文件：`javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/http/AgentController.java`
+当前文件：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/http/AgentController.java`
 
 新增接口：
 
@@ -140,7 +140,7 @@ SessionMetadata metadata = new SessionMetadata(
 会话隔离效果：
 
 ```
-用户 ws-abc 对 javaclaw 的会话：webchat:dm:ws-abc::javaclaw
+用户 ws-abc 对 intellimate 的会话：webchat:dm:ws-abc::intellimate
 用户 ws-abc 对 coder 的会话：   webchat:dm:ws-abc::coder
 用户 ws-abc 对 writer 的会话：  webchat:dm:ws-abc::writer
 ```

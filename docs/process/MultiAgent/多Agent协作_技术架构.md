@@ -3,7 +3,7 @@
 > 日期: 2026-03-12  
 > 状态: Draft  
 > 前置文档: [多Agent协作_设计方案.md](多Agent协作_设计方案.md)  
-> 模块: javaclaw-agent, javaclaw-gateway, javaclaw-web
+> 模块: intellimate-agent, intellimate-gateway, intellimate-web
 
 ---
 
@@ -11,7 +11,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                          javaclaw-web (React)                       │
+│                          intellimate-web (React)                       │
 │                                                                     │
 │   ChatPanel ──→ WorkflowVisualization (新增) ──→ ApprovalDialog     │
 │       │              ├── DelegationCard                              │
@@ -22,7 +22,7 @@
 └─────────────────────────────┬───────────────────────────────────────┘
                               │ WebSocket
 ┌─────────────────────────────▼───────────────────────────────────────┐
-│                       javaclaw-gateway                               │
+│                       intellimate-gateway                               │
 │                                                                      │
 │   MessagePipeline ──→ AgentRuntime.dispatch()                        │
 │       │                    │                                         │
@@ -160,7 +160,7 @@ session                           ├── workflow_id ──→ agent_workflow
 
 ### 3.1 DelegateAgentTool
 
-**位置**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/tools/DelegateAgentTool.java`
+**位置**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/tools/DelegateAgentTool.java`
 
 Supervisor Agent 通过此工具触发委派。作为标准的 `@Tool` 注册到 ToolsEngine。
 
@@ -202,7 +202,7 @@ if ("supervisor".equals(agentRole)) {
 
 ### 3.2 WorkflowEngine
 
-**位置**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/workflow/WorkflowEngine.java`
+**位置**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/workflow/WorkflowEngine.java`
 
 编排引擎，管理 Agent 间的执行流。
 
@@ -331,7 +331,7 @@ public class WorkflowEngine {
 
 ### 3.3 WorkflowContext
 
-**位置**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/workflow/WorkflowContext.java`
+**位置**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/workflow/WorkflowContext.java`
 
 ```java
 /**
@@ -358,7 +358,7 @@ public record WorkflowContext(
 
 ### 3.4 AgentEvent 扩展
 
-**位置**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/runtime/AgentEvent.java`
+**位置**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/runtime/AgentEvent.java`
 
 ```java
 public sealed interface AgentEvent {
@@ -481,7 +481,7 @@ case AgentEvent.DelegationResult dr -> Flux.just(new EventFrame(
 public Mono<ResolvedAgentConfig> resolve(String agentName) {
     return agentRepository.findByNameAndDeleted(agentName, 0)
             .map(entity -> {
-                JavaClawProperties.Agent agent = mapToAgent(entity);
+                IntelliMateProperties.Agent agent = mapToAgent(entity);
                 String toolsEnabled = entity.getToolsEnabled();
 
                 // Supervisor 自动注入委派工具
@@ -526,10 +526,10 @@ private String buildWorkerInfo(String workerAgentsJson) {
 }
 ```
 
-### 4.2 JavaClawProperties.Agent 扩展
+### 4.2 IntelliMateProperties.Agent 扩展
 
 ```java
-// JavaClawProperties.Agent 新增字段
+// IntelliMateProperties.Agent 新增字段
 
 private String role;           // supervisor | worker | null
 private String goal;           // 角色优化目标

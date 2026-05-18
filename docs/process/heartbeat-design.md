@@ -84,7 +84,7 @@ public static LifecycleState compute(LocalTime now, LocalTime wakeTime, LocalTim
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    javaclaw-gateway                          │
+│                    intellimate-gateway                          │
 │                                                             │
 │  ┌────────────────────────────────────────────────────┐     │
 │  │              HeartbeatScheduler                     │     │

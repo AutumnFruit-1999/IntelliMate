@@ -1,6 +1,6 @@
-# JavaClaw MCP 工具管理指南
+# IntelliMate MCP 工具管理指南
 
-本文档详细介绍 JavaClaw 项目中 MCP (Model Context Protocol) 工具的管理机制、数据流和 API 接口。
+本文档详细介绍 IntelliMate 项目中 MCP (Model Context Protocol) 工具的管理机制、数据流和 API 接口。
 
 ---
 
@@ -13,12 +13,12 @@ flowchart TB
         Repo[McpServerRepository]
     end
 
-    subgraph Gateway["javaclaw-gateway"]
+    subgraph Gateway["intellimate-gateway"]
         Controller[McpServerController]
         Impl[McpToolProviderImpl]
     end
 
-    subgraph Agent["javaclaw-agent"]
+    subgraph Agent["intellimate-agent"]
         Interface[McpToolProvider 接口]
         ToolsEngine[ToolsEngine]
         AgentRuntime[AgentRuntime]
@@ -62,7 +62,7 @@ flowchart TB
 
 ### 2.2 实体类
 
-**文件**: `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/McpServerEntity.java`
+**文件**: `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/McpServerEntity.java`
 
 ```java
 @Table("mcp_server")
@@ -86,9 +86,9 @@ public class McpServerEntity {
 
 ## 三、核心接口与实现
 
-### 3.1 SPI 接口 (javaclaw-agent)
+### 3.1 SPI 接口 (intellimate-agent)
 
-**文件**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/tools/mcp/McpToolProvider.java`
+**文件**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/tools/mcp/McpToolProvider.java`
 
 ```java
 public interface McpToolProvider {
@@ -100,9 +100,9 @@ public interface McpToolProvider {
 }
 ```
 
-### 3.2 实现类 (javaclaw-gateway)
+### 3.2 实现类 (intellimate-gateway)
 
-**文件**: `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/service/McpToolProviderImpl.java`
+**文件**: `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/service/McpToolProviderImpl.java`
 
 #### 核心方法一览
 
@@ -182,7 +182,7 @@ public void connectServerSync(McpServerEntity server) {
 
 ## 四、HTTP API 接口
 
-**文件**: `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/http/McpServerController.java`
+**文件**: `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/http/McpServerController.java`
 
 **基础路径**: `/api/mcp-servers`
 
@@ -253,7 +253,7 @@ POST /api/mcp-servers/test-config
 
 ## 五、ToolsEngine 集成
 
-**文件**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/tools/ToolsEngine.java`
+**文件**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/tools/ToolsEngine.java`
 
 ### 5.1 构造与注入
 
@@ -335,7 +335,7 @@ public List<Map<String, String>> getToolMetadata() {
 
 ## 六、AgentRuntime 使用
 
-**文件**: `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/runtime/AgentRuntime.java`
+**文件**: `intellimate-agent/src/main/java/com/atm/intellimate/agent/runtime/AgentRuntime.java`
 
 在对话处理时获取工具：
 
@@ -377,25 +377,25 @@ ToolCallback[] tools = toolsEngine.getToolCallbacksFor(
 ### 核心实现
 | 文件 | 职责 |
 |------|------|
-| `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/tools/mcp/McpToolProvider.java` | SPI 接口定义 |
-| `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/tools/mcp/PrefixedToolCallback.java` | 工具名前缀包装器 |
-| `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/service/McpToolProviderImpl.java` | 接口实现 |
-| `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/entity/McpServerEntity.java` | 实体类 |
-| `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/repository/McpServerRepository.java` | 数据访问 |
-| `javaclaw-gateway/src/main/java/com/atm/javaclaw/gateway/http/McpServerController.java` | HTTP API |
+| `intellimate-agent/src/main/java/com/atm/intellimate/agent/tools/mcp/McpToolProvider.java` | SPI 接口定义 |
+| `intellimate-agent/src/main/java/com/atm/intellimate/agent/tools/mcp/PrefixedToolCallback.java` | 工具名前缀包装器 |
+| `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/service/McpToolProviderImpl.java` | 接口实现 |
+| `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/entity/McpServerEntity.java` | 实体类 |
+| `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/McpServerRepository.java` | 数据访问 |
+| `intellimate-gateway/src/main/java/com/atm/intellimate/gateway/http/McpServerController.java` | HTTP API |
 
 ### 集成使用
 | 文件 | 职责 |
 |------|------|
-| `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/tools/ToolsEngine.java` | 工具合并与过滤 |
-| `javaclaw-agent/src/main/java/com/atm/javaclaw/agent/runtime/AgentRuntime.java` | 运行时工具获取 |
+| `intellimate-agent/src/main/java/com/atm/intellimate/agent/tools/ToolsEngine.java` | 工具合并与过滤 |
+| `intellimate-agent/src/main/java/com/atm/intellimate/agent/runtime/AgentRuntime.java` | 运行时工具获取 |
 
 ### 数据库
 | 文件 | 职责 |
 |------|------|
-| `javaclaw-gateway/src/main/resources/db/migration/V5__mcp_server.sql` | 初始建表 |
-| `javaclaw-gateway/src/main/resources/db/migration/V6__agent_mcp_tools.sql` | Agent MCP 配置 |
-| `javaclaw-gateway/src/main/resources/db/migration/V11__drop_mcp_agent_name.sql` | 删除 agent_name 列 |
+| `intellimate-gateway/src/main/resources/db/migration/V5__mcp_server.sql` | 初始建表 |
+| `intellimate-gateway/src/main/resources/db/migration/V6__agent_mcp_tools.sql` | Agent MCP 配置 |
+| `intellimate-gateway/src/main/resources/db/migration/V11__drop_mcp_agent_name.sql` | 删除 agent_name 列 |
 
 ---
 

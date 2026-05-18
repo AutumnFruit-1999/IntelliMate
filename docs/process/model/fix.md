@@ -4,7 +4,7 @@
 - /clear: xxx
 - /reset: xxx
 4. 点击Agent配置的时候，不要出现弹框了，在整个右侧显示一个大一点的图，点击图的时候进行agent配置
-/Users/user/Documents/code/GitHub/JavaClaw/doc/process/model/image.png 类似于这个格式，但是比这个页面简洁一点
+/Users/user/Documents/code/GitHub/IntelliMate/doc/process/model/image.png 类似于这个格式，但是比这个页面简洁一点
 5. 工具管理页面当工具过的时候采用分页方式展示
 6. 统一项目中窗口的大小
 

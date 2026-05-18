@@ -12,18 +12,18 @@
     </parent>
 
     <groupId>com.atm</groupId>
-    <artifactId>JavaClaw</artifactId>
+    <artifactId>IntelliMate</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
-    <name>JavaClaw</name>
-    <description>Java implementation of OpenClaw AI Assistant Framework</description>
+    <name>IntelliMate</name>
+    <description>IntelliMate - Intelligent AI Assistant Framework</description>
 
     <modules>
-        <module>javaclaw-core</module>
-        <module>javaclaw-channel-api</module>
-        <module>javaclaw-memory</module>
-        <module>javaclaw-agent</module>
-        <module>javaclaw-gateway</module>
+        <module>intellimate-core</module>
+        <module>intellimate-channel-api</module>
+        <module>intellimate-memory</module>
+        <module>intellimate-agent</module>
+        <module>intellimate-gateway</module>
     </modules>
 
     <properties>
@@ -59,22 +59,22 @@
 
             <dependency>
                 <groupId>com.atm</groupId>
-                <artifactId>javaclaw-core</artifactId>
+                <artifactId>intellimate-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.atm</groupId>
-                <artifactId>javaclaw-channel-api</artifactId>
+                <artifactId>intellimate-channel-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.atm</groupId>
-                <artifactId>javaclaw-memory</artifactId>
+                <artifactId>intellimate-memory</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.atm</groupId>
-                <artifactId>javaclaw-agent</artifactId>
+                <artifactId>intellimate-agent</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

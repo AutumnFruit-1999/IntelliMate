@@ -16,7 +16,7 @@
 ```sql
 SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT, COLUMN_COMMENT
 FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'javaclaw' AND TABLE_NAME = 'agent'
+WHERE TABLE_SCHEMA = 'intellimate' AND TABLE_NAME = 'agent'
   AND COLUMN_NAME IN ('can_delegate', 'delegate_agents', 'goal');
 ```
 
