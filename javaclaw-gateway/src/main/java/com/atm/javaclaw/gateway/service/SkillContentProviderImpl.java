@@ -1,7 +1,11 @@
 package com.atm.javaclaw.gateway.service;
 
 import com.atm.javaclaw.agent.skills.SkillContentProvider;
+import com.atm.javaclaw.gateway.entity.SkillGroupEntity;
+import com.atm.javaclaw.gateway.entity.SkillGroupMemberEntity;
 import com.atm.javaclaw.gateway.repository.SkillDefinitionRepository;
+import com.atm.javaclaw.gateway.repository.SkillGroupMemberRepository;
+import com.atm.javaclaw.gateway.repository.SkillGroupRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -11,8 +15,8 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 import java.nio.file.Path;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 public class SkillContentProviderImpl implements SkillContentProvider {
@@ -22,13 +26,20 @@ public class SkillContentProviderImpl implements SkillContentProvider {
 
     private final SkillDefinitionRepository repository;
     private final SkillFileService fileService;
+    private final SkillGroupRepository groupRepository;
+    private final SkillGroupMemberRepository memberRepository;
 
     @Value("${javaclaw.skills.dir:./skills}")
     private String skillsDir;
 
-    public SkillContentProviderImpl(SkillDefinitionRepository repository, SkillFileService fileService) {
+    public SkillContentProviderImpl(SkillDefinitionRepository repository,
+                                    SkillFileService fileService,
+                                    SkillGroupRepository groupRepository,
+                                    SkillGroupMemberRepository memberRepository) {
         this.repository = repository;
         this.fileService = fileService;
+        this.groupRepository = groupRepository;
+        this.memberRepository = memberRepository;
     }
 
     @Override
@@ -69,6 +80,88 @@ public class SkillContentProviderImpl implements SkillContentProvider {
         } catch (Exception e) {
             log.warn("Failed to read skill content from DB for '{}': {}", skillName, e.getMessage());
             return null;
+        }
+    }
+
+    @Override
+    public List<SkillGroupSummary> listGroups() {
+        try {
+            List<SkillGroupEntity> groups = groupRepository.findAllByEnabledOrderBySortOrderAsc(1)
+                    .collectList().block();
+            if (groups == null || groups.isEmpty()) return List.of();
+
+            List<Long> groupIds = groups.stream().map(SkillGroupEntity::getId).toList();
+            List<SkillGroupMemberEntity> members = memberRepository.findByGroupIdIn(groupIds)
+                    .collectList().block();
+
+            Map<Long, Long> countMap = (members != null)
+                    ? members.stream().collect(Collectors.groupingBy(SkillGroupMemberEntity::getGroupId, Collectors.counting()))
+                    : Map.of();
+
+            return groups.stream()
+                    .map(g -> new SkillGroupSummary(
+                            g.getName(),
+                            g.getDisplayName() != null ? g.getDisplayName() : g.getName(),
+                            g.getDescription() != null ? g.getDescription() : "",
+                            countMap.getOrDefault(g.getId(), 0L).intValue()))
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Failed to list skill groups: {} — ensure this method is not called from a non-blocking thread",
+                    e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+    @Override
+    public Map<String, List<SkillSummary>> listSkillsByGroups(List<String> groupNames) {
+        try {
+            List<SkillGroupEntity> groups = groupRepository.findEnabledByNames(groupNames)
+                    .collectList().block();
+            if (groups == null || groups.isEmpty()) return Map.of();
+
+            List<Long> groupIds = groups.stream().map(SkillGroupEntity::getId).toList();
+            List<SkillGroupMemberEntity> members = memberRepository.findByGroupIdIn(groupIds)
+                    .collectList().block();
+            if (members == null || members.isEmpty()) return Map.of();
+
+            Set<Long> skillIds = members.stream()
+                    .map(SkillGroupMemberEntity::getSkillId)
+                    .collect(Collectors.toSet());
+
+            Map<Long, SkillSummary> skillMap = new HashMap<>();
+            repository.findAllById(skillIds)
+                    .filter(s -> s.getEnabled() != null && s.getEnabled() == 1)
+                    .doOnNext(s -> skillMap.put(s.getId(), new SkillSummary(s.getName(), s.getDescription())))
+                    .blockLast();
+
+            Map<Long, String> groupIdToName = groups.stream()
+                    .collect(Collectors.toMap(SkillGroupEntity::getId, SkillGroupEntity::getName));
+
+            Map<String, List<SkillSummary>> result = new LinkedHashMap<>();
+            for (SkillGroupMemberEntity member : members) {
+                String gName = groupIdToName.get(member.getGroupId());
+                SkillSummary skill = skillMap.get(member.getSkillId());
+                if (gName != null && skill != null) {
+                    result.computeIfAbsent(gName, k -> new ArrayList<>()).add(skill);
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to list skills by groups: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    @Override
+    public List<String> listAllSkillNames() {
+        try {
+            return repository.findAllByEnabled(1)
+                    .map(s -> s.getName())
+                    .collectList()
+                    .block();
+        } catch (Exception e) {
+            log.warn("Failed to list all skill names: {}", e.getMessage());
+            return List.of();
         }
     }
 

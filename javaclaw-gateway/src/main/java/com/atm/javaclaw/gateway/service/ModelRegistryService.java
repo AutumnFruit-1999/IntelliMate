@@ -113,7 +113,8 @@ public class ModelRegistryService {
                 entity.getName(),
                 ProviderType.valueOf(entity.getType()),
                 entity.getBaseUrl(),
-                apiKey
+                apiKey,
+                entity.getThinkingMode()
         );
     }
 

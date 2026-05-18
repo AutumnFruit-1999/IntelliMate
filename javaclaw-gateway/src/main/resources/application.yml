@@ -66,6 +66,15 @@ javaclaw:
     plan-approval-timeout-seconds: 600
   skills:
     dir: ${JAVACLAW_SKILLS_DIR:/Users/user/Documents/code/GitHub/JavaClaw/skills/}
+  scheduler:
+    enabled: true
+    tick-period-seconds: 10
+    pool-size: 4
+    shutdown-await-seconds: 30
+    log-retention-days: 30
+    default-timeout-ms: 300000
+    max-concurrent-jobs: 8
+    config-reload-debounce-ms: 500
 
 management:
   endpoints:

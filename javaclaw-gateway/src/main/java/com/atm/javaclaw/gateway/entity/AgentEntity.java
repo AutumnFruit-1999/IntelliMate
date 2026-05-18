@@ -22,6 +22,10 @@ public class AgentEntity {
     private String toolsEnabled;
     private String mcpToolsEnabled;
     private String skillsEnabled;
+    private String skillGroupsEnabled;
+    private Integer canDelegate;
+    private String delegateAgents;
+    private String goal;
     private String configJson;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -51,6 +55,14 @@ public class AgentEntity {
     public void setMcpToolsEnabled(String mcpToolsEnabled) { this.mcpToolsEnabled = mcpToolsEnabled; }
     public String getSkillsEnabled() { return skillsEnabled; }
     public void setSkillsEnabled(String skillsEnabled) { this.skillsEnabled = skillsEnabled; }
+    public String getSkillGroupsEnabled() { return skillGroupsEnabled; }
+    public void setSkillGroupsEnabled(String skillGroupsEnabled) { this.skillGroupsEnabled = skillGroupsEnabled; }
+    public Integer getCanDelegate() { return canDelegate; }
+    public void setCanDelegate(Integer canDelegate) { this.canDelegate = canDelegate; }
+    public String getDelegateAgents() { return delegateAgents; }
+    public void setDelegateAgents(String delegateAgents) { this.delegateAgents = delegateAgents; }
+    public String getGoal() { return goal; }
+    public void setGoal(String goal) { this.goal = goal; }
     public String getConfigJson() { return configJson; }
     public void setConfigJson(String configJson) { this.configJson = configJson; }
     public LocalDateTime getCreatedAt() { return createdAt; }

@@ -72,10 +72,16 @@
             <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
         </dependency>
 
-        <!-- OpenAI Compatible (for OpenAI, DeepSeek, Groq, etc.) -->
+        <!-- OpenAI Compatible (for OpenAI, Groq, etc.) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+
+        <!-- DeepSeek (dedicated provider) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-deepseek</artifactId>
         </dependency>
 
         <!-- Anthropic (Claude) -->

@@ -16,6 +16,7 @@ public class JavaClawProperties {
     private Server server = new Server();
     private Security security = new Security();
     private Agent agent = new Agent();
+    private Scheduler scheduler = new Scheduler();
     private Map<String, ChannelConfig> channels = new HashMap<>();
 
     public Server getServer() {
@@ -40,6 +41,14 @@ public class JavaClawProperties {
 
     public void setAgent(Agent agent) {
         this.agent = agent;
+    }
+
+    public Scheduler getScheduler() {
+        return scheduler;
+    }
+
+    public void setScheduler(Scheduler scheduler) {
+        this.scheduler = scheduler;
     }
 
     public Map<String, ChannelConfig> getChannels() {
@@ -104,6 +113,9 @@ public class JavaClawProperties {
         private int planMaxSteps = 20;
         private int planStepTimeoutSeconds = 120;
         private int planApprovalTimeoutSeconds = 600;
+        private boolean canDelegate = false;
+        private String delegateAgents;
+        private String goal;
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -157,6 +169,40 @@ public class JavaClawProperties {
         public void setPlanStepTimeoutSeconds(int planStepTimeoutSeconds) { this.planStepTimeoutSeconds = planStepTimeoutSeconds; }
         public int getPlanApprovalTimeoutSeconds() { return planApprovalTimeoutSeconds; }
         public void setPlanApprovalTimeoutSeconds(int planApprovalTimeoutSeconds) { this.planApprovalTimeoutSeconds = planApprovalTimeoutSeconds; }
+        public boolean isCanDelegate() { return canDelegate; }
+        public void setCanDelegate(boolean canDelegate) { this.canDelegate = canDelegate; }
+        public String getDelegateAgents() { return delegateAgents; }
+        public void setDelegateAgents(String delegateAgents) { this.delegateAgents = delegateAgents; }
+        public String getGoal() { return goal; }
+        public void setGoal(String goal) { this.goal = goal; }
+    }
+
+    public static class Scheduler {
+        private boolean enabled = true;
+        private int tickPeriodSeconds = 10;
+        private int poolSize = 4;
+        private int shutdownAwaitSeconds = 30;
+        private int logRetentionDays = 30;
+        private long defaultTimeoutMs = 300_000;
+        private int maxConcurrentJobs = 8;
+        private long configReloadDebounceMs = 500;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public int getTickPeriodSeconds() { return tickPeriodSeconds; }
+        public void setTickPeriodSeconds(int tickPeriodSeconds) { this.tickPeriodSeconds = tickPeriodSeconds; }
+        public int getPoolSize() { return poolSize; }
+        public void setPoolSize(int poolSize) { this.poolSize = poolSize; }
+        public int getShutdownAwaitSeconds() { return shutdownAwaitSeconds; }
+        public void setShutdownAwaitSeconds(int shutdownAwaitSeconds) { this.shutdownAwaitSeconds = shutdownAwaitSeconds; }
+        public int getLogRetentionDays() { return logRetentionDays; }
+        public void setLogRetentionDays(int logRetentionDays) { this.logRetentionDays = logRetentionDays; }
+        public long getDefaultTimeoutMs() { return defaultTimeoutMs; }
+        public void setDefaultTimeoutMs(long defaultTimeoutMs) { this.defaultTimeoutMs = defaultTimeoutMs; }
+        public int getMaxConcurrentJobs() { return maxConcurrentJobs; }
+        public void setMaxConcurrentJobs(int maxConcurrentJobs) { this.maxConcurrentJobs = maxConcurrentJobs; }
+        public long getConfigReloadDebounceMs() { return configReloadDebounceMs; }
+        public void setConfigReloadDebounceMs(long configReloadDebounceMs) { this.configReloadDebounceMs = configReloadDebounceMs; }
     }
 
     public static class ChannelConfig {

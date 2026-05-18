@@ -57,7 +57,7 @@ export default function AgentCardGrid({
               </div>
 
               <p className="text-xs text-slate-400 dark:text-slate-500 mb-3 truncate">
-                {agent.model}
+                {agent.modelDisplayName || agent.model}
               </p>
 
               <div className="flex flex-wrap gap-1.5">

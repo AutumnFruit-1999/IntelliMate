@@ -21,6 +21,7 @@ import com.atm.javaclaw.gateway.entity.SessionEntity;
 import com.atm.javaclaw.gateway.entity.TranscriptMessageEntity;
 import com.atm.javaclaw.gateway.service.PlanService;
 import com.atm.javaclaw.gateway.session.SessionManager;
+import com.atm.javaclaw.gateway.websocket.SessionRegistry;
 import com.atm.javaclaw.memory.longterm.LongTermMemory;
 import com.atm.javaclaw.memory.model.ExtractedFact;
 import org.slf4j.Logger;
@@ -56,6 +57,7 @@ public class MessagePipeline {
     private final AuditService auditService;
     private final PlanService planService;
     private final LongTermMemory longTermMemory;
+    private final SessionRegistry sessionRegistry;
     private final AtomicLong seqGenerator = new AtomicLong(0);
     private final ConcurrentMap<String, Long> wsSessionToDbSession = new ConcurrentHashMap<>();
 
@@ -68,6 +70,7 @@ public class MessagePipeline {
                            CommandHandler commandHandler,
                            AuditService auditService,
                            PlanService planService,
+                           SessionRegistry sessionRegistry,
                            @Autowired(required = false) LongTermMemory longTermMemory) {
         this.sessionManager = sessionManager;
         this.agentRuntime = agentRuntime;
@@ -76,6 +79,7 @@ public class MessagePipeline {
         this.commandHandler = commandHandler;
         this.auditService = auditService;
         this.planService = planService;
+        this.sessionRegistry = sessionRegistry;
         this.longTermMemory = longTermMemory;
     }
 
@@ -104,6 +108,7 @@ public class MessagePipeline {
         if (agentName.isBlank()) {
             agentName = properties.getAgent().getName();
         }
+        sessionRegistry.bindAgent(wsSessionId, agentName);
 
         String contextId = baseContextId + "::" + agentName;
 
@@ -177,10 +182,12 @@ public class MessagePipeline {
                                         resolved.toolsEnabled(),
                                         resolved.mcpToolsEnabled(),
                                         resolved.skillsEnabled(),
+                                        resolved.skillGroupsEnabled(),
                                         planContext,
                                         forcePlan,
                                         effectivePlanId,
-                                        planPayload.assessment()
+                                        planPayload.assessment(),
+                                        null
                                 );
 
                                 StringBuilder fullResponse = new StringBuilder();
@@ -746,6 +753,124 @@ public class MessagePipeline {
                 ));
             }
 
+            // ───── Delegation events ─────
+
+            case AgentEvent.DelegationStart ds -> Flux.just(new EventFrame(
+                    "workflow.delegation_start",
+                    Map.of("workerAgent", ds.workerAgentName(),
+                           "task", ds.task(),
+                           "delegationId", ds.delegationId(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            case AgentEvent.DelegationProgress dp -> {
+                if (dp.nestedEvent() instanceof AgentEvent.TextChunk tc) {
+                    yield Flux.just(new EventFrame(
+                            "workflow.delegation_progress",
+                            Map.of("workerAgent", dp.workerAgentName(),
+                                   "delegationId", dp.delegationId(),
+                                   "eventType", "chunk",
+                                   "text", tc.text(),
+                                   "requestId", requestId),
+                            seqGenerator.incrementAndGet()));
+                } else if (dp.nestedEvent() instanceof AgentEvent.ToolCall ntc) {
+                    yield Flux.just(new EventFrame(
+                            "workflow.delegation_progress",
+                            Map.of("workerAgent", dp.workerAgentName(),
+                                   "delegationId", dp.delegationId(),
+                                   "eventType", "tool_call",
+                                   "name", ntc.name(),
+                                   "arguments", ntc.arguments(),
+                                   "requestId", requestId),
+                            seqGenerator.incrementAndGet()));
+                } else if (dp.nestedEvent() instanceof AgentEvent.ToolResult ntr) {
+                    yield Flux.just(new EventFrame(
+                            "workflow.delegation_progress",
+                            Map.of("workerAgent", dp.workerAgentName(),
+                                   "delegationId", dp.delegationId(),
+                                   "eventType", "tool_result",
+                                   "name", ntr.name(),
+                                   "success", ntr.success(),
+                                   "requestId", requestId),
+                            seqGenerator.incrementAndGet()));
+                } else if (dp.nestedEvent() instanceof AgentEvent.TurnStart ts) {
+                    yield Flux.just(new EventFrame(
+                            "workflow.delegation_progress",
+                            Map.of("workerAgent", dp.workerAgentName(),
+                                   "delegationId", dp.delegationId(),
+                                   "eventType", "turn_start",
+                                   "turn", ts.turn(),
+                                   "requestId", requestId),
+                            seqGenerator.incrementAndGet()));
+                } else {
+                    yield Flux.empty();
+                }
+            }
+
+            case AgentEvent.DelegationResult dr -> Flux.just(new EventFrame(
+                    "workflow.delegation_result",
+                    Map.of("workerAgent", dr.workerAgentName(),
+                           "delegationId", dr.delegationId(),
+                           "result", dr.result() != null ? dr.result() : "",
+                           "success", dr.success(),
+                           "turnsUsed", dr.turnsUsed(),
+                           "durationMs", dr.durationMs(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            case AgentEvent.HandoffStart hs -> handleHandoff(hs, requestId, fullResponse, session);
+
+            case AgentEvent.ParallelStart ps -> Flux.just(new EventFrame(
+                    "workflow.parallel_start",
+                    Map.of("parallelGroupId", ps.parallelGroupId(),
+                           "tasks", ps.tasks().stream()
+                                   .map(t -> Map.of("agentName", t.agentName(), "task", t.task()))
+                                   .toList(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            case AgentEvent.ParallelProgress pp -> {
+                if (pp.nestedEvent() instanceof AgentEvent.TextChunk tc) {
+                    yield Flux.just(new EventFrame(
+                            "workflow.parallel_progress",
+                            Map.of("parallelGroupId", pp.parallelGroupId(),
+                                   "agentName", pp.agentName(),
+                                   "eventType", "chunk",
+                                   "text", tc.text(),
+                                   "requestId", requestId),
+                            seqGenerator.incrementAndGet()));
+                } else if (pp.nestedEvent() instanceof AgentEvent.Done done) {
+                    yield Flux.just(new EventFrame(
+                            "workflow.parallel_progress",
+                            Map.of("parallelGroupId", pp.parallelGroupId(),
+                                   "agentName", pp.agentName(),
+                                   "eventType", "done",
+                                   "text", done.fullText(),
+                                   "requestId", requestId),
+                            seqGenerator.incrementAndGet()));
+                } else {
+                    yield Flux.empty();
+                }
+            }
+
+            case AgentEvent.ParallelResult pr -> Flux.just(new EventFrame(
+                    "workflow.parallel_result",
+                    Map.of("parallelGroupId", pr.parallelGroupId(),
+                           "results", pr.results().stream()
+                                   .map(r -> Map.of("agentName", r.agentName(),
+                                           "result", r.result() != null ? r.result() : "",
+                                           "success", r.success(),
+                                           "durationMs", r.durationMs()))
+                                   .toList(),
+                           "requestId", requestId),
+                    seqGenerator.incrementAndGet()
+            ));
+
+            // ───── Memory events ─────
+
             case AgentEvent.MemorySnapshot ms -> Flux.just(new EventFrame(
                     "memory.snapshot",
                     Map.of("tokenBudget", ms.tokenBudget(),
@@ -773,6 +898,45 @@ public class MessagePipeline {
                     seqGenerator.incrementAndGet()
             ));
         };
+    }
+
+    private Flux<GatewayFrame> handleHandoff(
+            AgentEvent.HandoffStart hs, String requestId, StringBuilder fullResponse, SessionEntity session) {
+
+        EventFrame handoffEvent = new EventFrame(
+                "workflow.handoff",
+                Map.of("fromAgent", hs.fromAgent(),
+                       "toAgent", hs.toAgent(),
+                       "reason", hs.reason(),
+                       "contextSummary", hs.contextSummary(),
+                       "requestId", requestId),
+                seqGenerator.incrementAndGet());
+
+        String handoffMessage = "You are taking over this conversation from agent '" + hs.fromAgent() + "'.\n"
+                + "Reason: " + hs.reason() + "\n"
+                + "Context summary: " + hs.contextSummary() + "\n"
+                + "Continue helping the user with their request.";
+
+        Flux<GatewayFrame> handoffExecution = agentConfigService.resolve(hs.toAgent())
+                .flatMapMany(resolved -> {
+                    String effectiveUserId = session.getContextId() != null && !session.getContextId().isBlank()
+                            ? session.getContextId() : "default";
+                    AgentRunRequest handoffRequest = new AgentRunRequest(
+                            session.getId(),
+                            effectiveUserId,
+                            resolved.agent(),
+                            handoffMessage,
+                            List.of(),
+                            resolved.toolsEnabled(),
+                            resolved.mcpToolsEnabled(),
+                            resolved.skillsEnabled(),
+                            resolved.skillGroupsEnabled(),
+                            null, false, null, null, null);
+                    return agentRuntime.dispatch(handoffRequest)
+                            .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session));
+                });
+
+        return Flux.concat(Flux.just(handoffEvent), handoffExecution);
     }
 
     /**

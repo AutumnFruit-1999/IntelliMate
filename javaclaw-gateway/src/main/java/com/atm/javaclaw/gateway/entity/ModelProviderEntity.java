@@ -14,6 +14,7 @@ public class ModelProviderEntity {
     private String type;
     private String baseUrl;
     private String apiKeyEncrypted;
+    private String thinkingMode;
     private Integer enabled;
     private Integer sortOrder;
     private LocalDateTime createdAt;
@@ -29,6 +30,8 @@ public class ModelProviderEntity {
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     public String getApiKeyEncrypted() { return apiKeyEncrypted; }
     public void setApiKeyEncrypted(String apiKeyEncrypted) { this.apiKeyEncrypted = apiKeyEncrypted; }
+    public String getThinkingMode() { return thinkingMode; }
+    public void setThinkingMode(String thinkingMode) { this.thinkingMode = thinkingMode; }
     public Integer getEnabled() { return enabled; }
     public void setEnabled(Integer enabled) { this.enabled = enabled; }
     public Integer getSortOrder() { return sortOrder; }

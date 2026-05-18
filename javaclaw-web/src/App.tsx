@@ -11,12 +11,13 @@ import ModelManagerPage from "./components/ModelManagerModal";
 import CreateAgentModal from "./components/CreateAgentModal";
 import PlanHistoryTab from "./components/PlanHistoryTab";
 import MemoryManagerPage from "./components/MemoryManagerPage";
+import SchedulerDashboard from "./components/SchedulerDashboard";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useAgentStore } from "./stores/agentStore";
 import { useChatStore } from "./stores/chatStore";
 import { usePlanStore } from "./stores/planStore";
 
-type ViewMode = "chat" | "agents" | "planHistory" | "toolManager" | "skillManager" | "modelManager" | "memoryManager";
+type ViewMode = "chat" | "agents" | "planHistory" | "toolManager" | "skillManager" | "modelManager" | "memoryManager" | "scheduler";
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -114,6 +115,7 @@ export default function App() {
         onOpenModelManager={() => setViewMode("modelManager")}
         onOpenPlanHistory={() => setViewMode("planHistory")}
         onOpenMemoryManager={() => setViewMode("memoryManager")}
+        onOpenScheduler={() => setViewMode("scheduler")}
         onCreateAgent={() => setCreateModalOpen(true)}
         onSelectAgent={handleSelectAgent}
       />
@@ -137,6 +139,8 @@ export default function App() {
             <ModelManagerPage onBack={() => setViewMode("chat")} />
           ) : viewMode === "memoryManager" ? (
             <MemoryManagerPage onBack={() => setViewMode("chat")} activeAgent={activeAgent ?? undefined} />
+          ) : viewMode === "scheduler" ? (
+            <SchedulerDashboard />
           ) : (
             <AgentCardGrid
               onSelectAgent={handleAgentCardClick}

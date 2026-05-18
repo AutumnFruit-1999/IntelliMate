@@ -25,7 +25,13 @@ interface ModelState {
   selectProvider: (id: number | null) => void;
   fetchModels: (providerId: number) => Promise<void>;
 
-  addProvider: (data: { name: string; type: string; baseUrl?: string | null; apiKey: string }) => Promise<void>;
+  addProvider: (data: {
+      name: string;
+      type: string;
+      baseUrl: string | null;
+      apiKey: string;
+      thinkingMode: string | null
+  }) => Promise<void>;
   editProvider: (id: number, data: Record<string, unknown>) => Promise<void>;
   removeProvider: (id: number) => Promise<void>;
   testProvider: (id: number) => Promise<{ success: boolean; error?: string }>;

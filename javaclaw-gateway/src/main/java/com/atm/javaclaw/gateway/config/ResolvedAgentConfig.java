@@ -9,6 +9,16 @@ public record ResolvedAgentConfig(
         JavaClawProperties.Agent agent,
         String toolsEnabled,
         String mcpToolsEnabled,
-        String skillsEnabled
+        String skillsEnabled,
+        String skillGroupsEnabled,
+        boolean canDelegate,
+        String delegateAgents,
+        String goal
 ) {
+    public ResolvedAgentConfig(JavaClawProperties.Agent agent,
+                               String toolsEnabled, String mcpToolsEnabled,
+                               String skillsEnabled, String skillGroupsEnabled) {
+        this(agent, toolsEnabled, mcpToolsEnabled, skillsEnabled, skillGroupsEnabled,
+                false, null, null);
+    }
 }

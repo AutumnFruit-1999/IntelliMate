@@ -13,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.scheduling.annotation.Scheduled;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -72,17 +71,23 @@ public class ForgettingSchedulerConfig {
             this.agentMemoryRepository = agentMemoryRepository;
         }
 
-        @Scheduled(cron = "0 0 3 * * ?")
-        public void runNightlyMemoryMaintenance() {
-            memoryConfigService.resolve()
-                    .flatMap(this::runMaintenanceForConfig)
-                    .subscribeOn(Schedulers.boundedElastic())
-                    .subscribe(
-                            unused -> { },
-                            e -> log.error("Nightly memory maintenance failed", e));
+        public Mono<java.util.Map<String, Object>> runMaintenanceReactive() {
+            java.util.concurrent.atomic.AtomicInteger usersProcessed = new java.util.concurrent.atomic.AtomicInteger(0);
+            java.util.concurrent.atomic.AtomicInteger totalForgotten = new java.util.concurrent.atomic.AtomicInteger(0);
+            java.util.concurrent.atomic.AtomicInteger totalArchived = new java.util.concurrent.atomic.AtomicInteger(0);
+            return memoryConfigService.resolve()
+                    .flatMap(cfg -> runMaintenanceForConfig(cfg, totalForgotten, totalArchived)
+                            .doOnSuccess(v -> usersProcessed.incrementAndGet()))
+                    .then(Mono.fromSupplier(() -> java.util.Map.<String, Object>of(
+                            "usersProcessed", usersProcessed.get(),
+                            "memoriesArchived", totalArchived.get(),
+                            "memoriesForgotten", totalForgotten.get()
+                    )));
         }
 
-        private Mono<Void> runMaintenanceForConfig(ResolvedMemoryConfig cfg) {
+        private Mono<Void> runMaintenanceForConfig(ResolvedMemoryConfig cfg,
+                                                   java.util.concurrent.atomic.AtomicInteger totalForgotten,
+                                                   java.util.concurrent.atomic.AtomicInteger totalArchived) {
             if (!cfg.longTermEnabled()) {
                 log.debug("Long-term memory disabled; skipping nightly forgetting and archive");
                 return Mono.empty();
@@ -98,19 +103,22 @@ public class ForgettingSchedulerConfig {
                         String agentId = pair.substring(sep + 1);
                         return forgettingScheduler
                                 .forgetForUser(userId, agentId, cfg.decayLambda(), cfg.maxMemoriesPerUser())
+                                .doOnNext(result -> totalForgotten.addAndGet(result.forgotten()))
                                 .then(agentMemoryRepository.countByUserIdAndAgentId(userId, agentId)
                                         .flatMap(count -> count >= cfg.compactionThreshold()
                                                 ? forgettingScheduler.compactMemories(userId, agentId).then()
                                                 : Mono.empty()))
-                                .then(archiveColdToDatabase(cfg.archiveAfterDays(), userId, agentId));
+                                .then(archiveColdToDatabase(cfg.archiveAfterDays(), userId, agentId, totalArchived));
                     })
                     .then();
         }
 
-        private Mono<Void> archiveColdToDatabase(int archiveAfterDays, String userId, String agentId) {
+        private Mono<Void> archiveColdToDatabase(int archiveAfterDays, String userId, String agentId,
+                                                    java.util.concurrent.atomic.AtomicInteger totalArchived) {
             return forgettingScheduler
                     .archiveColdMemories(archiveAfterDays, COLD_ARCHIVE_IMPORTANCE_THRESHOLD, userId, agentId)
-                    .flatMap(this::persistArchivedEntry)
+                    .flatMap(entry -> persistArchivedEntry(entry)
+                            .doOnSuccess(v -> totalArchived.incrementAndGet()))
                     .then();
         }
 

@@ -34,14 +34,17 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
     private final ProtocolCodec codec;
     private final SecurityService securityService;
     private final MessagePipeline messagePipeline;
+    private final SessionRegistry sessionRegistry;
     private final AtomicLong seqGenerator = new AtomicLong(0);
 
     public GatewayWebSocketHandler(ProtocolCodec codec,
                                    SecurityService securityService,
-                                   MessagePipeline messagePipeline) {
+                                   MessagePipeline messagePipeline,
+                                   SessionRegistry sessionRegistry) {
         this.codec = codec;
         this.securityService = securityService;
         this.messagePipeline = messagePipeline;
+        this.sessionRegistry = sessionRegistry;
     }
 
     @Override
@@ -58,6 +61,8 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
         Sinks.Many<GatewayFrame> outSink = Sinks.many().unicast()
                 .onBackpressureBuffer(Queues.<GatewayFrame>get(1024).get());
         AtomicInteger missedPongs = new AtomicInteger(0);
+
+        sessionRegistry.register(session.getId(), outSink);
 
         outSink.tryEmitNext(new EventFrame(
                 "session.welcome",
@@ -114,6 +119,7 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
                 .doFinally(signal -> {
                     receiver.dispose();
                     heartbeat.dispose();
+                    sessionRegistry.unregister(session.getId());
                     messagePipeline.onWebSocketDisconnect(session.getId());
                     log.info("WebSocket disconnected: sessionId={}, signal={}", session.getId(), signal);
                 });

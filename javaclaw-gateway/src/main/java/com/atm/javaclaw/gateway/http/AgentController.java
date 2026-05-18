@@ -225,6 +225,7 @@ public class AgentController {
 
     private Map<String, Object> entityToSummaryDto(AgentEntity entity) {
         Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("id", entity.getId());
         dto.put("name", entity.getName());
         dto.put("model", entity.getModel());
         dto.put("modelDisplayName", resolveModelDisplayName(entity.getModel()));

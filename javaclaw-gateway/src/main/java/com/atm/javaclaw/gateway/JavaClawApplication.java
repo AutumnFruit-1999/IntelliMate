@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(exclude = {
         DashScopeAgentAutoConfiguration.class,
@@ -26,11 +27,13 @@ import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
         org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration.class,
         org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration.class,
         org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration.class,
-        org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration.class
+        org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration.class,
+        org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration.class
 })
 @ComponentScan(basePackages = "com.atm.javaclaw")
 @EnableR2dbcRepositories(basePackages = "com.atm.javaclaw.gateway.repository")
 @EnableConfigurationProperties(JavaClawProperties.class)
+@EnableScheduling
 public class JavaClawApplication {
 
     public static void main(String[] args) {

@@ -3,6 +3,7 @@ package com.atm.javaclaw.agent.skills;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * SPI for resolving skill summaries at Discovery phase.
@@ -32,5 +33,24 @@ public interface SkillContentProvider {
      */
     String readSkillContent(String skillName);
 
+    /**
+     * Returns all enabled skill groups with their metadata and skill count.
+     */
+    List<SkillGroupSummary> listGroups();
+
+    /**
+     * Returns skills organized by group names.
+     * @param groupNames list of group name identifiers
+     * @return map of groupName -> skills in that group
+     */
+    Map<String, List<SkillSummary>> listSkillsByGroups(List<String> groupNames);
+
+    /**
+     * Returns all skill names (for fuzzy-match fallback in getSkillContent).
+     */
+    List<String> listAllSkillNames();
+
     record SkillSummary(String name, String description) {}
+
+    record SkillGroupSummary(String name, String displayName, String description, int skillCount) {}
 }

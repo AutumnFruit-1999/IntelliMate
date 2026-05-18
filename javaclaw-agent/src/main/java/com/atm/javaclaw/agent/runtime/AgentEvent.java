@@ -79,6 +79,47 @@ public sealed interface AgentEvent {
 
     record PlanCompleted(Long planId, String status) implements AgentEvent {}
 
+    // ───── Delegation events ─────
+
+    record DelegationStart(
+            String workerAgentName, String task, String delegationId
+    ) implements AgentEvent {}
+
+    record DelegationProgress(
+            String workerAgentName, String delegationId, AgentEvent nestedEvent
+    ) implements AgentEvent {}
+
+    record DelegationResult(
+            String workerAgentName, String delegationId,
+            String result, boolean success, int turnsUsed, long durationMs
+    ) implements AgentEvent {}
+
+    // ───── Handoff events ─────
+
+    record HandoffStart(
+            String fromAgent, String toAgent, String reason, String contextSummary
+    ) implements AgentEvent {}
+
+    // ───── Parallel delegation events ─────
+
+    record ParallelTask(String agentName, String task) {}
+
+    record ParallelStart(
+            String parallelGroupId, List<ParallelTask> tasks
+    ) implements AgentEvent {}
+
+    record ParallelProgress(
+            String parallelGroupId, String agentName, AgentEvent nestedEvent
+    ) implements AgentEvent {}
+
+    record ParallelAgentResult(
+            String agentName, String result, boolean success, long durationMs
+    ) {}
+
+    record ParallelResult(
+            String parallelGroupId, List<ParallelAgentResult> results
+    ) implements AgentEvent {}
+
     // ───── Memory events ─────
 
     record MemorySnapshot(

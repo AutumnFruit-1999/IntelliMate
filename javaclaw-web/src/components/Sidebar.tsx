@@ -2,7 +2,7 @@ import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import ConnectionStatus from "./ConnectionStatus";
 import AgentList from "./AgentList";
-import { X, Bot, Settings, Sparkles, Cpu, ClipboardList, Brain } from "lucide-react";
+import { X, Bot, Settings, Sparkles, Cpu, ClipboardList, Brain, Timer } from "lucide-react";
 
 interface SidebarProps {
   open: boolean;
@@ -13,6 +13,7 @@ interface SidebarProps {
   onOpenModelManager: () => void;
   onOpenPlanHistory: () => void;
   onOpenMemoryManager: () => void;
+  onOpenScheduler?: () => void;
   onCreateAgent: () => void;
   onSelectAgent: (name: string) => void;
 }
@@ -26,6 +27,7 @@ export default function Sidebar({
   onOpenModelManager,
   onOpenPlanHistory,
   onOpenMemoryManager,
+  onOpenScheduler,
   onCreateAgent,
   onSelectAgent,
 }: SidebarProps) {
@@ -135,6 +137,16 @@ export default function Sidebar({
               >
                 <Brain size={16} />
                 记忆观测
+              </button>
+              <button
+                onClick={() => {
+                  onOpenScheduler?.();
+                  onClose();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+              >
+                <Timer size={16} />
+                调度中心
               </button>
             </div>
           </div>

@@ -10,6 +10,7 @@ import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import { usePlanStore } from "../stores/planStore";
 import { useMemoryStore } from "../stores/memoryStore";
+import { useSchedulerStore } from "../stores/schedulerStore";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/ws`;
@@ -184,12 +185,90 @@ export function useWebSocket() {
             useChatStore.getState().snapshotStepGroup();
             break;
           }
+          // ─── Delegation / Handoff / Parallel events ───
+          case "workflow.delegation_start": {
+            const reqId = event.payload.requestId as string;
+            resetRequestTimeout(reqId);
+            store.addDelegationStart(
+              reqId,
+              event.payload.delegationId as string,
+              event.payload.workerAgent as string,
+              event.payload.task as string,
+            );
+            break;
+          }
+          case "workflow.delegation_progress": {
+            const reqId = event.payload.requestId as string;
+            resetRequestTimeout(reqId);
+            store.updateDelegationProgress(
+              reqId,
+              event.payload.delegationId as string,
+              event.payload.eventType as string,
+              event.payload as Record<string, unknown>,
+            );
+            break;
+          }
+          case "workflow.delegation_result": {
+            const reqId = event.payload.requestId as string;
+            resetRequestTimeout(reqId);
+            store.completeDelegation(
+              reqId,
+              event.payload.delegationId as string,
+              event.payload.result as string,
+              event.payload.success as boolean,
+              event.payload.turnsUsed as number,
+              event.payload.durationMs as number,
+            );
+            break;
+          }
+          case "workflow.handoff": {
+            const reqId = event.payload.requestId as string;
+            resetRequestTimeout(reqId);
+            store.addHandoff(reqId, {
+              fromAgent: event.payload.fromAgent as string,
+              toAgent: event.payload.toAgent as string,
+              reason: event.payload.reason as string,
+            });
+            break;
+          }
+          case "workflow.parallel_start": {
+            const reqId = event.payload.requestId as string;
+            resetRequestTimeout(reqId);
+            store.addParallelStart(
+              reqId,
+              event.payload.parallelGroupId as string,
+              event.payload.tasks as Array<{ agentName: string; task: string }>,
+            );
+            break;
+          }
+          case "workflow.parallel_progress": {
+            const reqId = event.payload.requestId as string;
+            resetRequestTimeout(reqId);
+            store.updateParallelProgress(
+              reqId,
+              event.payload.parallelGroupId as string,
+              event.payload.agentName as string,
+              event.payload.eventType as string,
+              event.payload as Record<string, unknown>,
+            );
+            break;
+          }
+          case "workflow.parallel_result": {
+            const reqId = event.payload.requestId as string;
+            resetRequestTimeout(reqId);
+            break;
+          }
           case "memory.snapshot": {
             useMemoryStore.getState().handleMemorySnapshot(event.payload as any);
             break;
           }
           case "memory.consolidation": {
             useMemoryStore.getState().handleConsolidation(event.payload as any);
+            break;
+          }
+          case "scheduler.job.started":
+          case "scheduler.job.completed": {
+            useSchedulerStore.getState().handleSchedulerEvent({ type: event.event, payload: event.payload as Record<string, unknown> });
             break;
           }
         }

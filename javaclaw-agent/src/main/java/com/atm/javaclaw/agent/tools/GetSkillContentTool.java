@@ -7,6 +7,8 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
 public class GetSkillContentTool {
 
@@ -28,10 +30,42 @@ public class GetSkillContentTool {
             return "Error: skillName is required";
         }
 
-        String content = skillContentProvider.readSkillContent(skillName.trim());
-        if (content == null) {
-            return "Skill not found: " + skillName;
+        String trimmed = skillName.trim();
+
+        String content = skillContentProvider.readSkillContent(trimmed);
+        if (content != null) {
+            return content;
         }
-        return content;
+
+        List<String> allNames = skillContentProvider.listAllSkillNames();
+        if (allNames == null || allNames.isEmpty()) {
+            return "Skill not found: " + trimmed;
+        }
+
+        String lowerInput = trimmed.toLowerCase();
+        for (String name : allNames) {
+            if (name.equalsIgnoreCase(lowerInput)) {
+                String matched = skillContentProvider.readSkillContent(name);
+                if (matched != null) {
+                    log.info("Fuzzy matched '{}' -> '{}'", trimmed, name);
+                    return matched;
+                }
+            }
+        }
+
+        for (String name : allNames) {
+            if (name.toLowerCase().contains(lowerInput) || lowerInput.contains(name.toLowerCase())) {
+                String matched = skillContentProvider.readSkillContent(name);
+                if (matched != null) {
+                    log.info("Partial matched '{}' -> '{}'", trimmed, name);
+                    return matched;
+                }
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Skill not found: ").append(trimmed).append("\n可用的技能有: ");
+        sb.append(String.join(", ", allNames));
+        return sb.toString();
     }
 }

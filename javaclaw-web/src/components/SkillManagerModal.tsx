@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { ArrowLeft, Sparkles, Plus, Pencil, Trash2, Loader2, FileText, Terminal, BookOpen, Download, Upload } from "lucide-react";
+import { ArrowLeft, Sparkles, Plus, Pencil, Trash2, Loader2, FileText, Terminal, BookOpen, Download, Upload, FolderOpen } from "lucide-react";
 import {
   fetchSkillDefinitions,
   createSkillDefinition,
@@ -12,12 +12,13 @@ import {
 } from "../lib/api";
 import { parseSkillMd, parsedToCreate, downloadSkillMd } from "../lib/skillImporter";
 import SkillEditor from "./SkillEditor";
+import SkillGroupManager from "./SkillGroupManager";
 
 interface SkillManagerPageProps {
   onBack: () => void;
 }
 
-type View = "list" | "create" | "edit" | "import";
+type View = "list" | "create" | "edit" | "import" | "groups";
 
 export default function SkillManagerPage({ onBack }: SkillManagerPageProps) {
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
@@ -179,6 +180,18 @@ export default function SkillManagerPage({ onBack }: SkillManagerPageProps) {
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
+            onClick={() => setView("groups")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              view === "groups"
+                ? "text-blue-700 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/30"
+                : "text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+            }`}
+          >
+            <FolderOpen size={14} />
+            分组管理
+          </button>
+          <button
+            type="button"
             onClick={() => { setImportText(""); setImportError(null); setView("import"); }}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
           >
@@ -198,6 +211,7 @@ export default function SkillManagerPage({ onBack }: SkillManagerPageProps) {
 
       {/* Body */}
       <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+        {view === "groups" && <SkillGroupManager />}
         {view === "list" && (
           <>
             {/* Tag Filter */}

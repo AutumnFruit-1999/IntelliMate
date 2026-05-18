@@ -72,6 +72,7 @@ public class ModelProviderController {
         entity.setApiKeyEncrypted(cryptoService.encrypt(body.apiKey.trim()));
         entity.setEnabled(1);
         entity.setSortOrder(body.sortOrder != null ? body.sortOrder : 0);
+        entity.setThinkingMode(body.thinkingMode);
 
         return providerRepo.save(entity)
                 .flatMap(saved -> registryService.reload().thenReturn(saved))
@@ -94,6 +95,7 @@ public class ModelProviderController {
                     }
                     if (body.containsKey("enabled")) entity.setEnabled(((Number) body.get("enabled")).intValue());
                     if (body.containsKey("sortOrder")) entity.setSortOrder(((Number) body.get("sortOrder")).intValue());
+                    if (body.containsKey("thinkingMode")) entity.setThinkingMode((String) body.get("thinkingMode"));
                     return providerRepo.save(entity);
                 })
                 .flatMap(saved -> registryService.reload().thenReturn(saved))
@@ -124,7 +126,8 @@ public class ModelProviderController {
                     ProviderConfig config = new ProviderConfig(
                             entity.getId(), entity.getName(),
                             ProviderType.valueOf(entity.getType()),
-                            entity.getBaseUrl(), apiKey);
+                            entity.getBaseUrl(), apiKey,
+                            entity.getThinkingMode());
 
                     ChatModel tempModel;
                     try {
@@ -175,11 +178,12 @@ public class ModelProviderController {
     private ProviderDto toDto(ModelProviderEntity e) {
         String maskedKey = cryptoService.mask(cryptoService.decrypt(e.getApiKeyEncrypted()));
         return new ProviderDto(e.getId(), e.getName(), e.getType(), e.getBaseUrl(), maskedKey,
-                e.getEnabled(), e.getSortOrder());
+                e.getEnabled(), e.getSortOrder(), e.getThinkingMode());
     }
 
     public record ProviderDto(Long id, String name, String type, String baseUrl, String apiKeyMasked,
-                              Integer enabled, Integer sortOrder) {}
+                              Integer enabled, Integer sortOrder, String thinkingMode) {}
 
-    public record CreateProviderRequest(String name, String type, String baseUrl, String apiKey, Integer sortOrder) {}
+    public record CreateProviderRequest(String name, String type, String baseUrl, String apiKey,
+                                        Integer sortOrder, String thinkingMode) {}
 }

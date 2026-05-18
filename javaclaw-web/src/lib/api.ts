@@ -1,6 +1,7 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:3007`;
 
 export interface AgentSummary {
+  id?: number;
   name: string;
   model: string;
   modelDisplayName?: string;

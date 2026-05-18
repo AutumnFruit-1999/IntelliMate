@@ -7,8 +7,10 @@ import McpToolsTab from "./McpToolsTab";
 import SkillsTab from "./SkillsTab";
 import ModelTab from "./ModelTab";
 import AgentDelegationConfig from "./AgentDelegationConfig";
+import HeartbeatConfigPanel from "./HeartbeatConfigPanel";
+import TaskManager from "./TaskManager";
 
-export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp" | "skills" | "model" | "delegation";
+export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp" | "skills" | "model" | "delegation" | "heartbeat" | "tasks";
 
 interface AgentConfigModalProps {
   open: boolean;
@@ -63,6 +65,8 @@ const ALL_TABS: { key: ContextTab; label: string }[] = [
   { key: "skills", label: "Skills" },
   { key: "model", label: "模型管理" },
   { key: "delegation", label: "委派协作" },
+  { key: "heartbeat", label: "心跳" },
+  { key: "tasks", label: "任务" },
 ];
 
 export default function AgentConfigModal({
@@ -76,6 +80,7 @@ export default function AgentConfigModal({
   const loadedAgentRef = useRef<string | null>(null);
 
   const activeAgent = useAgentStore((s) => s.activeAgent);
+  const agents = useAgentStore((s) => s.agents);
   const config = useAgentStore((s) => s.config);
   const draft = useAgentStore((s) => s.draft);
   const toolsEnabledDraft = useAgentStore((s) => s.toolsEnabledDraft);
@@ -154,9 +159,11 @@ export default function AgentConfigModal({
   const isSkillsTab = activeTab === "skills";
   const isModelTab = activeTab === "model";
   const isDelegationTab = activeTab === "delegation";
+  const isHeartbeatTab = activeTab === "heartbeat";
+  const isTasksTab = activeTab === "tasks";
   const contextTab = CONTEXT_TABS.find((t) => t.key === activeTab);
 
-  const showSaveButton = activeTab !== "model" && activeTab !== "delegation";
+  const showSaveButton = activeTab !== "model" && activeTab !== "delegation" && activeTab !== "heartbeat" && activeTab !== "tasks";
 
   return (
     <div
@@ -235,6 +242,15 @@ export default function AgentConfigModal({
             <ModelTab currentModel={config?.model ?? ""} />
           ) : isDelegationTab ? (
             <AgentDelegationConfig />
+          ) : isHeartbeatTab || isTasksTab ? (
+            (() => {
+              const currentAgent = agents.find((a) => a.name === agentName);
+              const numericId = currentAgent?.id;
+              if (!numericId) return <div className="text-sm text-slate-400 py-8 text-center">请先保存 Agent 配置</div>;
+              return isHeartbeatTab
+                ? <HeartbeatConfigPanel agentId={numericId} />
+                : <TaskManager agentId={numericId} />;
+            })()
           ) : contextTab ? (
             <div className="flex-1 flex flex-col min-h-0">
               <div className="mb-3">

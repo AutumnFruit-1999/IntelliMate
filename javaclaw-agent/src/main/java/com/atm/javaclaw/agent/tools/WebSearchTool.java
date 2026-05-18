@@ -106,6 +106,6 @@ public class WebSearchTool {
      * instead of throwing an error, so the agent can still proceed.
      */
     private String fallbackSearch(String query, int limit) {
-        return "网络搜索未配置（未设置 SERPAPI_KEY）。无法搜索：" + query + "。请基于已有知识回答。";
+        return "网络搜索未配置（未设置 SERPAPI_KEY）。无法搜索：" + query + "。请使用其他搜索工具或者基于已有知识回答。";
     }
 }

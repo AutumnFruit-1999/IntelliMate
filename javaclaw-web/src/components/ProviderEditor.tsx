@@ -7,6 +7,7 @@ const PROVIDER_TYPES = [
   { value: "DASHSCOPE", label: "DashScope (阿里通义)" },
   { value: "OPENAI_COMPATIBLE", label: "OpenAI Compatible" },
   { value: "ANTHROPIC", label: "Anthropic (Claude)" },
+  { value: "DEEPSEEK", label: "DeepSeek" },
 ];
 
 interface ProviderEditorProps {
@@ -21,6 +22,7 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
   const [type, setType] = useState("DASHSCOPE");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [thinkingMode, setThinkingMode] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,11 +35,13 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
       setType(provider.type);
       setBaseUrl(provider.baseUrl ?? "");
       setApiKey("");
+      setThinkingMode(provider.thinkingMode);
     } else {
       setName("");
       setType("DASHSCOPE");
       setBaseUrl("");
       setApiKey("");
+      setThinkingMode(null);
     }
     setError(null);
   }, [provider]);
@@ -49,10 +53,14 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
     try {
       if (isNew || !provider) {
         if (!apiKey.trim()) { setError("API Key 不能为空"); setSaving(false); return; }
-        await addProvider({ name: name.trim(), type, baseUrl: baseUrl.trim() || null, apiKey: apiKey.trim() });
+        await addProvider({
+          name: name.trim(), type, baseUrl: baseUrl.trim() || null,
+          apiKey: apiKey.trim(), thinkingMode: type === "DEEPSEEK" ? thinkingMode : null,
+        });
       } else {
         const data: Record<string, unknown> = { name: name.trim(), type, baseUrl: baseUrl.trim() || null };
         if (apiKey.trim()) data.apiKey = apiKey.trim();
+        data.thinkingMode = type === "DEEPSEEK" ? thinkingMode : null;
         await editProvider(provider.id, data);
       }
       onSaved?.();
@@ -61,7 +69,7 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
     } finally {
       setSaving(false);
     }
-  }, [name, type, baseUrl, apiKey, isNew, provider, addProvider, editProvider, onSaved]);
+  }, [name, type, baseUrl, apiKey, thinkingMode, isNew, provider, addProvider, editProvider, onSaved]);
 
   return (
     <div className="space-y-4">
@@ -97,7 +105,7 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
           type="text"
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder={type === "OPENAI_COMPATIBLE" ? "https://api.openai.com" : ""}
+          placeholder={type === "OPENAI_COMPATIBLE" ? "https://api.openai.com" : type === "DEEPSEEK" ? "https://api.deepseek.com" : ""}
           className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
         />
       </div>
@@ -117,6 +125,23 @@ export default function ProviderEditor({ provider, isNew, onSaved, onCancel }: P
           className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
         />
       </div>
+
+      {type === "DEEPSEEK" && (
+        <div>
+          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+            Thinking 模式
+            <span className="text-slate-400 font-normal ml-1">(深度思考)</span>
+          </label>
+          <select
+            value={thinkingMode ?? "disabled"}
+            onChange={(e) => setThinkingMode(e.target.value)}
+            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+          >
+            <option value="disabled">关闭 (推荐，避免 tool-call 兼容性问题)</option>
+            <option value="enabled">开启 (需要 Spring AI 2.0+ 支持)</option>
+          </select>
+        </div>
+      )}
 
       {error && <p className="text-xs text-red-500">{error}</p>}
 
