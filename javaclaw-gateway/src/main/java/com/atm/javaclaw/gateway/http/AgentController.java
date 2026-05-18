@@ -1,5 +1,7 @@
 package com.atm.javaclaw.gateway.http;
 
+import com.atm.javaclaw.agent.model.ChatModelRegistry;
+import com.atm.javaclaw.agent.model.ModelConfig;
 import com.atm.javaclaw.core.config.JavaClawProperties;
 import com.atm.javaclaw.gateway.entity.AgentEntity;
 import com.atm.javaclaw.gateway.repository.AgentRepository;
@@ -23,10 +25,13 @@ public class AgentController {
 
     private final AgentRepository agentRepository;
     private final JavaClawProperties properties;
+    private final ChatModelRegistry chatModelRegistry;
 
-    public AgentController(AgentRepository agentRepository, JavaClawProperties properties) {
+    public AgentController(AgentRepository agentRepository, JavaClawProperties properties,
+                           ChatModelRegistry chatModelRegistry) {
         this.agentRepository = agentRepository;
         this.properties = properties;
+        this.chatModelRegistry = chatModelRegistry;
     }
 
     @GetMapping("/agents")
@@ -42,6 +47,7 @@ public class AgentController {
                 Map<String, Object> defaultAgent = new LinkedHashMap<>();
                 defaultAgent.put("name", defaults.getName());
                 defaultAgent.put("model", defaults.getModel());
+                defaultAgent.put("modelDisplayName", resolveModelDisplayName(defaults.getModel()));
                 defaultAgent.put("hasSoul", defaults.getSoulMd() != null && !defaults.getSoulMd().isBlank());
                 defaultAgent.put("hasUser", defaults.getUserMd() != null && !defaults.getUserMd().isBlank());
                 defaultAgent.put("hasAgents", defaults.getAgentsMd() != null && !defaults.getAgentsMd().isBlank());
@@ -108,6 +114,26 @@ public class AgentController {
                     if (body.containsKey("skillsEnabled")) {
                         Object val = body.get("skillsEnabled");
                         entity.setSkillsEnabled(val instanceof String s ? s : (val != null ? val.toString() : null));
+                    }
+                    if (body.containsKey("skillGroupsEnabled")) {
+                        Object val = body.get("skillGroupsEnabled");
+                        entity.setSkillGroupsEnabled(val instanceof String s ? s : (val != null ? val.toString() : null));
+                    }
+                    if (body.containsKey("canDelegate")) {
+                        Object val = body.get("canDelegate");
+                        if (val instanceof Boolean b) {
+                            entity.setCanDelegate(b ? 1 : 0);
+                        } else if (val instanceof Number n) {
+                            entity.setCanDelegate(n.intValue());
+                        }
+                    }
+                    if (body.containsKey("delegateAgents")) {
+                        Object val = body.get("delegateAgents");
+                        entity.setDelegateAgents(val instanceof String s ? s : (val != null ? val.toString() : null));
+                    }
+                    if (body.containsKey("goal")) {
+                        Object val = body.get("goal");
+                        entity.setGoal(val instanceof String s ? s : (val != null ? val.toString() : null));
                     }
                     entity.setUpdatedAt(LocalDateTime.now());
                     return agentRepository.save(entity);
@@ -186,14 +212,28 @@ public class AgentController {
                 .thenReturn(Map.<String, Object>of("success", true));
     }
 
+    private String resolveModelDisplayName(String modelRef) {
+        if (modelRef == null || modelRef.isBlank()) return "";
+        try {
+            Long definitionId = Long.parseLong(modelRef);
+            ModelConfig mc = chatModelRegistry.getDefinition(definitionId);
+            return mc != null ? mc.displayName() : modelRef;
+        } catch (NumberFormatException e) {
+            return modelRef;
+        }
+    }
+
     private Map<String, Object> entityToSummaryDto(AgentEntity entity) {
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("name", entity.getName());
         dto.put("model", entity.getModel());
+        dto.put("modelDisplayName", resolveModelDisplayName(entity.getModel()));
         dto.put("hasSoul", entity.getSoulMd() != null && !entity.getSoulMd().isBlank());
         dto.put("hasUser", entity.getUserMd() != null && !entity.getUserMd().isBlank());
         dto.put("hasAgents", entity.getAgentsMd() != null && !entity.getAgentsMd().isBlank());
         dto.put("toolsEnabled", entity.getToolsEnabled());
+        dto.put("canDelegate", entity.getCanDelegate() != null && entity.getCanDelegate() == 1);
+        dto.put("goal", entity.getGoal());
         dto.put("isDefault", false);
         return dto;
     }
@@ -208,6 +248,10 @@ public class AgentController {
         dto.put("toolsEnabled", entity.getToolsEnabled());
         dto.put("mcpToolsEnabled", entity.getMcpToolsEnabled());
         dto.put("skillsEnabled", entity.getSkillsEnabled());
+        dto.put("skillGroupsEnabled", entity.getSkillGroupsEnabled());
+        dto.put("canDelegate", entity.getCanDelegate() != null && entity.getCanDelegate() == 1);
+        dto.put("delegateAgents", entity.getDelegateAgents());
+        dto.put("goal", entity.getGoal());
         return dto;
     }
 
@@ -222,6 +266,7 @@ public class AgentController {
         dto.put("toolsEnabled", (String) null);
         dto.put("mcpToolsEnabled", (String) null);
         dto.put("skillsEnabled", (String) null);
+        dto.put("skillGroupsEnabled", (String) null);
         return dto;
     }
 }

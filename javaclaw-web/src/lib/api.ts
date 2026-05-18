@@ -3,9 +3,12 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostn
 export interface AgentSummary {
   name: string;
   model: string;
+  modelDisplayName?: string;
   hasSoul: boolean;
   hasUser: boolean;
   hasAgents: boolean;
+  canDelegate?: boolean;
+  goal?: string;
   isDefault?: boolean;
 }
 
@@ -18,6 +21,10 @@ export interface AgentConfig {
   toolsEnabled: string | null;
   mcpToolsEnabled: string | null;
   skillsEnabled: string | null;
+  skillGroupsEnabled: string | null;
+  canDelegate?: boolean;
+  delegateAgents?: string | null;
+  goal?: string | null;
 }
 
 export interface ToolInfo {
@@ -60,7 +67,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`API ${res.status}: ${text}`);
   }
-  return res.json();
+  const text = await res.text();
+  if (!text) return undefined as unknown as T;
+  return JSON.parse(text);
 }
 
 export function fetchAgents(): Promise<AgentSummary[]> {
@@ -284,6 +293,7 @@ export interface ModelProviderDto {
   apiKeyMasked: string;
   enabled: number;
   sortOrder: number;
+  thinkingMode: string | null;
 }
 
 export interface ModelProviderCreate {
@@ -291,6 +301,7 @@ export interface ModelProviderCreate {
   type: string;
   baseUrl?: string | null;
   apiKey: string;
+  thinkingMode?: string | null;
 }
 
 export interface ModelDefinitionDto {
@@ -508,6 +519,58 @@ export function deleteSkillFile(
 ): Promise<{ success: boolean; deletedFile: string; type: string }> {
   return request(`/api/skills/${id}/files/${type}/${encodeURIComponent(filename)}`, {
     method: "DELETE",
+  });
+}
+
+// ─── Skill Groups ───
+
+export interface SkillGroup {
+  id: number;
+  name: string;
+  displayName: string;
+  description: string;
+  sortOrder: number;
+  enabled: number;
+  skillCount: number;
+}
+
+export function fetchSkillGroups(): Promise<SkillGroup[]> {
+  return request<SkillGroup[]>("/api/skill-groups");
+}
+
+export function createSkillGroup(data: { name: string; displayName?: string; description?: string }): Promise<SkillGroup> {
+  return request<SkillGroup>("/api/skill-groups", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateSkillGroup(id: number, data: Partial<{ name: string; displayName: string; description: string; enabled: number }>): Promise<SkillGroup> {
+  return request<SkillGroup>(`/api/skill-groups/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteSkillGroup(id: number): Promise<void> {
+  return request(`/api/skill-groups/${id}`, { method: "DELETE" });
+}
+
+export function reorderSkillGroups(ids: number[]): Promise<void> {
+  return request("/api/skill-groups/reorder", {
+    method: "PUT",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export function fetchSkillGroupMembers(id: number): Promise<number[]> {
+  return request<number[]>(`/api/skill-groups/${id}/skills`);
+}
+
+export function setSkillGroupMembers(id: number, skillIds: number[]): Promise<void> {
+  return request(`/api/skill-groups/${id}/skills`, {
+    method: "PUT",
+    body: JSON.stringify({ skillIds }),
   });
 }
 

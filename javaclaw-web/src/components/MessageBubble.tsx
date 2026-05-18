@@ -1,9 +1,10 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, memo } from "react";
 import type { ChatMessage, ToolCallInfo } from "../stores/chatStore";
 import { usePlanStore } from "../stores/planStore";
 import type { StepToolCall } from "../stores/planStore";
 import StreamingText from "./StreamingText";
 import ToolCallGroup from "./ToolCallGroup";
+import WorkflowTimeline from "./workflow/WorkflowTimeline";
 import {
   Bot, User, Wrench, ChevronDown, ChevronRight,
   Loader2, CheckCircle2, XCircle, Circle, MinusCircle,
@@ -23,7 +24,7 @@ function TurnIndicator({ turn, maxTurns }: { turn: number; maxTurns: number }) {
   );
 }
 
-export default function MessageBubble({ message, isLastAssistantWithTools }: MessageBubbleProps) {
+export default memo(function MessageBubble({ message, isLastAssistantWithTools }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -41,9 +42,11 @@ export default function MessageBubble({ message, isLastAssistantWithTools }: Mes
   const showTurnIndicator =
     !isUser && message.streaming && message.currentTurn != null && message.currentTurn > 1;
 
-  const plan = usePlanStore((s) => s.plan);
-  const stepToolCalls = usePlanStore((s) => s.stepToolCalls);
-  const currentStepIndex = usePlanStore((s) => s.currentStepIndex);
+  const { plan, stepToolCalls, currentStepIndex } = usePlanStore((s) => ({
+    plan: s.plan,
+    stepToolCalls: s.stepToolCalls,
+    currentStepIndex: s.currentStepIndex,
+  }));
   const planWithSteps = !!(plan && plan.steps.length > 0);
   const planActive =
     plan &&
@@ -131,6 +134,12 @@ export default function MessageBubble({ message, isLastAssistantWithTools }: Mes
           </div>
         )}
 
+        {message.workflowEntries && message.workflowEntries.length > 0 && (
+          <div className="mb-2">
+            <WorkflowTimeline entries={message.workflowEntries} />
+          </div>
+        )}
+
         <div
           className={`rounded-2xl px-4 py-2.5 ${
             isUser
@@ -156,7 +165,7 @@ export default function MessageBubble({ message, isLastAssistantWithTools }: Mes
       </div>
     </div>
   );
-}
+});
 
 interface ToolCallGroupData {
   key: string;

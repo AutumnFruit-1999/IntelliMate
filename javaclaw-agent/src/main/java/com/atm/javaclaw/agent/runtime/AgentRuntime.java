@@ -5,6 +5,7 @@ import com.atm.javaclaw.agent.model.ProviderType;
 import com.atm.javaclaw.agent.model.ResolvedModel;
 import com.atm.javaclaw.agent.plan.PlanOperations;
 import com.atm.javaclaw.agent.skills.SkillContentProvider;
+import com.atm.javaclaw.agent.skills.SkillGroupContext;
 import com.atm.javaclaw.agent.skills.SkillUsageRecorder;
 import com.atm.javaclaw.agent.tools.AgentSessionContext;
 import com.atm.javaclaw.agent.tools.ToolsEngine;
@@ -39,6 +40,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.deepseek.DeepSeekChatOptions;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
@@ -68,7 +70,7 @@ import java.util.concurrent.TimeoutException;
 public class AgentRuntime {
 
     private static final Logger log = LoggerFactory.getLogger(AgentRuntime.class);
-    private static final int MAX_CONTENT_LENGTH = 500;
+
     private static final int MAX_RETRIES = 2;
     private static final Duration RETRY_DELAY = Duration.ofSeconds(1);
 
@@ -84,6 +86,10 @@ public class AgentRuntime {
     private final MemoryConfigProvider memoryConfigProvider;
     private final LongTermMemory longTermMemory;
     private final MemorySystem memorySystem;
+    private final DelegationResolver delegationResolver;
+
+    private static final Set<String> DELEGATION_TOOL_NAMES = Set.of(
+            "delegateAgent", "handoffToAgent", "delegateAgentsParallel");
 
     public AgentRuntime(ChatModelRegistry chatModelRegistry,
                         ToolsEngine toolsEngine,
@@ -96,7 +102,8 @@ public class AgentRuntime {
                         @Autowired(required = false) PlanOperations planOperations,
                         @Autowired(required = false) MemoryConfigProvider memoryConfigProvider,
                         @Autowired(required = false) LongTermMemory longTermMemory,
-                        @Autowired(required = false) MemorySystem memorySystem) {
+                        @Autowired(required = false) MemorySystem memorySystem,
+                        @Autowired(required = false) DelegationResolver delegationResolver) {
         this.chatModelRegistry = chatModelRegistry;
         this.toolsEngine = toolsEngine;
         this.runQueueManager = runQueueManager;
@@ -109,6 +116,7 @@ public class AgentRuntime {
         this.memoryConfigProvider = memoryConfigProvider;
         this.longTermMemory = longTermMemory;
         this.memorySystem = memorySystem;
+        this.delegationResolver = delegationResolver;
     }
 
     public Flux<AgentEvent> dispatch(AgentRunRequest request) {
@@ -116,6 +124,8 @@ public class AgentRuntime {
     }
 
     private final ConcurrentMap<Long, ToolApprovalGate> sessionApprovalGates = new ConcurrentHashMap<>();
+    private static final Set<String> SKILL_GROUPS_UNRESTRICTED = Set.of("__ALL__");
+    private final ConcurrentMap<Long, Set<String>> sessionSkillGroups = new ConcurrentHashMap<>();
     private final Set<Long> pausedPlanIds = ConcurrentHashMap.newKeySet();
 
     private static final ConcurrentMap<Long, AgentEvent.MemorySnapshot> latestSnapshots = new ConcurrentHashMap<>();
@@ -174,16 +184,23 @@ public class AgentRuntime {
             skillsMono = Mono.just(List.of());
         }
 
-        return skillsMono.flatMapMany(skillSummaries -> {
+        setupSkillGroupContext(request.sessionId(), request.skillGroupsEnabled());
+
+        return skillsMono.publishOn(Schedulers.boundedElastic()).flatMapMany(skillSummaries -> {
             JavaClawProperties.Agent agentConfig = request.agent();
             boolean parallelEnabled = agentConfig.isEnableParallelToolCalls();
             String systemPrompt = buildSystemPrompt(agentConfig, skillSummaries, parallelEnabled,
-                    request.planContext(), request.forcePlan());
-            ToolCallback[] tools = toolsEngine.getToolCallbacksFor(request.toolsEnabled(), request.mcpToolsEnabled());
+                    request.planContext(), request.forcePlan(), request.skillGroupsEnabled());
+            ToolCallback[] allTools = toolsEngine.getToolCallbacksFor(request.toolsEnabled(), request.mcpToolsEnabled());
+            ToolCallback[] tools = agentConfig.isCanDelegate()
+                    ? allTools
+                    : Arrays.stream(allTools)
+                    .filter(cb -> !DELEGATION_TOOL_NAMES.contains(cb.getToolDefinition().name()))
+                    .toArray(ToolCallback[]::new);
             int maxTurns = agentConfig.getMaxTurns();
             Duration timeout = Duration.ofSeconds(agentConfig.getTimeoutSeconds());
 
-            ResolvedModel resolved = chatModelRegistry.resolveByModelName(agentConfig.getModel());
+            ResolvedModel resolved = resolveModel(agentConfig.getModel());
             log.info("Agent '{}' model='{}' (resolved modelId='{}'), tools: {} total ({} builtin, {} custom, {} mcp), toolsSpec='{}', mcpSpec='{}', skills={}",
                     agentConfig.getName(), agentConfig.getModel(), resolved.modelId(),
                     tools.length,
@@ -334,9 +351,11 @@ public class AgentRuntime {
                                         agentConfig.getName(), request.sessionId(), skillsBasePath,
                                         loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
                                         toolTimeout, maxParallel, nonRetryable,
-                                        request.activePlanId(), planStepTracker, request.planExecutionAssessment())
+                                        request.activePlanId(), planStepTracker, request.planExecutionAssessment(), request)
                                         .doFinally(signal -> {
                                             sessionApprovalGates.remove(request.sessionId());
+                                            sessionSkillGroups.remove(request.sessionId());
+                                            SkillGroupContext.clear();
                                             latestSnapshots.remove(request.sessionId());
                                             if (request.activePlanId() != null) {
                                                 pausedPlanIds.remove(request.activePlanId());
@@ -372,11 +391,11 @@ public class AgentRuntime {
 
     private MemoryConsolidator createMemoryConsolidator(ResolvedMemoryConfig memConfig, TokenEstimator tokenEstimator) {
         try {
-            ResolvedModel consolidationModel = chatModelRegistry.resolveByModelName(memConfig.consolidationModel());
+            ResolvedModel consolidationModel = resolveModel(memConfig.consolidationModel());
             ChatModel fallbackChatModel = null;
             String fallbackModelId = null;
             try {
-                ResolvedModel fallbackResolved = chatModelRegistry.resolveByModelName(memConfig.fallbackModel());
+                ResolvedModel fallbackResolved = resolveModel(memConfig.fallbackModel());
                 fallbackChatModel = fallbackResolved.chatModel();
                 fallbackModelId = fallbackResolved.modelId();
             } catch (Exception ignored) {
@@ -432,7 +451,8 @@ public class AgentRuntime {
             Set<String> nonRetryableTools,
             Long activePlanId,
             PlanStepTracker planStepTracker,
-            PlanExecutionAssessment planExecutionAssessment) {
+            PlanExecutionAssessment planExecutionAssessment,
+            AgentRunRequest request) {
 
         if (activePlanId != null && pausedPlanIds.contains(activePlanId)) {
             log.info("Plan {} is paused/cancelled, stopping agent loop at turn {}", activePlanId, turn);
@@ -504,7 +524,7 @@ public class AgentRuntime {
                         agentName, sessionId, skillsBasePath,
                         loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
                         toolTimeout, maxParallel, nonRetryableTools,
-                        activePlanId, planStepTracker, planExecutionAssessment);
+                        activePlanId, planStepTracker, planExecutionAssessment, request);
             }
 
             String finalText = fullText.toString();
@@ -594,7 +614,8 @@ public class AgentRuntime {
             Set<String> nonRetryableTools,
             Long activePlanId,
             PlanStepTracker planStepTracker,
-            PlanExecutionAssessment planExecutionAssessment) {
+            PlanExecutionAssessment planExecutionAssessment,
+            AgentRunRequest request) {
 
         AssistantMessage assistantMsg = toolCallResponse.getResult().getOutput();
         history.add(assistantMsg);
@@ -617,11 +638,19 @@ public class AgentRuntime {
             log.debug("Turn {} has {} tool call(s)", turn, toolCalls.size());
         }
 
-        // Separate tool calls into those needing approval and those that don't
+        // Separate tool calls into delegation, approval, and direct categories
         List<AssistantMessage.ToolCall> directCalls = new ArrayList<>();
         List<AssistantMessage.ToolCall> approvalCalls = new ArrayList<>();
+        List<AssistantMessage.ToolCall> delegationCalls = new ArrayList<>();
+        AssistantMessage.ToolCall handoffCall = null;
         for (AssistantMessage.ToolCall tc : toolCalls) {
-            if (approvalGate.requiresApproval(tc.name())) {
+            if (DELEGATION_TOOL_NAMES.contains(tc.name())) {
+                if ("handoffToAgent".equals(tc.name())) {
+                    handoffCall = tc;
+                } else {
+                    delegationCalls.add(tc);
+                }
+            } else if (approvalGate.requiresApproval(tc.name())) {
                 approvalCalls.add(tc);
             } else {
                 directCalls.add(tc);
@@ -710,8 +739,20 @@ public class AgentRuntime {
                     });
         });
 
+        // Phase 2e: Handle delegation tool calls (delegateAgent / delegateAgentsParallel)
+        DelegationContext parentDelegCtx = request.delegationContext();
+        Flux<AgentEvent> delegationFlow = Flux.fromIterable(delegationCalls)
+                .concatMap(tc -> executeDelegationToolCall(tc, agentName, sessionId, parentDelegCtx, toolCallArgs, turn));
+
+        // Phase 2f: Handle handoff (terminates current agent loop after execution)
+        final AssistantMessage.ToolCall finalHandoffCall = handoffCall;
+        Flux<AgentEvent> handoffFlow = Flux.empty();
+        if (finalHandoffCall != null) {
+            handoffFlow = executeHandoffToolCall(finalHandoffCall, agentName, turn);
+        }
+
         // Phase 4: After all tool results are emitted, collect everything into history and recurse
-        Flux<AgentEvent> execution = Flux.concat(directResultEvents, approvalFlow);
+        Flux<AgentEvent> execution = Flux.concat(directResultEvents, approvalFlow, delegationFlow, handoffFlow);
 
         Flux<AgentEvent> withHistory = execution.collectList().flatMapMany(allEvents -> {
             List<ToolResponseMessage.ToolResponse> responses = new ArrayList<>();
@@ -737,7 +778,8 @@ public class AgentRuntime {
                     }
                     MemoryChunk chunk = MemoryChunk.toolInteraction(
                             resultText, ContentCategory.COMMAND_OUTPUT, importance, tokens,
-                            Map.of("toolName", tr.name(), "toolCallId", tr.toolCallId(), "arguments", "{}"));
+                            Map.of("toolName", tr.name(), "toolCallId", tr.toolCallId(),
+                                    "arguments", toolCallArgs.getOrDefault(tr.toolCallId(), "{}")));
                     workingMemory.accept(chunk);
                 }
             }
@@ -781,14 +823,266 @@ public class AgentRuntime {
                     events.add(event);
                     return Flux.fromIterable(events);
                 }));
-        Flux<AgentEvent> nextTurn = Flux.defer(() ->
-                executeLoopTurn(chatModel, history, options, maxTurns, timeout, turn + 1, fullText,
-                        agentName, sessionId, skillsBasePath,
-                        loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
-                        toolTimeout, maxParallel, nonRetryableTools,
-                        activePlanId, planStepTracker, planExecutionAssessment));
+        Flux<AgentEvent> nextTurn;
+        if (finalHandoffCall != null) {
+            nextTurn = Flux.empty();
+        } else {
+            nextTurn = Flux.defer(() ->
+                    executeLoopTurn(chatModel, history, options, maxTurns, timeout, turn + 1, fullText,
+                            agentName, sessionId, skillsBasePath,
+                            loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
+                            toolTimeout, maxParallel, nonRetryableTools,
+                            activePlanId, planStepTracker, planExecutionAssessment, request));
+        }
 
         return Flux.concat(autoStartFlux, callEvents, withHistory, memorySnapshot, nextTurn);
+    }
+
+    // ─── Delegation execution ───
+
+    private static final int MAX_DELEGATION_RESULT_CHARS = 32_000;
+
+    private Flux<AgentEvent> executeDelegationToolCall(
+            AssistantMessage.ToolCall tc, String parentAgentName, Long parentSessionId,
+            DelegationContext parentCtx, Map<String, String> toolCallArgs, int turn) {
+
+        if (delegationResolver == null) {
+            AgentEvent result = new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "Error: delegation is not available (DelegationResolver not configured)", false, turn);
+            return Flux.just(result);
+        }
+
+        if ("delegateAgent".equals(tc.name())) {
+            return executeSingleDelegation(tc, parentAgentName, parentSessionId, parentCtx, turn);
+        } else if ("delegateAgentsParallel".equals(tc.name())) {
+            return executeParallelDelegation(tc, parentAgentName, parentSessionId, parentCtx, turn);
+        }
+        return Flux.just(new AgentEvent.ToolResult(tc.id(), tc.name(),
+                "Unknown delegation tool: " + tc.name(), false, turn));
+    }
+
+    private Flux<AgentEvent> executeSingleDelegation(
+            AssistantMessage.ToolCall tc, String parentAgentName, Long parentSessionId,
+            DelegationContext parentCtx, int turn) {
+
+        String args = tc.arguments();
+        String workerName, task, context;
+        try {
+            JsonNode node = objectMapper.readTree(args);
+            workerName = node.has("agentName") ? node.get("agentName").asText() : null;
+            task = node.has("task") ? node.get("task").asText() : null;
+            context = node.has("context") ? node.get("context").asText("") : "";
+        } catch (Exception e) {
+            return Flux.just(new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "Failed to parse delegation arguments: " + e.getMessage(), false, turn));
+        }
+        if (workerName == null || task == null) {
+            return Flux.just(new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "Missing required parameters: agentName and task", false, turn));
+        }
+
+        DelegationContext ctx = parentCtx != null ? parentCtx : DelegationContext.root(parentSessionId, parentAgentName);
+        if (!ctx.canDelegate()) {
+            return Flux.just(new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "Delegation limit reached (depth=" + ctx.nestingDepth() + ", count=" + ctx.delegationCount().get() + ")", false, turn));
+        }
+        ctx.incrementAndGetCount();
+
+        String delegationId = java.util.UUID.randomUUID().toString().substring(0, 8);
+        DelegationContext childCtx = ctx.incrementDepth();
+        String finalWorkerName = workerName;
+        String finalTask = task;
+        String finalContext = context;
+
+        return Flux.defer(() -> {
+            AgentEvent start = new AgentEvent.DelegationStart(finalWorkerName, finalTask, delegationId);
+            long startMs = System.currentTimeMillis();
+
+            Mono<DelegationResolver.ResolvedWorkerConfig> workerConfigMono = delegationResolver.resolveWorker(finalWorkerName)
+                    .switchIfEmpty(Mono.error(new IllegalArgumentException("Worker agent not found: " + finalWorkerName)));
+
+            Mono<Long> workerSessionMono = delegationResolver.createWorkerSession(parentSessionId, finalWorkerName, delegationId);
+
+            return Flux.just(start).concatWith(
+                    Mono.zip(workerConfigMono, workerSessionMono)
+                            .flatMapMany(tuple -> {
+                                DelegationResolver.ResolvedWorkerConfig workerCfg = tuple.getT1();
+                                Long workerSessionId = tuple.getT2();
+
+                                String workerMessage = buildWorkerPrompt(finalTask, finalContext);
+                                JavaClawProperties.Agent workerAgent = workerCfg.agent();
+                                if (!workerCfg.canDelegate()) {
+                                    workerAgent.setCanDelegate(false);
+                                }
+
+                                AgentRunRequest workerRequest = new AgentRunRequest(
+                                        workerSessionId, null, workerAgent, workerMessage,
+                                        List.of(),
+                                        workerCfg.toolsEnabled(), workerCfg.mcpToolsEnabled(),
+                                        workerCfg.skillsEnabled(), workerCfg.skillGroupsEnabled(),
+                                        null, false, null, null, childCtx);
+
+                                StringBuilder workerResult = new StringBuilder();
+                                int[] workerTurns = {0};
+                                boolean[] workerSuccess = {true};
+
+                                return dispatch(workerRequest)
+                                        .concatMap(event -> {
+                                            if (event instanceof AgentEvent.Done done) {
+                                                workerResult.append(done.fullText());
+                                                workerTurns[0] = done.totalTurns();
+                                            } else if (event instanceof AgentEvent.Error err) {
+                                                workerResult.append("Error: ").append(err.message());
+                                                workerSuccess[0] = false;
+                                            }
+                                            AgentEvent progress = new AgentEvent.DelegationProgress(
+                                                    finalWorkerName, delegationId, event);
+                                            return Flux.just(progress);
+                                        })
+                                        .concatWith(Flux.defer(() -> {
+                                            long durationMs = System.currentTimeMillis() - startMs;
+                                            String resultText = workerResult.toString();
+                                            if (resultText.length() > MAX_DELEGATION_RESULT_CHARS) {
+                                                resultText = resultText.substring(0, MAX_DELEGATION_RESULT_CHARS) + "\n...[truncated]";
+                                            }
+                                            AgentEvent delegationResult = new AgentEvent.DelegationResult(
+                                                    finalWorkerName, delegationId, resultText,
+                                                    workerSuccess[0], workerTurns[0], durationMs);
+                                            AgentEvent toolResult = new AgentEvent.ToolResult(
+                                                    tc.id(), tc.name(), resultText, workerSuccess[0], turn);
+                                            return Flux.just(delegationResult, toolResult);
+                                        }));
+                            })
+                            .onErrorResume(e -> {
+                                long durationMs = System.currentTimeMillis() - startMs;
+                                String errorMsg = "Delegation failed: " + e.getMessage();
+                                log.warn("Delegation to {} failed: {}", finalWorkerName, e.getMessage(), e);
+                                AgentEvent delegationResult = new AgentEvent.DelegationResult(
+                                        finalWorkerName, delegationId, errorMsg, false, 0, durationMs);
+                                AgentEvent toolResult = new AgentEvent.ToolResult(
+                                        tc.id(), tc.name(), errorMsg, false, turn);
+                                return Flux.just(delegationResult, toolResult);
+                            })
+            );
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private Flux<AgentEvent> executeParallelDelegation(
+            AssistantMessage.ToolCall tc, String parentAgentName, Long parentSessionId,
+            DelegationContext parentCtx, int turn) {
+
+        List<AgentEvent.ParallelTask> taskList;
+        try {
+            JsonNode node = objectMapper.readTree(tc.arguments());
+            JsonNode tasksNode = node.has("tasks") ? node.get("tasks") : node;
+            if (tasksNode.isTextual()) {
+                tasksNode = objectMapper.readTree(tasksNode.asText());
+            }
+            taskList = new ArrayList<>();
+            for (JsonNode t : tasksNode) {
+                String agent = t.has("agent") ? t.get("agent").asText() : t.has("agentName") ? t.get("agentName").asText() : null;
+                String task = t.has("task") ? t.get("task").asText() : null;
+                if (agent != null && task != null) {
+                    taskList.add(new AgentEvent.ParallelTask(agent, task));
+                }
+            }
+        } catch (Exception e) {
+            return Flux.just(new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "Failed to parse parallel tasks: " + e.getMessage(), false, turn));
+        }
+        if (taskList.isEmpty()) {
+            return Flux.just(new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "No valid tasks found in the input", false, turn));
+        }
+
+        DelegationContext ctx = parentCtx != null ? parentCtx : DelegationContext.root(parentSessionId, parentAgentName);
+        String groupId = java.util.UUID.randomUUID().toString().substring(0, 8);
+        int maxPar = ctx.maxParallel();
+
+        AgentEvent parallelStart = new AgentEvent.ParallelStart(groupId, List.copyOf(taskList));
+
+        Flux<AgentEvent> parallelExec = Flux.fromIterable(taskList)
+                .flatMap(pt -> {
+                    if (!ctx.canDelegate()) {
+                        return Flux.just((AgentEvent) new AgentEvent.ParallelProgress(groupId, pt.agentName(),
+                                new AgentEvent.Error("Delegation limit reached")));
+                    }
+                    ctx.incrementAndGetCount();
+                    String delegationId = groupId + "-" + pt.agentName();
+                    DelegationContext childCtx = ctx.incrementDepth();
+
+                    long startMs = System.currentTimeMillis();
+                    return delegationResolver.resolveWorker(pt.agentName())
+                            .switchIfEmpty(Mono.error(new IllegalArgumentException("Agent not found: " + pt.agentName())))
+                            .flatMap(cfg -> delegationResolver.createWorkerSession(parentSessionId, pt.agentName(), delegationId)
+                                    .map(sid -> Map.entry(cfg, sid)))
+                            .flatMapMany(entry -> {
+                                DelegationResolver.ResolvedWorkerConfig cfg = entry.getKey();
+                                Long sid = entry.getValue();
+                                JavaClawProperties.Agent wa = cfg.agent();
+                                if (!cfg.canDelegate()) wa.setCanDelegate(false);
+
+                                AgentRunRequest wr = new AgentRunRequest(
+                                        sid, null, wa, buildWorkerPrompt(pt.task(), ""),
+                                        List.of(), cfg.toolsEnabled(), cfg.mcpToolsEnabled(),
+                                        cfg.skillsEnabled(), cfg.skillGroupsEnabled(),
+                                        null, false, null, null, childCtx);
+
+                                StringBuilder result = new StringBuilder();
+                                boolean[] ok = {true};
+                                return dispatch(wr)
+                                        .doOnNext(e -> {
+                                            if (e instanceof AgentEvent.Done d) result.append(d.fullText());
+                                            else if (e instanceof AgentEvent.Error er) { result.append(er.message()); ok[0] = false; }
+                                        })
+                                        .map(e -> (AgentEvent) new AgentEvent.ParallelProgress(groupId, pt.agentName(), e))
+                                        .concatWith(Flux.defer(() -> Flux.empty()));
+                            })
+                            .onErrorResume(e -> Flux.just(new AgentEvent.ParallelProgress(groupId, pt.agentName(),
+                                    new AgentEvent.Error("Worker failed: " + e.getMessage()))));
+                }, maxPar)
+                .subscribeOn(Schedulers.boundedElastic());
+
+        Flux<AgentEvent> toolResultEvent = Flux.defer(() -> {
+            AgentEvent toolResult = new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "Parallel delegation completed for " + taskList.size() + " agents", true, turn);
+            return Flux.just(toolResult);
+        });
+
+        return Flux.concat(Flux.just(parallelStart), parallelExec, toolResultEvent);
+    }
+
+    private Flux<AgentEvent> executeHandoffToolCall(AssistantMessage.ToolCall tc, String fromAgent, int turn) {
+        String targetAgent, reason, contextSummary;
+        try {
+            JsonNode node = objectMapper.readTree(tc.arguments());
+            targetAgent = node.has("agentName") ? node.get("agentName").asText() : null;
+            reason = node.has("reason") ? node.get("reason").asText("") : "";
+            contextSummary = node.has("contextSummary") ? node.get("contextSummary").asText("") : "";
+        } catch (Exception e) {
+            return Flux.just(new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "Failed to parse handoff arguments: " + e.getMessage(), false, turn));
+        }
+        if (targetAgent == null) {
+            return Flux.just(new AgentEvent.ToolResult(tc.id(), tc.name(),
+                    "Missing required parameter: agentName", false, turn));
+        }
+
+        AgentEvent handoffStart = new AgentEvent.HandoffStart(fromAgent, targetAgent, reason, contextSummary);
+        AgentEvent toolResult = new AgentEvent.ToolResult(tc.id(), tc.name(),
+                "Handoff to " + targetAgent + " initiated", true, turn);
+        return Flux.just(handoffStart, toolResult);
+    }
+
+    private static String buildWorkerPrompt(String task, String context) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("You have been assigned the following task:\n\n");
+        sb.append(task);
+        if (context != null && !context.isBlank()) {
+            sb.append("\n\nAdditional context:\n").append(context);
+        }
+        sb.append("\n\nComplete this task thoroughly and return your results.");
+        return sb.toString();
     }
 
     /**
@@ -849,6 +1143,14 @@ public class AgentRuntime {
 
         Mono<ToolExecutionResult> execution = Mono.fromCallable(() -> {
                     agentSessionContext.set(sessionId);
+                    Set<String> skillGroups = sessionSkillGroups.get(sessionId);
+                    if (skillGroups == null) {
+                        SkillGroupContext.set(Set.of());
+                    } else if (skillGroups == SKILL_GROUPS_UNRESTRICTED) {
+                        SkillGroupContext.set(null);
+                    } else {
+                        SkillGroupContext.set(skillGroups);
+                    }
                     try {
                         ToolCallback callback = toolsEngine.getCallbackByName(toolName);
                         String result = callback.call(arguments);
@@ -864,6 +1166,7 @@ public class AgentRuntime {
                         }
                         return new ToolExecutionResult(toolCallId, toolName, result != null ? result : "", true);
                     } finally {
+                        SkillGroupContext.clear();
                         agentSessionContext.clear();
                     }
                 }).subscribeOn(Schedulers.boundedElastic())
@@ -969,9 +1272,30 @@ public class AgentRuntime {
         return gen.getOutput().getText();
     }
 
+    // ─── Model resolution ───
+
+    private ResolvedModel resolveModel(String modelRef) {
+        if (modelRef == null || modelRef.isBlank()) {
+            throw new IllegalArgumentException("Model reference is null or empty");
+        }
+        try {
+            Long definitionId = Long.parseLong(modelRef);
+            return chatModelRegistry.resolve(definitionId);
+        } catch (NumberFormatException e) {
+            return chatModelRegistry.resolveByModelName(modelRef);
+        }
+    }
+
     // ─── ChatOptions building ───
 
     private ChatOptions buildChatOptions(ToolCallback[] tools, ResolvedModel resolved, boolean parallelEnabled) {
+        if (resolved.providerType() == ProviderType.DEEPSEEK) {
+            return DeepSeekChatOptions.builder()
+                    .toolCallbacks(tools)
+                    .model(resolved.modelId())
+                    .internalToolExecutionEnabled(false)
+                    .build();
+        }
         if (parallelEnabled && resolved.providerType() == ProviderType.OPENAI_COMPATIBLE) {
             return OpenAiChatOptions.builder()
                     .toolCallbacks(tools)
@@ -990,41 +1314,42 @@ public class AgentRuntime {
     // ─── logging / prompt building ───
 
     private void logRequestParams(AgentRunRequest request, String systemPrompt, ToolCallback[] tools) {
-        if (!log.isDebugEnabled()) {
+        if (!log.isInfoEnabled()) {
             return;
         }
         try {
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("sessionId", request.sessionId());
+            params.put("userId", request.userId());
             params.put("model", request.agent().getModel());
             params.put("maxTurns", request.agent().getMaxTurns());
             params.put("timeoutSeconds", request.agent().getTimeoutSeconds());
-            params.put("systemPrompt", truncate(systemPrompt));
-            params.put("userMessage", truncate(request.userMessage()));
+            params.put("toolsEnabled", request.toolsEnabled());
+            params.put("mcpToolsEnabled", request.mcpToolsEnabled());
+            params.put("skillsEnabled", request.skillsEnabled());
+            params.put("skillGroupsEnabled", request.skillGroupsEnabled());
+            params.put("forcePlan", request.forcePlan());
+            params.put("activePlanId", request.activePlanId());
+            params.put("systemPromptLength", systemPrompt != null ? systemPrompt.length() : 0);
+            params.put("systemPrompt", systemPrompt);
+            params.put("userMessage", request.userMessage());
             params.put("historySize", request.history() != null ? request.history().size() : 0);
             params.put("history", request.history() != null
                     ? request.history().stream().map(msg -> {
                 Map<String, String> m = new LinkedHashMap<>();
                 m.put("role", msg.getMessageType().getValue());
-                m.put("content", truncate(msg.getText()));
+                m.put("content", msg.getText());
                 return m;
             }).toList()
                     : List.of());
             params.put("tools", Arrays.stream(tools)
                     .map(cb -> cb.getToolDefinition().name())
                     .toList());
-            params.put("toolsEnabledSpec", request.toolsEnabled());
-            log.debug("LLM request params:\n{}", objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(params));
+            params.put("planContext", request.planContext());
+            log.info("LLM request params:\n{}", objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(params));
         } catch (Exception e) {
             log.warn("Failed to serialize LLM request params", e);
         }
-    }
-
-    private static String truncate(String text) {
-        if (text == null) return null;
-        return text.length() > MAX_CONTENT_LENGTH
-                ? text.substring(0, MAX_CONTENT_LENGTH) + "..."
-                : text;
     }
 
     private static final int TOTAL_MAX_CHARS = 150_000;
@@ -1033,18 +1358,17 @@ public class AgentRuntime {
                                      List<SkillContentProvider.SkillSummary> skillSummaries,
                                      boolean parallelEnabled,
                                      String planContext,
-                                     boolean forcePlan) {
+                                     boolean forcePlan,
+                                     String skillGroupsEnabled) {
         StringBuilder sb = new StringBuilder();
 
         appendSection(sb, "soul", agentConfig.getSoulMd());
         appendSection(sb, "user_context", agentConfig.getUserMd());
         appendSection(sb, "agents", agentConfig.getAgentsMd());
 
-        if (skillSummaries != null && !skillSummaries.isEmpty()) {
-            String skillsSection = buildSkillsDiscovery(skillSummaries);
-            if (skillsSection != null && !skillsSection.isBlank()) {
-                appendSection(sb, "skills", skillsSection);
-            }
+        String skillsSection = buildSkillsDiscovery(skillSummaries, skillGroupsEnabled);
+        if (skillsSection != null && !skillsSection.isBlank()) {
+            appendSection(sb, "skills", skillsSection);
         }
 
         appendSection(sb, "plan_system", buildPlanSystemSection(forcePlan));
@@ -1078,22 +1402,94 @@ public class AgentRuntime {
         return sb.toString();
     }
 
-    private String buildSkillsDiscovery(List<SkillContentProvider.SkillSummary> skills) {
-        if (skills.isEmpty()) return null;
+    private String buildSkillsDiscovery(List<SkillContentProvider.SkillSummary> skills, String skillGroupsEnabled) {
+        if (skillContentProvider == null) return null;
 
-        String basePath = skillContentProvider != null ? skillContentProvider.getSkillsBasePath() : "./skills";
+        if (skillGroupsEnabled != null && !skillGroupsEnabled.isBlank()) {
+            List<SkillContentProvider.SkillGroupSummary> allGroups = skillContentProvider.listGroups();
 
+            if (allGroups.isEmpty()) {
+                log.warn("skillGroupsEnabled='{}' is set but no enabled skill groups found in DB — " +
+                        "check that skill_group table has data and enabled=1", skillGroupsEnabled);
+            }
+
+            List<SkillContentProvider.SkillGroupSummary> groups = allGroups;
+            if ("full".equalsIgnoreCase(skillGroupsEnabled.trim())) {
+                // show all groups
+            } else {
+                Set<String> allowedNames = parseJsonStringArray(skillGroupsEnabled);
+                if (!allowedNames.isEmpty()) {
+                    groups = allGroups.stream()
+                            .filter(g -> allowedNames.contains(g.name()))
+                            .toList();
+                    if (groups.isEmpty() && !allGroups.isEmpty()) {
+                        log.warn("skillGroupsEnabled='{}' matched no groups. Available groups: {}",
+                                skillGroupsEnabled,
+                                allGroups.stream().map(SkillContentProvider.SkillGroupSummary::name).toList());
+                    }
+                } else {
+                    log.warn("skillGroupsEnabled='{}' parsed to empty set, no groups will be shown in prompt", skillGroupsEnabled);
+                    groups = List.of();
+                }
+            }
+
+            if (!groups.isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                sb.append(PromptLoader.load("prompts/skills-discovery.md"));
+                for (var g : groups) {
+                    sb.append("- **").append(g.name()).append("**");
+                    if (g.displayName() != null && !g.displayName().equals(g.name())) {
+                        sb.append(" (").append(g.displayName()).append(")");
+                    }
+                    sb.append(": ").append(g.description() != null ? g.description() : "");
+                    sb.append(" [").append(g.skillCount()).append(" 个技能]\n");
+                }
+                return sb.toString();
+            }
+        }
+
+        if (skills == null || skills.isEmpty()) return null;
+
+        String basePath = skillContentProvider.getSkillsBasePath();
         StringBuilder sb = new StringBuilder();
         sb.append(PromptLoader.load("prompts/skills-discovery.md"));
-
         for (var skill : skills) {
             sb.append("- **").append(skill.name()).append("**: ")
                     .append(skill.description()).append('\n');
             sb.append("  Read: ").append(basePath).append('/').append(skill.name())
                     .append("/SKILL.md\n");
         }
-
         return sb.toString();
+    }
+
+    private void setupSkillGroupContext(Long sessionId, String skillGroupsEnabled) {
+        Set<String> resolved;
+        if (skillGroupsEnabled == null || skillGroupsEnabled.isBlank()) {
+            resolved = Set.of();
+        } else if ("full".equalsIgnoreCase(skillGroupsEnabled.trim())) {
+            resolved = null;
+        } else {
+            Set<String> allowed = parseJsonStringArray(skillGroupsEnabled);
+            resolved = allowed.isEmpty() ? Set.of() : allowed;
+        }
+        SkillGroupContext.set(resolved);
+        if (sessionId != null) {
+            sessionSkillGroups.put(sessionId, resolved != null ? resolved : SKILL_GROUPS_UNRESTRICTED);
+        }
+    }
+
+    private static Set<String> parseJsonStringArray(String spec) {
+        try {
+            String trimmed = spec.trim();
+            if (trimmed.startsWith("[")) {
+                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                List<String> list = mapper.readValue(trimmed, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+                return new java.util.HashSet<>(list);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse JSON string array: {}", spec);
+        }
+        return Set.of();
     }
 
     private static void appendSection(StringBuilder sb, String tag, String content) {

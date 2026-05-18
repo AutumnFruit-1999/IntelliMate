@@ -38,7 +38,7 @@ export default function AgentList({
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{agent.name}</p>
                 <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
-                  {agent.model}
+                  {agent.modelDisplayName || agent.model}
                 </p>
               </div>
               {isActive && (

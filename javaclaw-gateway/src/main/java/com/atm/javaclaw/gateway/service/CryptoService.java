@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Cipher;
+import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -79,9 +80,12 @@ public class CryptoService {
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(keyBytes, "AES"), new GCMParameterSpec(GCM_TAG_LENGTH, iv));
             return new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.debug("Decrypt failed (may be plaintext): {}", e.getMessage());
+        } catch (IllegalArgumentException e) {
+            log.debug("Not base64 encoded (likely plaintext): {}", e.getMessage());
             return encrypted;
+        } catch (Exception e) {
+            log.error("Decryption failed for stored value — possible key mismatch or data corruption", e);
+            throw new RuntimeException("Decryption failed — check crypto-key configuration", e);
         }
     }
 
@@ -95,9 +99,23 @@ public class CryptoService {
     }
 
     private static byte[] deriveKey(String key) {
-        byte[] raw = key.getBytes(StandardCharsets.UTF_8);
-        byte[] padded = new byte[32];
-        System.arraycopy(raw, 0, padded, 0, Math.min(raw.length, 32));
-        return padded;
+        try {
+            byte[] salt = "javaclaw-aes-key".getBytes(StandardCharsets.UTF_8);
+            byte[] ikm = key.getBytes(StandardCharsets.UTF_8);
+
+            // HKDF-Extract: PRK = HMAC-SHA256(salt, IKM)
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(salt, "HmacSHA256"));
+            byte[] prk = mac.doFinal(ikm);
+
+            // HKDF-Expand: OKM = HMAC-SHA256(PRK, info || 0x01), truncated to 32 bytes
+            byte[] info = "aes-256-gcm-key".getBytes(StandardCharsets.UTF_8);
+            mac.init(new SecretKeySpec(prk, "HmacSHA256"));
+            mac.update(info);
+            mac.update((byte) 0x01);
+            return mac.doFinal();
+        } catch (Exception e) {
+            throw new RuntimeException("Key derivation failed", e);
+        }
     }
 }

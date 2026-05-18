@@ -1,9 +1,14 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, memo, lazy, Suspense } from "react";
+
+const SyntaxHighlighter = lazy(() =>
+  import("react-syntax-highlighter/dist/esm/prism-light").then((mod) => ({ default: mod.default }))
+);
+const oneDarkPromise = import("react-syntax-highlighter/dist/esm/styles/prism/one-dark").then(
+  (mod) => mod.default
+);
 
 interface StreamingTextProps {
   content: string;
@@ -18,6 +23,11 @@ function CodeBlock({
   children: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [style, setStyle] = useState<Record<string, React.CSSProperties> | null>(null);
+
+  useState(() => {
+    oneDarkPromise.then(setStyle);
+  });
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(children);
@@ -37,26 +47,28 @@ function CodeBlock({
           {copied ? "已复制" : "复制"}
         </button>
       </div>
-      <SyntaxHighlighter
-        language={language ?? "text"}
-        style={oneDark}
-        customStyle={{ margin: 0, borderRadius: 0 }}
+      <Suspense
+        fallback={
+          <pre className="bg-slate-900 text-slate-300 p-4 text-sm overflow-auto">{children}</pre>
+        }
       >
-        {children}
-      </SyntaxHighlighter>
+        {style ? (
+          <SyntaxHighlighter
+            language={language ?? "text"}
+            style={style}
+            customStyle={{ margin: 0, borderRadius: 0 }}
+          >
+            {children}
+          </SyntaxHighlighter>
+        ) : (
+          <pre className="bg-slate-900 text-slate-300 p-4 text-sm overflow-auto">{children}</pre>
+        )}
+      </Suspense>
     </div>
   );
 }
 
-export default function StreamingText({ content, streaming }: StreamingTextProps) {
-  if (!content && streaming) {
-    return (
-      <span className="text-slate-400 dark:text-slate-500 italic">
-        思考中...
-      </span>
-    );
-  }
-
+const RenderedMarkdown = memo(function RenderedMarkdown({ content }: { content: string }) {
   return (
     <div className="prose prose-sm dark:prose-invert max-w-none break-words">
       <Markdown
@@ -83,7 +95,29 @@ export default function StreamingText({ content, streaming }: StreamingTextProps
       >
         {content}
       </Markdown>
-      {streaming && <span className="cursor-blink text-blue-500">█</span>}
     </div>
   );
+});
+
+export default function StreamingText({ content, streaming }: StreamingTextProps) {
+  if (!content && streaming) {
+    return (
+      <span className="text-slate-400 dark:text-slate-500 italic">
+        思考中...
+      </span>
+    );
+  }
+
+  if (streaming) {
+    return (
+      <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed m-0 p-0 bg-transparent text-inherit">
+          {content}
+        </pre>
+        <span className="cursor-blink text-blue-500">█</span>
+      </div>
+    );
+  }
+
+  return <RenderedMarkdown content={content} />;
 }

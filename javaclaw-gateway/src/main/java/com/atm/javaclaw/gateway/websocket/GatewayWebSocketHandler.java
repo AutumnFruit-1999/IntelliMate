@@ -17,6 +17,7 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
+import reactor.util.concurrent.Queues;
 
 import java.time.Duration;
 import java.util.Map;
@@ -54,7 +55,8 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
 
         log.info("WebSocket connected: sessionId={}", session.getId());
 
-        Sinks.Many<GatewayFrame> outSink = Sinks.many().unicast().onBackpressureBuffer();
+        Sinks.Many<GatewayFrame> outSink = Sinks.many().unicast()
+                .onBackpressureBuffer(Queues.<GatewayFrame>get(1024).get());
         AtomicInteger missedPongs = new AtomicInteger(0);
 
         outSink.tryEmitNext(new EventFrame(
@@ -75,7 +77,8 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
                     ));
                 });
 
-        Sinks.Many<GatewayFrame> frameSink = Sinks.many().unicast().onBackpressureBuffer();
+        Sinks.Many<GatewayFrame> frameSink = Sinks.many().unicast()
+                .onBackpressureBuffer(Queues.<GatewayFrame>get(1024).get());
 
         Disposable receiver = session.receive()
                 .subscribe(

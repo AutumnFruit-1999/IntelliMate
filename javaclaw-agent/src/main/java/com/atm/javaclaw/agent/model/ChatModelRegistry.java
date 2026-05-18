@@ -5,13 +5,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * In-memory registry caching ChatModel instances per provider,
  * and resolving model_definition.id → ResolvedModel.
+ * Uses volatile snapshot swap for atomic refresh.
  */
 @Component
 public class ChatModelRegistry {
@@ -20,47 +21,26 @@ public class ChatModelRegistry {
 
     private final ChatModelFactory factory;
 
-    private final Map<Long, ChatModel> providerModels = new ConcurrentHashMap<>();
-    private final Map<Long, ProviderType> providerTypes = new ConcurrentHashMap<>();
-    private final Map<Long, ModelConfig> definitionIndex = new ConcurrentHashMap<>();
-    private final Map<String, ModelConfig> legacyNameIndex = new ConcurrentHashMap<>();
+    private volatile RegistrySnapshot snapshot = RegistrySnapshot.EMPTY;
 
     public ChatModelRegistry(ChatModelFactory factory) {
         this.factory = factory;
-    }
-
-    public void registerProvider(ProviderConfig config) {
-        try {
-            ChatModel model = factory.create(config);
-            providerModels.put(config.id(), model);
-            providerTypes.put(config.id(), config.type());
-            log.info("Registered provider '{}' (id={}, type={})", config.name(), config.id(), config.type());
-        } catch (Exception e) {
-            log.error("Failed to register provider '{}': {}", config.name(), e.getMessage(), e);
-        }
-    }
-
-    public void registerDefinitions(List<ModelConfig> definitions) {
-        for (ModelConfig def : definitions) {
-            definitionIndex.put(def.definitionId(), def);
-            legacyNameIndex.put(def.modelId(), def);
-        }
-        log.info("Registered {} model definitions", definitions.size());
     }
 
     /**
      * Resolve by model_definition.id.
      */
     public ResolvedModel resolve(Long definitionId) {
-        ModelConfig mc = definitionIndex.get(definitionId);
+        RegistrySnapshot s = snapshot;
+        ModelConfig mc = s.definitionIndex.get(definitionId);
         if (mc == null) {
             throw new IllegalArgumentException("Unknown model definition id: " + definitionId);
         }
-        ChatModel chatModel = providerModels.get(mc.providerId());
+        ChatModel chatModel = s.providerModels.get(mc.providerId());
         if (chatModel == null) {
             throw new IllegalStateException("No ChatModel registered for provider id: " + mc.providerId());
         }
-        ProviderType type = providerTypes.getOrDefault(mc.providerId(), ProviderType.OPENAI_COMPATIBLE);
+        ProviderType type = s.providerTypes.getOrDefault(mc.providerId(), ProviderType.OPENAI_COMPATIBLE);
         return new ResolvedModel(chatModel, mc.modelId(), type);
     }
 
@@ -69,45 +49,85 @@ public class ChatModelRegistry {
      * Falls back to the first available provider if not found.
      */
     public ResolvedModel resolveByModelName(String modelName) {
-        ModelConfig mc = legacyNameIndex.get(modelName);
+        RegistrySnapshot s = snapshot;
+        ModelConfig mc = s.legacyNameIndex.get(modelName);
         if (mc != null) {
-            ChatModel chatModel = providerModels.get(mc.providerId());
+            ChatModel chatModel = s.providerModels.get(mc.providerId());
             if (chatModel != null) {
-                ProviderType type = providerTypes.getOrDefault(mc.providerId(), ProviderType.OPENAI_COMPATIBLE);
+                ProviderType type = s.providerTypes.getOrDefault(mc.providerId(), ProviderType.OPENAI_COMPATIBLE);
                 return new ResolvedModel(chatModel, mc.modelId(), type);
             }
+            throw new IllegalStateException(
+                    "Provider id=" + mc.providerId() + " for model '" + modelName + "' has no ChatModel registered");
         }
-        if (!providerModels.isEmpty()) {
-            var entry = providerModels.entrySet().iterator().next();
-            log.warn("Model '{}' not found in registry, falling back to provider id={}", modelName, entry.getKey());
-            ProviderType type = providerTypes.getOrDefault(entry.getKey(), ProviderType.OPENAI_COMPATIBLE);
-            return new ResolvedModel(entry.getValue(), modelName, type);
-        }
-        throw new IllegalStateException("No model providers registered. Cannot resolve model: " + modelName);
+        throw new IllegalStateException("Model '" + modelName + "' not found in registry. "
+                + "Available models: " + s.legacyNameIndex.keySet());
     }
 
+    /**
+     * Atomically rebuild the entire registry and swap in one step.
+     * Concurrent readers see either the old or the new state, never a partial state.
+     */
     public void refreshAll(List<ProviderConfig> providers, List<ModelConfig> definitions) {
-        providerModels.clear();
-        providerTypes.clear();
-        definitionIndex.clear();
-        legacyNameIndex.clear();
+        Map<Long, ChatModel> newProviderModels = new HashMap<>();
+        Map<Long, ProviderType> newProviderTypes = new HashMap<>();
+        Map<Long, ModelConfig> newDefinitionIndex = new HashMap<>();
+        Map<String, ModelConfig> newLegacyNameIndex = new HashMap<>();
 
         for (ProviderConfig pc : providers) {
-            registerProvider(pc);
+            try {
+                ChatModel model = factory.create(pc);
+                newProviderModels.put(pc.id(), model);
+                newProviderTypes.put(pc.id(), pc.type());
+                log.info("Registered provider '{}' (id={}, type={})", pc.name(), pc.id(), pc.type());
+            } catch (Exception e) {
+                log.error("Failed to register provider '{}': {}", pc.name(), e.getMessage(), e);
+            }
         }
-        registerDefinitions(definitions);
+
+        for (ModelConfig def : definitions) {
+            newDefinitionIndex.put(def.definitionId(), def);
+            ModelConfig existing = newLegacyNameIndex.put(def.modelId(), def);
+            if (existing != null && !existing.providerId().equals(def.providerId())) {
+                log.warn("Model name '{}' exists in multiple providers (def {} and {}), "
+                        + "legacy name resolution may be ambiguous",
+                        def.modelId(), existing.definitionId(), def.definitionId());
+            }
+        }
+
+        snapshot = new RegistrySnapshot(
+                Map.copyOf(newProviderModels),
+                Map.copyOf(newProviderTypes),
+                Map.copyOf(newDefinitionIndex),
+                Map.copyOf(newLegacyNameIndex)
+        );
         log.info("Registry refreshed: {} providers, {} definitions", providers.size(), definitions.size());
     }
 
     public boolean hasProvider(Long providerId) {
-        return providerModels.containsKey(providerId);
+        return snapshot.providerModels.containsKey(providerId);
     }
 
     public int providerCount() {
-        return providerModels.size();
+        return snapshot.providerModels.size();
     }
 
     public int definitionCount() {
-        return definitionIndex.size();
+        return snapshot.definitionIndex.size();
+    }
+
+    public ModelConfig getDefinition(Long definitionId) {
+        return snapshot.definitionIndex.get(definitionId);
+    }
+
+    private record RegistrySnapshot(
+            Map<Long, ChatModel> providerModels,
+            Map<Long, ProviderType> providerTypes,
+            Map<Long, ModelConfig> definitionIndex,
+            Map<String, ModelConfig> legacyNameIndex
+    ) {
+        static final RegistrySnapshot EMPTY = new RegistrySnapshot(
+                Map.of(), Map.of(), Map.of(), Map.of()
+        );
     }
 }

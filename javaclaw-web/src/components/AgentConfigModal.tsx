@@ -6,8 +6,9 @@ import ToolsTab from "./ToolsTab";
 import McpToolsTab from "./McpToolsTab";
 import SkillsTab from "./SkillsTab";
 import ModelTab from "./ModelTab";
+import AgentDelegationConfig from "./AgentDelegationConfig";
 
-export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp" | "skills" | "model";
+export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp" | "skills" | "model" | "delegation";
 
 interface AgentConfigModalProps {
   open: boolean;
@@ -61,6 +62,7 @@ const ALL_TABS: { key: ContextTab; label: string }[] = [
   { key: "mcp", label: "MCP 工具" },
   { key: "skills", label: "Skills" },
   { key: "model", label: "模型管理" },
+  { key: "delegation", label: "委派协作" },
 ];
 
 export default function AgentConfigModal({
@@ -74,28 +76,28 @@ export default function AgentConfigModal({
   const loadedAgentRef = useRef<string | null>(null);
 
   const activeAgent = useAgentStore((s) => s.activeAgent);
-
-  const {
-    config,
-    draft,
-    toolsEnabledDraft,
-    mcpToolsEnabledDraft,
-    skillsEnabledDraft,
-    loading,
-    saving,
-    dirty,
-    error,
-    fetchConfig,
-    updateField,
-    setToolsEnabled,
-    setMcpToolsEnabled,
-    setSkillsEnabled,
-    saveConfig,
-    saveToolsEnabled,
-    saveMcpToolsEnabled,
-    saveSkillsEnabled,
-    resetConfig,
-  } = useAgentStore();
+  const config = useAgentStore((s) => s.config);
+  const draft = useAgentStore((s) => s.draft);
+  const toolsEnabledDraft = useAgentStore((s) => s.toolsEnabledDraft);
+  const mcpToolsEnabledDraft = useAgentStore((s) => s.mcpToolsEnabledDraft);
+  const skillsEnabledDraft = useAgentStore((s) => s.skillsEnabledDraft);
+  const skillGroupsEnabledDraft = useAgentStore((s) => s.skillGroupsEnabledDraft);
+  const loading = useAgentStore((s) => s.loading);
+  const saving = useAgentStore((s) => s.saving);
+  const dirty = useAgentStore((s) => s.dirty);
+  const error = useAgentStore((s) => s.error);
+  const fetchConfig = useAgentStore((s) => s.fetchConfig);
+  const updateField = useAgentStore((s) => s.updateField);
+  const setToolsEnabled = useAgentStore((s) => s.setToolsEnabled);
+  const setMcpToolsEnabled = useAgentStore((s) => s.setMcpToolsEnabled);
+  const setSkillsEnabled = useAgentStore((s) => s.setSkillsEnabled);
+  const setSkillGroupsEnabled = useAgentStore((s) => s.setSkillGroupsEnabled);
+  const saveConfig = useAgentStore((s) => s.saveConfig);
+  const saveToolsEnabled = useAgentStore((s) => s.saveToolsEnabled);
+  const saveMcpToolsEnabled = useAgentStore((s) => s.saveMcpToolsEnabled);
+  const saveSkillsEnabled = useAgentStore((s) => s.saveSkillsEnabled);
+  const saveSkillGroupsEnabled = useAgentStore((s) => s.saveSkillGroupsEnabled);
+  const resetConfig = useAgentStore((s) => s.resetConfig);
 
   const agentName = initialAgent ?? activeAgent ?? null;
 
@@ -128,6 +130,7 @@ export default function AgentConfigModal({
       await saveMcpToolsEnabled();
     } else if (activeTab === "skills") {
       await saveSkillsEnabled();
+      await saveSkillGroupsEnabled();
     } else if (activeTab === "model") {
       return;
     } else {
@@ -135,7 +138,7 @@ export default function AgentConfigModal({
     }
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
-  }, [activeTab, saveConfig, saveToolsEnabled, saveMcpToolsEnabled, saveSkillsEnabled]);
+  }, [activeTab, saveConfig, saveToolsEnabled, saveMcpToolsEnabled, saveSkillsEnabled, saveSkillGroupsEnabled]);
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => {
@@ -150,9 +153,10 @@ export default function AgentConfigModal({
   const isMcpTab = activeTab === "mcp";
   const isSkillsTab = activeTab === "skills";
   const isModelTab = activeTab === "model";
+  const isDelegationTab = activeTab === "delegation";
   const contextTab = CONTEXT_TABS.find((t) => t.key === activeTab);
 
-  const showSaveButton = activeTab !== "model";
+  const showSaveButton = activeTab !== "model" && activeTab !== "delegation";
 
   return (
     <div
@@ -224,9 +228,13 @@ export default function AgentConfigModal({
             <SkillsTab
               skillsEnabled={skillsEnabledDraft}
               onChange={setSkillsEnabled}
+              skillGroupsEnabled={skillGroupsEnabledDraft}
+              onGroupsChange={setSkillGroupsEnabled}
             />
           ) : isModelTab ? (
             <ModelTab currentModel={config?.model ?? ""} />
+          ) : isDelegationTab ? (
+            <AgentDelegationConfig />
           ) : contextTab ? (
             <div className="flex-1 flex flex-col min-h-0">
               <div className="mb-3">

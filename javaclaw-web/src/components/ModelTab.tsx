@@ -20,6 +20,7 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedModel, setSelectedModel] = useState(currentModel);
+  const [currentModelName, setCurrentModelName] = useState<string>("");
 
   const loadProviders = useCallback(() => {
     setLoading(true);
@@ -27,11 +28,37 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
     setModels([]);
     fetchModelProviders()
       .then((data) => {
-        setProviders(data.filter((p) => p.enabled === 1));
+        const enabled = data.filter((p) => p.enabled === 1);
+        setProviders(enabled);
+        resolveModelName(currentModel, enabled);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const resolveModelName = useCallback(
+    async (modelRef: string, providerList: ModelProviderDto[]) => {
+      if (!modelRef) {
+        setCurrentModelName("");
+        return;
+      }
+      const defId = Number(modelRef);
+      if (!Number.isNaN(defId)) {
+        for (const p of providerList) {
+          try {
+            const defs = await fetchModelDefinitions(p.id);
+            const found = defs.find((d) => d.id === defId);
+            if (found) {
+              setCurrentModelName(`${found.displayName} (${p.name})`);
+              return;
+            }
+          } catch { /* skip */ }
+        }
+      }
+      setCurrentModelName(modelRef);
+    },
+    [],
+  );
 
   useEffect(() => {
     loadProviders();
@@ -59,20 +86,25 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
   );
 
   const handleSelectModel = useCallback(
-    async (modelId: string) => {
-      if (modelId === selectedModel) return;
+    async (definitionId: string) => {
+      if (definitionId === selectedModel) return;
       setSaving(true);
       try {
         const { saveModel } = useAgentStore.getState();
-        await saveModel(modelId);
-        setSelectedModel(modelId);
+        await saveModel(definitionId);
+        setSelectedModel(definitionId);
+        const selected = models.find((m) => String(m.id) === definitionId);
+        const provider = providers.find((p) => p.id === selected?.providerId);
+        if (selected && provider) {
+          setCurrentModelName(`${selected.displayName} (${provider.name})`);
+        }
       } catch {
         // keep current
       } finally {
         setSaving(false);
       }
     },
-    [selectedModel],
+    [selectedModel, models, providers],
   );
 
   if (loading) {
@@ -100,7 +132,7 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
           当前模型
         </h3>
         <p className="text-xs text-slate-400 dark:text-slate-500 font-mono">
-          {selectedModel}
+          {currentModelName || selectedModel || "未选择"}
         </p>
       </div>
 
@@ -148,12 +180,12 @@ export default function ModelTab({ currentModel }: ModelTabProps) {
                       </div>
                     ) : (
                       models.map((model) => {
-                        const isActive = model.modelId === selectedModel;
+                        const isActive = String(model.id) === selectedModel;
                         return (
                           <button
                             key={model.id}
                             type="button"
-                            onClick={() => handleSelectModel(model.modelId)}
+                            onClick={() => handleSelectModel(String(model.id))}
                             disabled={saving}
                             className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors ${
                               isActive
