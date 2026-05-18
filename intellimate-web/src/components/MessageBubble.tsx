@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, memo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { ChatMessage, ToolCallInfo } from "../stores/chatStore";
 import { usePlanStore } from "../stores/planStore";
 import type { StepToolCall } from "../stores/planStore";
@@ -42,11 +43,13 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools }
   const showTurnIndicator =
     !isUser && message.streaming && message.currentTurn != null && message.currentTurn > 1;
 
-  const { plan, stepToolCalls, currentStepIndex } = usePlanStore((s) => ({
-    plan: s.plan,
-    stepToolCalls: s.stepToolCalls,
-    currentStepIndex: s.currentStepIndex,
-  }));
+  const { plan, stepToolCalls, currentStepIndex } = usePlanStore(
+    useShallow((s) => ({
+      plan: s.plan,
+      stepToolCalls: s.stepToolCalls,
+      currentStepIndex: s.currentStepIndex,
+    }))
+  );
   const planWithSteps = !!(plan && plan.steps.length > 0);
   const planActive =
     plan &&
