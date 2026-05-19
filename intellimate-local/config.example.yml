@@ -1,0 +1,14 @@
+server: "ws://your-server:3007/api/bridge/connect"
+token: "your-token-here"
+name: "my-laptop"
+
+security:
+  allowedPaths:
+    - "/Users/user/projects"
+  blockedCommands:
+    - "rm -rf /"
+
+# mcpServers:
+#   - name: browser
+#     command: npx
+#     args: ["-y", "@anthropic/mcp-browser"]
