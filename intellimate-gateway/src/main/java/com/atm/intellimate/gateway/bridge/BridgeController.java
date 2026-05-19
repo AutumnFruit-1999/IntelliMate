@@ -2,10 +2,12 @@ package com.atm.intellimate.gateway.bridge;
 
 import com.atm.intellimate.gateway.entity.BridgeNodeEntity;
 import com.atm.intellimate.gateway.repository.BridgeNodeRepository;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -37,7 +39,8 @@ public class BridgeController {
     }
 
     @PostMapping("/nodes")
-    public Mono<Map<String, Object>> createNode(@RequestBody Map<String, String> body) {
+    public Mono<Map<String, Object>> createNode(@RequestBody Map<String, String> body,
+                                                ServerHttpRequest request) {
         String name = body.get("name");
         if (name == null || name.isBlank()) {
             return Mono.error(new IllegalArgumentException("name is required"));
@@ -46,18 +49,41 @@ public class BridgeController {
         String token = UUID.randomUUID().toString().replace("-", "");
         String tokenHash = sha256(token);
 
+        String host = resolveHost(request);
+
         BridgeNodeEntity entity = new BridgeNodeEntity();
         entity.setName(name);
         entity.setTokenHash(tokenHash);
         entity.setStatus("DISCONNECTED");
 
         return repository.save(entity)
-                .map(saved -> Map.<String, Object>of(
-                        "id", saved.getId(),
-                        "name", saved.getName(),
-                        "token", token,
-                        "message", "请保存此 token，它只显示一次。使用方式：npx intellimate-local --server ws://host:3007/api/bridge/connect --token " + token
-                ));
+                .map(saved -> {
+                    String cmd = "npx intellimate-local --server ws://" + host
+                            + "/api/bridge/connect --token " + token + " --name " + saved.getName();
+                    return Map.<String, Object>of(
+                            "id", saved.getId(),
+                            "name", saved.getName(),
+                            "token", token,
+                            "command", cmd,
+                            "message", "请保存此 token，它只显示一次。连接命令：" + cmd
+                    );
+                });
+    }
+
+    private String resolveHost(ServerHttpRequest request) {
+        String forwardedHost = request.getHeaders().getFirst("X-Forwarded-Host");
+        if (forwardedHost != null && !forwardedHost.isBlank()) {
+            return forwardedHost;
+        }
+        String hostHeader = request.getHeaders().getFirst("Host");
+        if (hostHeader != null && !hostHeader.isBlank()) {
+            return hostHeader;
+        }
+        InetSocketAddress localAddr = request.getLocalAddress();
+        if (localAddr != null) {
+            return localAddr.getHostString() + ":" + localAddr.getPort();
+        }
+        return "localhost:3007";
     }
 
     @DeleteMapping("/nodes/{name}")

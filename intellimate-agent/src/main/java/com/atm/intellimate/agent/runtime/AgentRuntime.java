@@ -198,6 +198,10 @@ public class AgentRuntime {
                     : Arrays.stream(allTools)
                     .filter(cb -> !DELEGATION_TOOL_NAMES.contains(cb.getToolDefinition().name()))
                     .toArray(ToolCallback[]::new);
+            Map<String, ToolCallback> toolCallbackMap = new LinkedHashMap<>();
+            for (ToolCallback cb : tools) {
+                toolCallbackMap.put(cb.getToolDefinition().name(), cb);
+            }
             int maxTurns = agentConfig.getMaxTurns();
             Duration timeout = Duration.ofSeconds(agentConfig.getTimeoutSeconds());
 
@@ -352,7 +356,7 @@ public class AgentRuntime {
                                         agentConfig.getName(), request.sessionId(), skillsBasePath,
                                         loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
                                         toolTimeout, maxParallel, nonRetryable,
-                                        request.activePlanId(), planStepTracker, request.planExecutionAssessment(), request)
+                                        request.activePlanId(), planStepTracker, request.planExecutionAssessment(), request, toolCallbackMap)
                                         .doFinally(signal -> {
                                             sessionApprovalGates.remove(request.sessionId());
                                             sessionSkillGroups.remove(request.sessionId());
@@ -453,7 +457,8 @@ public class AgentRuntime {
             Long activePlanId,
             PlanStepTracker planStepTracker,
             PlanExecutionAssessment planExecutionAssessment,
-            AgentRunRequest request) {
+            AgentRunRequest request,
+            Map<String, ToolCallback> toolCallbackMap) {
 
         if (activePlanId != null && pausedPlanIds.contains(activePlanId)) {
             log.info("Plan {} is paused/cancelled, stopping agent loop at turn {}", activePlanId, turn);
@@ -525,7 +530,7 @@ public class AgentRuntime {
                         agentName, sessionId, skillsBasePath,
                         loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
                         toolTimeout, maxParallel, nonRetryableTools,
-                        activePlanId, planStepTracker, planExecutionAssessment, request);
+                        activePlanId, planStepTracker, planExecutionAssessment, request, toolCallbackMap);
             }
 
             String finalText = fullText.toString();
@@ -616,7 +621,8 @@ public class AgentRuntime {
             Long activePlanId,
             PlanStepTracker planStepTracker,
             PlanExecutionAssessment planExecutionAssessment,
-            AgentRunRequest request) {
+            AgentRunRequest request,
+            Map<String, ToolCallback> toolCallbackMap) {
 
         AssistantMessage assistantMsg = toolCallResponse.getResult().getOutput();
         history.add(assistantMsg);
@@ -677,7 +683,7 @@ public class AgentRuntime {
         Mono<List<ToolExecutionResult>> directResultsMono = Flux.fromIterable(directCalls)
                 .flatMap(tc -> executeSingleTool(tc, agentName, sessionId, skillsBasePath,
                         loopDetector, cache,
-                        toolTimeout, nonRetryableTools), maxParallel)
+                        toolTimeout, nonRetryableTools, toolCallbackMap), maxParallel)
                 .collectList();
 
         // Phase 2b: Handle approval tools (emit approval events, wait, then execute)
@@ -694,7 +700,7 @@ public class AgentRuntime {
                                 String args = decision.modifiedArguments() != null
                                         ? decision.modifiedArguments() : tc.arguments();
                                 return doExecuteTool(tc.id(), tc.name(), args, agentName, sessionId, skillsBasePath,
-                                        cache, toolTimeout, nonRetryableTools, false);
+                                        cache, toolTimeout, nonRetryableTools, false, toolCallbackMap);
                             });
 
                     return Flux.concat(
@@ -833,7 +839,7 @@ public class AgentRuntime {
                             agentName, sessionId, skillsBasePath,
                             loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
                             toolTimeout, maxParallel, nonRetryableTools,
-                            activePlanId, planStepTracker, planExecutionAssessment, request));
+                            activePlanId, planStepTracker, planExecutionAssessment, request, toolCallbackMap));
         }
 
         return Flux.concat(autoStartFlux, callEvents, withHistory, memorySnapshot, nextTurn);
@@ -1103,7 +1109,8 @@ public class AgentRuntime {
             ToolCallLoopDetector loopDetector,
             ToolResultCache cache,
             Duration toolTimeout,
-            Set<String> nonRetryableTools) {
+            Set<String> nonRetryableTools,
+            Map<String, ToolCallback> toolCallbackMap) {
 
         // 1. Loop detection
         ToolCallLoopDetector.LoopStatus loopStatus = loopDetector.check(tc.name(), tc.arguments());
@@ -1119,7 +1126,7 @@ public class AgentRuntime {
 
         // 2. Direct execution (approval is handled at the processToolCalls level)
         return doExecuteTool(tc.id(), tc.name(), tc.arguments(), agentName, sessionId, skillsBasePath,
-                cache, toolTimeout, nonRetryableTools, appendWarning);
+                cache, toolTimeout, nonRetryableTools, appendWarning, toolCallbackMap);
     }
 
     private Mono<ToolExecutionResult> doExecuteTool(
@@ -1132,7 +1139,8 @@ public class AgentRuntime {
             ToolResultCache cache,
             Duration toolTimeout,
             Set<String> nonRetryableTools,
-            boolean appendWarning) {
+            boolean appendWarning,
+            Map<String, ToolCallback> toolCallbackMap) {
 
         // Check cache first
         String cached = cache.get(toolName, arguments);
@@ -1155,7 +1163,9 @@ public class AgentRuntime {
                         SkillGroupContext.set(skillGroups);
                     }
                     try {
-                        ToolCallback callback = toolsEngine.getCallbackByName(toolName);
+                        ToolCallback callback = toolCallbackMap != null
+                                ? toolCallbackMap.getOrDefault(toolName, toolsEngine.getCallbackByName(toolName))
+                                : toolsEngine.getCallbackByName(toolName);
                         String result = callback.call(arguments);
                         log.debug("Tool {} executed, result length={}", toolName, result != null ? result.length() : 0);
 
