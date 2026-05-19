@@ -135,6 +135,10 @@ public class AgentController {
                         Object val = body.get("goal");
                         entity.setGoal(val instanceof String s ? s : (val != null ? val.toString() : null));
                     }
+                    if (body.containsKey("bridgeNode")) {
+                        Object val = body.get("bridgeNode");
+                        entity.setBridgeNode(val instanceof String s ? s : (val != null ? val.toString() : null));
+                    }
                     entity.setUpdatedAt(LocalDateTime.now());
                     return agentRepository.save(entity);
                 })
