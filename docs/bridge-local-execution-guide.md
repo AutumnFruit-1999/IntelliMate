@@ -351,6 +351,97 @@ CREATE TABLE bridge_node (
 ALTER TABLE agent ADD COLUMN bridge_node VARCHAR(64) DEFAULT NULL;
 ```
 
+## 项目构建
+
+### Gateway（服务器端）
+
+```bash
+cd /path/to/IntelliMate
+
+# 编译所有模块
+mvn compile
+
+# 打包（跳过测试）
+mvn package -DskipTests
+
+# 开发模式运行
+mvn spring-boot:run -pl intellimate-gateway
+
+# 生产模式运行（使用 jar）
+java -jar intellimate-gateway/target/intellimate-gateway-0.0.1-SNAPSHOT.jar
+```
+
+**环境变量（生产部署时设置）：**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `INTELLIMATE_PORT` | 服务端口 | 3007 |
+| `MYSQL_HOST` | MySQL 地址 | localhost |
+| `MYSQL_PORT` | MySQL 端口 | 3306 |
+| `MYSQL_DATABASE` | 数据库名 | intellimate |
+| `MYSQL_USERNAME` | 数据库用户 | root |
+| `MYSQL_PASSWORD` | 数据库密码 | — |
+| `INTELLIMATE_AUTH_TOKEN` | API 认证 token | — |
+
+### 前端 Web UI
+
+```bash
+cd intellimate-web
+
+# 安装依赖
+npm install
+
+# 开发模式（热重载）
+npm run dev     # 启动在 http://localhost:5173
+
+# 生产构建
+npm run build   # 输出到 dist/ 目录
+```
+
+生产部署时，将 `dist/` 目录部署到 Web 服务器（如 Nginx），配置反向代理到 Gateway。
+
+### 本地组件（用户电脑）
+
+```bash
+cd intellimate-local
+
+# 安装依赖
+npm install
+
+# 编译 TypeScript
+npm run build
+
+# 运行
+node dist/index.js \
+  --server ws://<gateway-host>:3007/api/bridge/connect \
+  --token <token> \
+  --name my-laptop
+```
+
+**未来发布到 npm 后：**
+
+```bash
+npx intellimate-local \
+  --server ws://<gateway-host>:3007/api/bridge/connect \
+  --token <token> \
+  --name my-laptop
+```
+
+### 一键构建全部
+
+```bash
+cd /path/to/IntelliMate
+
+# 后端
+mvn package -DskipTests
+
+# 前端
+cd intellimate-web && npm install && npm run build && cd ..
+
+# 本地组件
+cd intellimate-local && npm install && npm run build && cd ..
+```
+
 ## 故障排查
 
 ### 本地组件无法连接
