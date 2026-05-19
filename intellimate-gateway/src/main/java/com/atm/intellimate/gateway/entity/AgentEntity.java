@@ -26,6 +26,7 @@ public class AgentEntity {
     private Integer canDelegate;
     private String delegateAgents;
     private String goal;
+    private String bridgeNode;
     private String configJson;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -63,6 +64,8 @@ public class AgentEntity {
     public void setDelegateAgents(String delegateAgents) { this.delegateAgents = delegateAgents; }
     public String getGoal() { return goal; }
     public void setGoal(String goal) { this.goal = goal; }
+    public String getBridgeNode() { return bridgeNode; }
+    public void setBridgeNode(String bridgeNode) { this.bridgeNode = bridgeNode; }
     public String getConfigJson() { return configJson; }
     public void setConfigJson(String configJson) { this.configJson = configJson; }
     public LocalDateTime getCreatedAt() { return createdAt; }
