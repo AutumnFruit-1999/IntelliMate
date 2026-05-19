@@ -257,6 +257,7 @@ public class AgentController {
         dto.put("canDelegate", entity.getCanDelegate() != null && entity.getCanDelegate() == 1);
         dto.put("delegateAgents", entity.getDelegateAgents());
         dto.put("goal", entity.getGoal());
+        dto.put("bridgeNode", entity.getBridgeNode());
         return dto;
     }
 
