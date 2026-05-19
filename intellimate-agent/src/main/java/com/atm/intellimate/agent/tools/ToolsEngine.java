@@ -1,5 +1,6 @@
 package com.atm.intellimate.agent.tools;
 
+import com.atm.intellimate.agent.tools.bridge.BridgeToolProvider;
 import com.atm.intellimate.agent.tools.dynamic.DynamicToolProvider;
 import com.atm.intellimate.agent.tools.mcp.McpToolProvider;
 import org.slf4j.Logger;
@@ -28,16 +29,19 @@ public class ToolsEngine {
     private final ToolCallback[] builtinCallbacks;
     private final DynamicToolProvider dynamicToolProvider;
     private final McpToolProvider mcpToolProvider;
+    private final BridgeToolProvider bridgeToolProvider;
     private volatile ToolCallback[] allToolCallbacks;
 
     public ToolsEngine(List<ToolCallbackProvider> providers,
                        @Autowired(required = false) DynamicToolProvider dynamicToolProvider,
-                       @Autowired(required = false) McpToolProvider mcpToolProvider) {
+                       @Autowired(required = false) McpToolProvider mcpToolProvider,
+                       @Autowired(required = false) BridgeToolProvider bridgeToolProvider) {
         this.builtinCallbacks = providers.stream()
                 .flatMap(p -> Arrays.stream(p.getToolCallbacks()))
                 .toArray(ToolCallback[]::new);
         this.dynamicToolProvider = dynamicToolProvider;
         this.mcpToolProvider = mcpToolProvider;
+        this.bridgeToolProvider = bridgeToolProvider;
         refresh();
     }
 
@@ -100,6 +104,34 @@ public class ToolsEngine {
         System.arraycopy(builtinCustom, 0, merged, 0, builtinCustom.length);
         System.arraycopy(mcp, 0, merged, builtinCustom.length, mcp.length);
         return merged;
+    }
+
+    public ToolCallback[] getToolCallbacksFor(String toolsEnabledSpec, String mcpToolsEnabledSpec,
+                                              String bridgeNodeName) {
+        ToolCallback[] callbacks = getToolCallbacksFor(toolsEnabledSpec, mcpToolsEnabledSpec);
+
+        if (bridgeNodeName == null || bridgeNodeName.isBlank()
+                || bridgeToolProvider == null
+                || !bridgeToolProvider.isConnected(bridgeNodeName)) {
+            return callbacks;
+        }
+
+        Set<String> bridgeTools = bridgeToolProvider.getRegisteredTools(bridgeNodeName);
+        if (bridgeTools.isEmpty()) {
+            return callbacks;
+        }
+
+        log.info("Bridge node '{}' active, routing tools: {}", bridgeNodeName, bridgeTools);
+
+        return Arrays.stream(callbacks)
+                .map(cb -> {
+                    String toolName = cb.getToolDefinition().name();
+                    if (bridgeTools.contains(toolName)) {
+                        return bridgeToolProvider.createBridgeCallback(bridgeNodeName, cb.getToolDefinition());
+                    }
+                    return cb;
+                })
+                .toArray(ToolCallback[]::new);
     }
 
     private ToolCallback[] getBuiltinCustomCallbacksFor(String toolsEnabledSpec) {
