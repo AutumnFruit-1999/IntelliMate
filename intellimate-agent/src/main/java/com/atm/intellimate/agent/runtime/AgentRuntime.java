@@ -191,7 +191,8 @@ public class AgentRuntime {
             boolean parallelEnabled = agentConfig.isEnableParallelToolCalls();
             String systemPrompt = buildSystemPrompt(agentConfig, skillSummaries, parallelEnabled,
                     request.planContext(), request.forcePlan(), request.skillGroupsEnabled());
-            ToolCallback[] allTools = toolsEngine.getToolCallbacksFor(request.toolsEnabled(), request.mcpToolsEnabled());
+            ToolCallback[] allTools = toolsEngine.getToolCallbacksFor(
+                    request.toolsEnabled(), request.mcpToolsEnabled(), request.bridgeNode());
             ToolCallback[] tools = agentConfig.isCanDelegate()
                     ? allTools
                     : Arrays.stream(allTools)
@@ -920,7 +921,8 @@ public class AgentRuntime {
                                         List.of(),
                                         workerCfg.toolsEnabled(), workerCfg.mcpToolsEnabled(),
                                         workerCfg.skillsEnabled(), workerCfg.skillGroupsEnabled(),
-                                        null, false, null, null, childCtx);
+                                        null, false, null, null, childCtx,
+                                        workerCfg.bridgeNode());
 
                                 StringBuilder workerResult = new StringBuilder();
                                 int[] workerTurns = {0};
@@ -1026,7 +1028,8 @@ public class AgentRuntime {
                                         sid, null, wa, buildWorkerPrompt(pt.task(), ""),
                                         List.of(), cfg.toolsEnabled(), cfg.mcpToolsEnabled(),
                                         cfg.skillsEnabled(), cfg.skillGroupsEnabled(),
-                                        null, false, null, null, childCtx);
+                                        null, false, null, null, childCtx,
+                                        cfg.bridgeNode());
 
                                 StringBuilder result = new StringBuilder();
                                 boolean[] ok = {true};

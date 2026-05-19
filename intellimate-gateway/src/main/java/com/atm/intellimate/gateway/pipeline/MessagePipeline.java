@@ -187,7 +187,8 @@ public class MessagePipeline {
                                         forcePlan,
                                         effectivePlanId,
                                         planPayload.assessment(),
-                                        null
+                                        null,
+                                        resolved.bridgeNode()
                                 );
 
                                 StringBuilder fullResponse = new StringBuilder();
@@ -931,7 +932,8 @@ public class MessagePipeline {
                             resolved.mcpToolsEnabled(),
                             resolved.skillsEnabled(),
                             resolved.skillGroupsEnabled(),
-                            null, false, null, null, null);
+                            null, false, null, null, null,
+                            resolved.bridgeNode());
                     return agentRuntime.dispatch(handoffRequest)
                             .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session));
                 });

@@ -114,7 +114,8 @@ public class AgentPromptJob implements ScheduledJob {
                                 renderedPrompt,
                                 history,
                                 null, null, null, null, null,
-                                false, null, null, null
+                                false, null, null, null,
+                                resolved.bridgeNode()
                         );
 
                         AtomicReference<String> responseText = new AtomicReference<>("");

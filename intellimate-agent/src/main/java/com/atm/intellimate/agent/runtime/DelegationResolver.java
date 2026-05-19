@@ -34,6 +34,7 @@ public interface DelegationResolver {
             String skillsEnabled,
             String skillGroupsEnabled,
             boolean canDelegate,
-            String delegateAgents
+            String delegateAgents,
+            String bridgeNode
     ) {}
 }

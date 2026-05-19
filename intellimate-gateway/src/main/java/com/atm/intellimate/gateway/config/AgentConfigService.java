@@ -58,7 +58,8 @@ public class AgentConfigService {
                                             entity.getMcpToolsEnabled(),
                                             entity.getSkillsEnabled(),
                                             entity.getSkillGroupsEnabled(),
-                                            true, entity.getDelegateAgents(), entity.getGoal());
+                                            true, entity.getDelegateAgents(), entity.getGoal(),
+                                            entity.getBridgeNode());
                                 });
                     }
 
@@ -68,7 +69,8 @@ public class AgentConfigService {
                             entity.getMcpToolsEnabled(),
                             entity.getSkillsEnabled(),
                             entity.getSkillGroupsEnabled(),
-                            canDelegate, entity.getDelegateAgents(), entity.getGoal()));
+                            canDelegate, entity.getDelegateAgents(), entity.getGoal(),
+                            entity.getBridgeNode()));
                 })
                 .defaultIfEmpty(new ResolvedAgentConfig(properties.getAgent(), null, null, null, null))
                 .doOnNext(cfg -> log.debug("Resolved agent config: name={}, model={}, tools={}, mcpTools={}, skills={}, skillGroups={}, canDelegate={}",

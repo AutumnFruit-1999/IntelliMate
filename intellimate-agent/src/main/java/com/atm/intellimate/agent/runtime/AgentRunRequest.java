@@ -21,6 +21,7 @@ import java.util.List;
  * @param activePlanId              ID of the plan being executed (null if no plan), used for pause check
  * @param planExecutionAssessment   optional structured plan step text for plan-mode memory scoring
  * @param delegationContext         delegation nesting/limit state; null for top-level user requests
+ * @param bridgeNode                bound Bridge node name for local tool execution; null = server-side only
  */
 public record AgentRunRequest(
         Long sessionId,
@@ -36,16 +37,17 @@ public record AgentRunRequest(
         boolean forcePlan,
         Long activePlanId,
         PlanExecutionAssessment planExecutionAssessment,
-        DelegationContext delegationContext
+        DelegationContext delegationContext,
+        String bridgeNode
 ) {
     public AgentRunRequest(Long sessionId, IntelliMateProperties.Agent agent,
                            String userMessage, List<org.springframework.ai.chat.messages.Message> history) {
-        this(sessionId, null, agent, userMessage, history, null, null, null, null, null, false, null, null, null);
+        this(sessionId, null, agent, userMessage, history, null, null, null, null, null, false, null, null, null, null);
     }
 
     public AgentRunRequest(Long sessionId, IntelliMateProperties.Agent agent,
                            String userMessage, List<org.springframework.ai.chat.messages.Message> history,
                            String toolsEnabled, String mcpToolsEnabled, String skillsEnabled) {
-        this(sessionId, null, agent, userMessage, history, toolsEnabled, mcpToolsEnabled, skillsEnabled, null, null, false, null, null, null);
+        this(sessionId, null, agent, userMessage, history, toolsEnabled, mcpToolsEnabled, skillsEnabled, null, null, false, null, null, null, null);
     }
 }

@@ -13,12 +13,13 @@ public record ResolvedAgentConfig(
         String skillGroupsEnabled,
         boolean canDelegate,
         String delegateAgents,
-        String goal
+        String goal,
+        String bridgeNode
 ) {
     public ResolvedAgentConfig(IntelliMateProperties.Agent agent,
                                String toolsEnabled, String mcpToolsEnabled,
                                String skillsEnabled, String skillGroupsEnabled) {
         this(agent, toolsEnabled, mcpToolsEnabled, skillsEnabled, skillGroupsEnabled,
-                false, null, null);
+                false, null, null, null);
     }
 }

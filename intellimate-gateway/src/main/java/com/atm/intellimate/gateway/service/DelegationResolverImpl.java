@@ -47,6 +47,7 @@ public class DelegationResolverImpl implements DelegationResolver {
                 cfg.skillsEnabled(),
                 cfg.skillGroupsEnabled(),
                 cfg.canDelegate(),
-                cfg.delegateAgents());
+                cfg.delegateAgents(),
+                cfg.bridgeNode());
     }
 }
