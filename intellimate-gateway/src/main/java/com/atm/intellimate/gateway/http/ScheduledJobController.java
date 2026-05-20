@@ -101,7 +101,7 @@ public class ScheduledJobController {
     }
 
     private static final java.util.Set<String> BUILT_IN_JOBS = java.util.Set.of(
-            "heartbeat-tick", "memory-nightly-maintenance", "data-cleanup", "health-check"
+            "heartbeat-tick", "memory-nightly-maintenance", "data-cleanup"
     );
 
     @DeleteMapping("/{jobName}")
