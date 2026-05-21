@@ -52,6 +52,9 @@ export function useWebSocket() {
             ) {
               planState.syncFromServer(planState.plan.planId);
             }
+            if (planState.planHistory.length === 0) {
+              planState.loadHistoryFromServer();
+            }
             // 绑定当前 agent 以接收 proactive 消息
             const agentState = useAgentStore.getState();
             const currentAgentName = agentState.activeAgent;

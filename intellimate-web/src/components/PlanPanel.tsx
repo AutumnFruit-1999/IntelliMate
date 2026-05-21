@@ -3,7 +3,6 @@ import { usePlanStore } from "../stores/planStore";
 import type { RequestFrame, ResponseFrame } from "../lib/protocol";
 import {
   createPlanApprove,
-  createPlanApproveAndExecute,
   createPlanPause,
   createPlanResume,
   createPlanCancel,
@@ -134,21 +133,19 @@ export default function PlanPanel({
     setApproveStarting(true);
     try {
       const res = await onSendPlanActionAndWait(
-        createPlanApproveAndExecute(plan.planId),
+        createPlanApprove(plan.planId, true),
       );
       if (!res.ok) {
-        const currentStatus = (res.payload as Record<string, unknown>)?.currentStatus as string | undefined;
-        if (currentStatus === "approved") {
-          console.warn("[PlanPanel] approved but execution failed, user can retry via resume");
-        }
-        console.error("[PlanPanel] plan.approve_and_execute failed:", res.error);
+        console.error("[PlanPanel] plan.approve failed:", res.error);
+        return;
       }
+      onSendMessage("开始执行计划");
     } catch (e) {
       console.error("[PlanPanel] approve and execute:", e);
     } finally {
       setApproveStarting(false);
     }
-  }, [plan, onSendPlanActionAndWait]);
+  }, [plan, onSendPlanActionAndWait, onSendMessage]);
 
   return (
     <div className="w-[420px] flex-shrink-0 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-col h-full overflow-hidden">
@@ -317,7 +314,7 @@ export default function PlanPanel({
               onClick={() => void handleApproveAndExecute()}
             >
               <Play size={14} />
-              {approveStarting ? "处理中…" : "批准并执行"}
+              {approveStarting ? "处理中…" : "执行"}
             </button>
             <button
               className="flex items-center gap-1.5 text-sm px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
