@@ -85,6 +85,16 @@ public class HeartbeatEngine {
                 });
     }
 
+    public Mono<Void> forceHeartbeat(HeartbeatConfigEntity config) {
+        ZoneId zone = ZoneId.of(config.getTimezone());
+        LocalDateTime now = LocalDateTime.now(zone);
+        LocalTime nowTime = now.toLocalTime();
+        LocalTime wakeTime = LocalTime.parse(config.getWakeTime());
+        LocalTime sleepTime = LocalTime.parse(config.getSleepTime());
+        LifecycleState state = LifecycleState.compute(nowTime, wakeTime, sleepTime);
+        return executeBeat(config, state, now);
+    }
+
     private Mono<Boolean> shouldTrigger(HeartbeatConfigEntity config, LifecycleState state) {
         if (state == LifecycleState.WAKING || state == LifecycleState.WINDING_DOWN) {
             return logRepo.findTodayByAgentIdAndState(config.getAgentId(), state.name())
@@ -115,8 +125,7 @@ public class HeartbeatEngine {
                         .defaultIfEmpty("Agent#" + agentId)
                         .flatMap(agentName -> {
                             String prompt = contextBuilder.buildPrompt(
-                                    agentName, state,
-                                    config.getPersonalityPrompt(), tasks, now);
+                                    agentName, state, tasks, now);
 
                             return generateLlmResponse(config, agentName, prompt, tasks, state)
                                     .flatMap(response -> {

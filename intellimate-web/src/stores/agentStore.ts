@@ -10,7 +10,7 @@ import {
   type AgentConfig,
 } from "../lib/api";
 
-type ContextField = "soulMd" | "userMd" | "agentsMd";
+type ContextField = "soulMd" | "agentsMd";
 
 interface AgentState {
   agents: AgentSummary[];
@@ -48,7 +48,7 @@ interface AgentState {
   resetConfig: () => void;
 }
 
-const EMPTY_DRAFT: Record<ContextField, string> = { soulMd: "", userMd: "", agentsMd: "" };
+const EMPTY_DRAFT: Record<ContextField, string> = { soulMd: "", agentsMd: "" };
 const STORAGE_KEY = "intellimate-active-agent";
 
 export const useAgentStore = create<AgentState>((set, get) => ({
@@ -114,7 +114,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         config,
         draft: {
           soulMd: config.soulMd ?? "",
-          userMd: config.userMd ?? "",
           agentsMd: config.agentsMd ?? "",
         },
         toolsEnabledDraft: config.toolsEnabled,
@@ -159,7 +158,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       await updateAgentContext(config.name, {
         soulMd: draft.soulMd || null,
-        userMd: draft.userMd || null,
         agentsMd: draft.agentsMd || null,
       });
       set((s) => ({

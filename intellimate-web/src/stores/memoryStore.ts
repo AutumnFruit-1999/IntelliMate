@@ -29,12 +29,21 @@ export interface MemorySnapshotData {
   }>;
 }
 
+export interface ChunkPreview {
+  type: string;
+  tokens: number;
+  importance: number;
+  preview: string;
+}
+
 export interface ConsolidationLogEntry {
   timestamp: string;
   chunksSelected: number;
   tokensBefore: number;
   tokensAfter: number;
   extractedFacts: string[];
+  candidates?: ChunkPreview[];
+  factsStoredToLongTerm?: boolean;
 }
 
 interface MemoryState {

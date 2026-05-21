@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -40,7 +41,7 @@ public class AgentPromptJob implements ScheduledJob {
     private final ChatInjectionService chatInjectionService;
 
     public AgentPromptJob(AgentConfigService agentConfigService,
-                          AgentRuntime agentRuntime,
+                          @Lazy AgentRuntime agentRuntime,
                           SessionRegistry sessionRegistry,
                           PromptTemplateRenderer templateRenderer,
                           MemorySystem memorySystem,

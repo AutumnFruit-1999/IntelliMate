@@ -159,20 +159,6 @@ export default function HeartbeatConfigPanel({ agentId }: HeartbeatConfigPanelPr
         </div>
       </div>
 
-      {/* Personality Prompt */}
-      <div>
-        <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
-          性格设定
-        </label>
-        <textarea
-          value={config.personalityPrompt ?? ""}
-          onChange={(e) => setConfig({ ...config, personalityPrompt: e.target.value })}
-          rows={3}
-          placeholder="描述 Agent 的性格特征，影响心跳消息的风格..."
-          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 resize-none"
-        />
-      </div>
-
       <button
         onClick={handleSave}
         disabled={saving}

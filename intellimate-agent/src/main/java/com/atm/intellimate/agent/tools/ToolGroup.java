@@ -12,7 +12,9 @@ public enum ToolGroup {
     RUNTIME("运行时", Set.of("exec")),
     WEB("网络", Set.of("webSearch", "webFetch")),
     SKILLS("Skills", Set.of("getSkillContent", "listSkillsByGroup")),
-    DELEGATION("委派协作", Set.of("delegateAgent", "handoffToAgent", "delegateAgentsParallel"));
+    DELEGATION("委派协作", Set.of("delegateAgent", "handoffToAgent", "delegateAgentsParallel")),
+    TASK("任务管理", Set.of("createTodoTask", "listTodoTasks", "updateTodoTask", "deleteTodoTask",
+            "createScheduledJob", "listScheduledJobs", "updateScheduledJob", "deleteScheduledJob"));
 
     private final String displayName;
     private final Set<String> toolNames;

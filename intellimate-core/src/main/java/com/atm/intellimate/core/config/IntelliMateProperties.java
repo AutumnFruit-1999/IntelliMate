@@ -90,9 +90,7 @@ public class IntelliMateProperties {
         private String model = "qwen-max";
         private int maxTurns = 128;
         private int timeoutSeconds = 300;
-        private String systemPrompt;
         private String soulMd;
-        private String userMd;
         private String agentsMd;
 
         private int maxToolResultChars = 16_000;
@@ -116,6 +114,10 @@ public class IntelliMateProperties {
         private boolean canDelegate = false;
         private String delegateAgents;
         private String goal;
+        private Long agentDbId;
+
+        public Long getAgentDbId() { return agentDbId; }
+        public void setAgentDbId(Long agentDbId) { this.agentDbId = agentDbId; }
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
@@ -125,12 +127,8 @@ public class IntelliMateProperties {
         public void setMaxTurns(int maxTurns) { this.maxTurns = maxTurns; }
         public int getTimeoutSeconds() { return timeoutSeconds; }
         public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
-        public String getSystemPrompt() { return systemPrompt; }
-        public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; }
         public String getSoulMd() { return soulMd; }
         public void setSoulMd(String soulMd) { this.soulMd = soulMd; }
-        public String getUserMd() { return userMd; }
-        public void setUserMd(String userMd) { this.userMd = userMd; }
         public String getAgentsMd() { return agentsMd; }
         public void setAgentsMd(String agentsMd) { this.agentsMd = agentsMd; }
         public int getMaxToolResultChars() { return maxToolResultChars; }

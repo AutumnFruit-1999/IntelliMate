@@ -288,6 +288,8 @@ public class ScheduledJobController {
         map.put("timeoutMs", config.getTimeoutMs());
         map.put("maxRetryCount", config.getMaxRetryCount());
         map.put("retryBackoffMs", config.getRetryBackoffMs());
+        map.put("jobClass", config.getJobClass());
+        map.put("paramsJson", config.getParamsJson());
         return map;
     }
 

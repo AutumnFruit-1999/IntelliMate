@@ -14,15 +14,10 @@ public class HeartbeatContextBuilder {
     private static final DateTimeFormatter DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     public String buildPrompt(String agentName, LifecycleState state,
-                              String personalityPrompt, List<AgentTaskEntity> tasks,
-                              LocalDateTime now) {
+                              List<AgentTaskEntity> tasks, LocalDateTime now) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是 ").append(agentName).append("，现在是 ")
           .append(now.format(DATETIME_FMT)).append("（").append(state.description()).append("）。\n\n");
-
-        if (personalityPrompt != null && !personalityPrompt.isBlank()) {
-            sb.append("你的性格设定：\n").append(personalityPrompt).append("\n\n");
-        }
 
         sb.append("待办事项：\n");
         if (tasks.isEmpty()) {

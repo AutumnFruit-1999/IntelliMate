@@ -70,7 +70,6 @@ class HeartbeatEngineTest {
         config.setEnabled(1);
         config.setTimezone("Asia/Shanghai");
         config.setHeartbeatIntervalMinutes(60);
-        config.setPersonalityPrompt("你是一个温暖的伙伴");
 
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("HH:mm");
         switch (desired) {
@@ -126,7 +125,7 @@ class HeartbeatEngineTest {
 
         when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
-        when(contextBuilder.buildPrompt(eq("小助手"), eq(LifecycleState.WAKING), any(), any(), any()))
+        when(contextBuilder.buildPrompt(eq("小助手"), eq(LifecycleState.WAKING), any(), any()))
                 .thenReturn("你是小助手...");
 
         String llmText = "早安！今天天气不错，祝你有愉快的一天！";
@@ -163,7 +162,7 @@ class HeartbeatEngineTest {
 
         when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
-        when(contextBuilder.buildPrompt(any(), any(), any(), any(), any())).thenReturn("prompt");
+        when(contextBuilder.buildPrompt(any(), any(), any(), any())).thenReturn("prompt");
 
         when(agentRuntime.dispatch(any(AgentRunRequest.class)))
                 .thenReturn(Flux.just(new AgentEvent.Done("[SILENT]", 1)));
@@ -187,7 +186,7 @@ class HeartbeatEngineTest {
 
         when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
-        when(contextBuilder.buildPrompt(any(), any(), any(), any(), any())).thenReturn("prompt");
+        when(contextBuilder.buildPrompt(any(), any(), any(), any())).thenReturn("prompt");
 
         when(agentRuntime.dispatch(any(AgentRunRequest.class)))
                 .thenReturn(Flux.never());
@@ -214,7 +213,7 @@ class HeartbeatEngineTest {
         when(agentRepository.findById(1L)).thenReturn(Mono.empty());
         when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
-        when(contextBuilder.buildPrompt(eq("Agent#1"), eq(LifecycleState.WAKING), any(), any(), any()))
+        when(contextBuilder.buildPrompt(eq("Agent#1"), eq(LifecycleState.WAKING), any(), any()))
                 .thenReturn("prompt");
 
         // agentName falls back to "Agent#1" → agentConfigService.resolve("Agent#1")
@@ -261,7 +260,7 @@ class HeartbeatEngineTest {
 
         when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
-        when(contextBuilder.buildPrompt(any(), any(), any(), any(), any())).thenReturn("prompt");
+        when(contextBuilder.buildPrompt(any(), any(), any(), any())).thenReturn("prompt");
 
         when(agentRuntime.dispatch(any(AgentRunRequest.class)))
                 .thenReturn(Flux.just(
@@ -292,7 +291,7 @@ class HeartbeatEngineTest {
 
         when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
-        when(contextBuilder.buildPrompt(any(), any(), any(), any(), any())).thenReturn("prompt");
+        when(contextBuilder.buildPrompt(any(), any(), any(), any())).thenReturn("prompt");
 
         when(agentRuntime.dispatch(any(AgentRunRequest.class)))
                 .thenReturn(Flux.just(new AgentEvent.Done("晚安", 1)));

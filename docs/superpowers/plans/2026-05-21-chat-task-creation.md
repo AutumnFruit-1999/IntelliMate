@@ -310,6 +310,30 @@ class TaskManagementToolTest {
     }
 
     @Test
+    void updateTodoTask_wrongAgent_rejected() throws Exception {
+        AgentTaskEntity foreign = new AgentTaskEntity();
+        foreign.setId(20L);
+        foreign.setAgentId(999L);
+        when(taskRepo.findById(20L)).thenReturn(Mono.just(foreign));
+
+        String result = tool.updateTodoTask(20L, null, null, null, null, null, "done");
+        JsonNode json = om.readTree(result);
+        assertThat(json.get("success").asBoolean()).isFalse();
+        assertThat(json.get("error").asText()).contains("无权");
+    }
+
+    @Test
+    void listTodoTasks_allStatus() throws Exception {
+        AgentTaskEntity t1 = new AgentTaskEntity(); t1.setId(1L); t1.setTitle("A"); t1.setStatus("pending");
+        AgentTaskEntity t2 = new AgentTaskEntity(); t2.setId(2L); t2.setTitle("B"); t2.setStatus("done");
+        when(taskRepo.findByAgentId(1L)).thenReturn(Flux.just(t1, t2));
+
+        String result = tool.listTodoTasks("all", null);
+        JsonNode json = om.readTree(result);
+        assertThat(json.get("tasks")).hasSize(2);
+    }
+
+    @Test
     void deleteTodoTask_success() throws Exception {
         when(taskRepo.findById(10L)).thenReturn(Mono.just(new AgentTaskEntity()));
         when(taskRepo.deleteById(10L)).thenReturn(Mono.empty());
@@ -523,8 +547,19 @@ git commit -m "feat(tools): add TaskManagementTool for chat-based todo CRUD"
 ### 任务 4：ScheduledJobManagementTool（定时任务 CRUD）
 
 **文件：**
+- 修改：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/repository/ScheduledJobConfigRepository.java`（新增查询方法）
 - 创建：`intellimate-gateway/src/main/java/com/atm/intellimate/gateway/tools/ScheduledJobManagementTool.java`
 - 测试：`intellimate-gateway/src/test/java/com/atm/intellimate/gateway/tools/ScheduledJobManagementToolTest.java`
+
+- [ ] **步骤 0：扩展 ScheduledJobConfigRepository**
+
+在 `ScheduledJobConfigRepository.java` 中新增两个查询方法供 `listScheduledJobs` 做数据库端过滤：
+
+```java
+Flux<ScheduledJobConfigEntity> findByJobGroup(String jobGroup);
+
+Flux<ScheduledJobConfigEntity> findByEnabledAndJobGroup(Integer enabled, String jobGroup);
+```
 
 - [ ] **步骤 1：编写测试**
 
@@ -608,6 +643,24 @@ class ScheduledJobManagementToolTest {
     @Test
     void deleteScheduledJob_systemJob_rejected() throws Exception {
         String result = tool.deleteScheduledJob("heartbeat-tick");
+        JsonNode json = om.readTree(result);
+        assertThat(json.get("success").asBoolean()).isFalse();
+        assertThat(json.get("error").asText()).contains("系统任务");
+    }
+
+    @Test
+    void createScheduledJob_httpCallback_ssrfBlocked() throws Exception {
+        when(registry.getJobBean("http-callback")).thenReturn(mock(com.atm.intellimate.gateway.scheduler.ScheduledJob.class));
+        String result = tool.createScheduledJob("test", "FIXED_RATE", "3600", "http-callback",
+                "{\"url\":\"http://192.168.1.1/admin\",\"method\":\"GET\"}");
+        JsonNode json = om.readTree(result);
+        assertThat(json.get("success").asBoolean()).isFalse();
+        assertThat(json.get("error").asText()).contains("内网地址");
+    }
+
+    @Test
+    void updateScheduledJob_systemJob_rejected() throws Exception {
+        String result = tool.updateScheduledJob("heartbeat-tick", "new name", null, null, null, null);
         JsonNode json = om.readTree(result);
         assertThat(json.get("success").asBoolean()).isFalse();
         assertThat(json.get("error").asText()).contains("系统任务");
@@ -703,6 +756,11 @@ public class ScheduledJobManagementTool {
             return errorJson("任务类型的执行器未注册：" + jobType);
         }
 
+        if ("http-callback".equals(jobType) && paramsJson != null) {
+            String ssrfError = validateHttpCallbackUrl(paramsJson);
+            if (ssrfError != null) return errorJson(ssrfError);
+        }
+
         String agentName = AgentContext.getAgentName();
         String jobName = "chat-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 6);
 
@@ -757,16 +815,18 @@ public class ScheduledJobManagementTool {
             @ToolParam(description = "按任务组：user-chat/custom/system/all，默认 all", required = false) String jobGroup
     ) {
         List<ScheduledJobConfigEntity> jobs;
-        if ("true".equalsIgnoreCase(enabled)) {
-            jobs = jobRepo.findByEnabled(1).collectList().block();
-        } else if ("false".equalsIgnoreCase(enabled)) {
-            jobs = jobRepo.findByEnabled(0).collectList().block();
+        boolean hasEnabledFilter = enabled != null && !"all".equalsIgnoreCase(enabled);
+        boolean hasGroupFilter = jobGroup != null && !"all".equalsIgnoreCase(jobGroup);
+        Integer enabledVal = hasEnabledFilter ? ("true".equalsIgnoreCase(enabled) ? 1 : 0) : null;
+
+        if (hasEnabledFilter && hasGroupFilter) {
+            jobs = jobRepo.findByEnabledAndJobGroup(enabledVal, jobGroup).collectList().block();
+        } else if (hasEnabledFilter) {
+            jobs = jobRepo.findByEnabled(enabledVal).collectList().block();
+        } else if (hasGroupFilter) {
+            jobs = jobRepo.findByJobGroup(jobGroup).collectList().block();
         } else {
             jobs = jobRepo.findAll().collectList().block();
-        }
-
-        if (jobGroup != null && !"all".equalsIgnoreCase(jobGroup)) {
-            jobs = jobs.stream().filter(j -> jobGroup.equals(j.getJobGroup())).toList();
         }
 
         ObjectNode root = om.createObjectNode();
@@ -852,6 +912,25 @@ public class ScheduledJobManagementTool {
         node.put("enabled", j.getEnabled() != null && j.getEnabled() == 1);
         node.put("nextFireTime", j.getNextFireTime() != null ? j.getNextFireTime().toString() : null);
         return node;
+    }
+
+    private String validateHttpCallbackUrl(String paramsJson) {
+        try {
+            JsonNode params = om.readTree(paramsJson);
+            String url = params.has("url") ? params.get("url").asText() : null;
+            if (url == null || url.isBlank()) return "http-callback 类型必须提供 url 参数";
+            java.net.URI uri = java.net.URI.create(url);
+            String host = uri.getHost();
+            if (host == null) return "无效的 URL：" + url;
+            if ("localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "::1".equals(host)
+                    || host.startsWith("10.") || host.startsWith("192.168.")
+                    || host.matches("^172\\.(1[6-9]|2[0-9]|3[01])\\..*")) {
+                return "安全限制：不允许调用内网地址（" + host + "）";
+            }
+        } catch (Exception e) {
+            return "参数 JSON 解析失败：" + e.getMessage();
+        }
+        return null;
     }
 
     private String errorJson(String message) {
@@ -1063,14 +1142,20 @@ function formatTime(iso: string | null | undefined): string {
 
 export const TaskCard: React.FC<TaskCardProps> = ({ action, task, tasks, total, agentId }) => {
   const [localStatus, setLocalStatus] = useState(task?.status);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleStatusChange = async (newStatus: string) => {
-    if (!task?.id || !agentId) return;
+    if (!task?.id || !agentId || loading) return;
+    setLoading(true);
+    setError(null);
     try {
       await heartbeatApi.updateTask(agentId, task.id, { status: newStatus });
       setLocalStatus(newStatus);
     } catch (e) {
-      console.error("Failed to update task status:", e);
+      setError("操作失败，请重试");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1114,14 +1199,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({ action, task, tasks, total, 
         {task.remindAt && <div className="text-xs text-gray-400">🔔 提醒：{formatTime(task.remindAt)}</div>}
         <div className="text-xs"><span className={p.color}>● {p.label}</span></div>
       </div>
+      {error && <div className="text-xs text-red-500 mt-1">{error}</div>}
       {!isDone && action !== "deleted" && (
         <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-          <button onClick={() => handleStatusChange("done")}
-                  className="text-xs px-2 py-1 rounded bg-green-50 text-green-600 hover:bg-green-100">
-            标记完成
+          <button onClick={() => handleStatusChange("done")} disabled={loading}
+                  className="text-xs px-2 py-1 rounded bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-50">
+            {loading ? "处理中..." : "标记完成"}
           </button>
-          <button onClick={() => handleStatusChange("cancelled")}
-                  className="text-xs px-2 py-1 rounded bg-gray-50 text-gray-500 hover:bg-gray-100">
+          <button onClick={() => handleStatusChange("cancelled")} disabled={loading}
+                  className="text-xs px-2 py-1 rounded bg-gray-50 text-gray-500 hover:bg-gray-100 disabled:opacity-50">
             取消
           </button>
         </div>
@@ -1187,9 +1273,13 @@ function describeTrigger(type: string, value: string): string {
 
 export const ScheduledJobCard: React.FC<ScheduledJobCardProps> = ({ action, job, jobs, total }) => {
   const [localEnabled, setLocalEnabled] = useState(job?.enabled);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleToggle = async () => {
-    if (!job) return;
+    if (!job || loading) return;
+    setLoading(true);
+    setError(null);
     try {
       if (localEnabled) {
         await schedulerApi.pauseJob(job.jobName);
@@ -1199,7 +1289,9 @@ export const ScheduledJobCard: React.FC<ScheduledJobCardProps> = ({ action, job,
         setLocalEnabled(true);
       }
     } catch (e) {
-      console.error("Failed to toggle job:", e);
+      setError("操作失败，请重试");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1242,13 +1334,14 @@ export const ScheduledJobCard: React.FC<ScheduledJobCardProps> = ({ action, job,
             : <span className="text-gray-400">⏸ 已暂停</span>}
         </div>
       </div>
+      {error && <div className="text-xs text-red-500 mt-1">{error}</div>}
       {action !== "deleted" && (
         <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-          <button onClick={handleToggle}
-                  className={`text-xs px-2 py-1 rounded ${effectiveEnabled
+          <button onClick={handleToggle} disabled={loading}
+                  className={`text-xs px-2 py-1 rounded disabled:opacity-50 ${effectiveEnabled
                     ? "bg-yellow-50 text-yellow-600 hover:bg-yellow-100"
                     : "bg-green-50 text-green-600 hover:bg-green-100"}`}>
-            {effectiveEnabled ? "暂停" : "恢复"}
+            {loading ? "处理中..." : effectiveEnabled ? "暂停" : "恢复"}
           </button>
         </div>
       )}

@@ -17,7 +17,6 @@ public class HeartbeatConfigEntity {
     private String wakeTime;
     private String sleepTime;
     private Integer heartbeatIntervalMinutes;
-    private String personalityPrompt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -35,8 +34,6 @@ public class HeartbeatConfigEntity {
     public void setSleepTime(String sleepTime) { this.sleepTime = sleepTime; }
     public Integer getHeartbeatIntervalMinutes() { return heartbeatIntervalMinutes; }
     public void setHeartbeatIntervalMinutes(Integer heartbeatIntervalMinutes) { this.heartbeatIntervalMinutes = heartbeatIntervalMinutes; }
-    public String getPersonalityPrompt() { return personalityPrompt; }
-    public void setPersonalityPrompt(String personalityPrompt) { this.personalityPrompt = personalityPrompt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

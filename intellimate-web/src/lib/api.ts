@@ -17,7 +17,6 @@ export interface AgentConfig {
   name: string;
   model: string;
   soulMd: string | null;
-  userMd: string | null;
   agentsMd: string | null;
   toolsEnabled: string | null;
   mcpToolsEnabled: string | null;
@@ -55,7 +54,6 @@ export interface ToolsMetadata {
 
 export interface AgentContextUpdate {
   soulMd: string | null;
-  userMd: string | null;
   agentsMd: string | null;
 }
 

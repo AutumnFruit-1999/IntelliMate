@@ -121,11 +121,10 @@ public class AgentConfigService {
         config.setModel(entity.getModel() != null ? entity.getModel() : defaults.getModel());
         config.setMaxTurns(entity.getMaxTurns() != null ? entity.getMaxTurns() : defaults.getMaxTurns());
         config.setTimeoutSeconds(entity.getTimeoutSeconds() != null ? entity.getTimeoutSeconds() : defaults.getTimeoutSeconds());
-        config.setSystemPrompt(entity.getSystemPrompt() != null ? entity.getSystemPrompt() : defaults.getSystemPrompt());
         config.setSoulMd(entity.getSoulMd() != null ? entity.getSoulMd() : defaults.getSoulMd());
-        config.setUserMd(entity.getUserMd() != null ? entity.getUserMd() : defaults.getUserMd());
         config.setAgentsMd(entity.getAgentsMd() != null ? entity.getAgentsMd() : defaults.getAgentsMd());
         config.setGoal(entity.getGoal());
+        config.setAgentDbId(entity.getId());
         return config;
     }
 }

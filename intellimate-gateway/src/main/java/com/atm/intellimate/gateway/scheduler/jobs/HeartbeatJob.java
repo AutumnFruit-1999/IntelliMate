@@ -7,6 +7,7 @@ import com.atm.intellimate.gateway.scheduler.model.JobExecutionContext;
 import com.atm.intellimate.gateway.scheduler.model.JobResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -22,7 +23,7 @@ public class HeartbeatJob implements ScheduledJob {
     private final HeartbeatEngine engine;
     private final HeartbeatConfigRepository configRepo;
 
-    public HeartbeatJob(HeartbeatEngine engine, HeartbeatConfigRepository configRepo) {
+    public HeartbeatJob(@Lazy HeartbeatEngine engine, HeartbeatConfigRepository configRepo) {
         this.engine = engine;
         this.configRepo = configRepo;
     }

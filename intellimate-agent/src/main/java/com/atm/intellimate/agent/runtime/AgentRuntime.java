@@ -7,6 +7,7 @@ import com.atm.intellimate.agent.plan.PlanOperations;
 import com.atm.intellimate.agent.skills.SkillContentProvider;
 import com.atm.intellimate.agent.skills.SkillGroupContext;
 import com.atm.intellimate.agent.skills.SkillUsageRecorder;
+import com.atm.intellimate.agent.tools.AgentContext;
 import com.atm.intellimate.agent.tools.AgentSessionContext;
 import com.atm.intellimate.agent.tools.ToolsEngine;
 import com.atm.intellimate.agent.tools.WritePlanTool;
@@ -406,10 +407,11 @@ public class AgentRuntime {
             } catch (Exception ignored) {
                 // optional fallback model
             }
+            LongTermMemory effectiveLtm = memConfig.longTermEnabled() ? longTermMemory : null;
             return new MemoryConsolidator(
                     consolidationModel.chatModel(),
                     fallbackChatModel,
-                    longTermMemory,
+                    effectiveLtm,
                     tokenEstimator,
                     memConfig.maxSummaryTokens(),
                     memConfig.maxRetries(),
@@ -430,8 +432,12 @@ public class AgentRuntime {
         List<String> factStrings = cr.facts().stream()
                 .map(f -> f.content())
                 .toList();
+        List<AgentEvent.ChunkPreview> candidates = cr.sourceChunkPreviews().stream()
+                .map(p -> new AgentEvent.ChunkPreview(p.type(), p.tokens(), p.importance(), p.preview()))
+                .toList();
         return new AgentEvent.ConsolidationTriggered(
-                cr.sourceChunkCount(), tokensBefore, tokensAfter, factStrings);
+                cr.sourceChunkCount(), tokensBefore, tokensAfter, factStrings,
+                candidates, cr.factsStoredToLongTerm());
     }
 
     private Flux<AgentEvent> executeLoopTurn(
@@ -679,9 +685,11 @@ public class AgentRuntime {
                     return (AgentEvent) new AgentEvent.ToolCall(tc.id(), tc.name(), desc, tc.arguments(), turn);
                 });
 
+        Long agentDbId = request.agent() != null ? request.agent().getAgentDbId() : null;
+
         // Phase 2a: Execute non-approval tools in parallel
         Mono<List<ToolExecutionResult>> directResultsMono = Flux.fromIterable(directCalls)
-                .flatMap(tc -> executeSingleTool(tc, agentName, sessionId, skillsBasePath,
+                .flatMap(tc -> executeSingleTool(tc, agentName, agentDbId, sessionId, skillsBasePath,
                         loopDetector, cache,
                         toolTimeout, nonRetryableTools, toolCallbackMap), maxParallel)
                 .collectList();
@@ -699,7 +707,7 @@ public class AgentRuntime {
                                 }
                                 String args = decision.modifiedArguments() != null
                                         ? decision.modifiedArguments() : tc.arguments();
-                                return doExecuteTool(tc.id(), tc.name(), args, agentName, sessionId, skillsBasePath,
+                                return doExecuteTool(tc.id(), tc.name(), args, agentName, agentDbId, sessionId, skillsBasePath,
                                         cache, toolTimeout, nonRetryableTools, false, toolCallbackMap);
                             });
 
@@ -1104,6 +1112,7 @@ public class AgentRuntime {
     private Mono<ToolExecutionResult> executeSingleTool(
             AssistantMessage.ToolCall tc,
             String agentName,
+            Long agentDbId,
             Long sessionId,
             String skillsBasePath,
             ToolCallLoopDetector loopDetector,
@@ -1125,7 +1134,7 @@ public class AgentRuntime {
         boolean appendWarning = (loopStatus == ToolCallLoopDetector.LoopStatus.WARN);
 
         // 2. Direct execution (approval is handled at the processToolCalls level)
-        return doExecuteTool(tc.id(), tc.name(), tc.arguments(), agentName, sessionId, skillsBasePath,
+        return doExecuteTool(tc.id(), tc.name(), tc.arguments(), agentName, agentDbId, sessionId, skillsBasePath,
                 cache, toolTimeout, nonRetryableTools, appendWarning, toolCallbackMap);
     }
 
@@ -1134,6 +1143,7 @@ public class AgentRuntime {
             String toolName,
             String arguments,
             String agentName,
+            Long agentDbId,
             Long sessionId,
             String skillsBasePath,
             ToolResultCache cache,
@@ -1154,6 +1164,7 @@ public class AgentRuntime {
 
         Mono<ToolExecutionResult> execution = Mono.fromCallable(() -> {
                     agentSessionContext.set(sessionId);
+                    AgentContext.set(agentDbId, agentName);
                     Set<String> skillGroups = sessionSkillGroups.get(sessionId);
                     if (skillGroups == null) {
                         SkillGroupContext.set(Set.of());
@@ -1181,6 +1192,7 @@ public class AgentRuntime {
                     } finally {
                         SkillGroupContext.clear();
                         agentSessionContext.clear();
+                        AgentContext.clear();
                     }
                 }).subscribeOn(Schedulers.boundedElastic())
                 .timeout(toolTimeout);
@@ -1376,7 +1388,6 @@ public class AgentRuntime {
         StringBuilder sb = new StringBuilder();
 
         appendSection(sb, "soul", agentConfig.getSoulMd());
-        appendSection(sb, "user_context", agentConfig.getUserMd());
         appendSection(sb, "agents", agentConfig.getAgentsMd());
 
         String skillsSection = buildSkillsDiscovery(skillSummaries, skillGroupsEnabled);
@@ -1418,31 +1429,44 @@ public class AgentRuntime {
     private String buildSkillsDiscovery(List<SkillContentProvider.SkillSummary> skills, String skillGroupsEnabled) {
         if (skillContentProvider == null) return null;
 
+        if (skills != null && !skills.isEmpty()) {
+            String basePath = skillContentProvider.getSkillsBasePath();
+            StringBuilder sb = new StringBuilder();
+            sb.append(PromptLoader.load("prompts/skills-discovery.md"));
+            for (var skill : skills) {
+                sb.append("- **").append(skill.name()).append("**: ")
+                        .append(skill.description()).append('\n');
+                sb.append("  Read: ").append(basePath).append('/').append(skill.name())
+                        .append("/SKILL.md\n");
+            }
+            return sb.toString();
+        }
+
         if (skillGroupsEnabled != null && !skillGroupsEnabled.isBlank()) {
             List<SkillContentProvider.SkillGroupSummary> allGroups = skillContentProvider.listGroups();
 
             if (allGroups.isEmpty()) {
                 log.warn("skillGroupsEnabled='{}' is set but no enabled skill groups found in DB — " +
                         "check that skill_group table has data and enabled=1", skillGroupsEnabled);
+                return null;
             }
 
             List<SkillContentProvider.SkillGroupSummary> groups = allGroups;
-            if ("full".equalsIgnoreCase(skillGroupsEnabled.trim())) {
-                // show all groups
-            } else {
+            if (!"full".equalsIgnoreCase(skillGroupsEnabled.trim())) {
                 Set<String> allowedNames = parseJsonStringArray(skillGroupsEnabled);
                 if (!allowedNames.isEmpty()) {
                     groups = allGroups.stream()
                             .filter(g -> allowedNames.contains(g.name()))
                             .toList();
-                    if (groups.isEmpty() && !allGroups.isEmpty()) {
+                    if (groups.isEmpty()) {
                         log.warn("skillGroupsEnabled='{}' matched no groups. Available groups: {}",
                                 skillGroupsEnabled,
                                 allGroups.stream().map(SkillContentProvider.SkillGroupSummary::name).toList());
+                        return null;
                     }
                 } else {
                     log.warn("skillGroupsEnabled='{}' parsed to empty set, no groups will be shown in prompt", skillGroupsEnabled);
-                    groups = List.of();
+                    return null;
                 }
             }
 
@@ -1461,18 +1485,7 @@ public class AgentRuntime {
             }
         }
 
-        if (skills == null || skills.isEmpty()) return null;
-
-        String basePath = skillContentProvider.getSkillsBasePath();
-        StringBuilder sb = new StringBuilder();
-        sb.append(PromptLoader.load("prompts/skills-discovery.md"));
-        for (var skill : skills) {
-            sb.append("- **").append(skill.name()).append("**: ")
-                    .append(skill.description()).append('\n');
-            sb.append("  Read: ").append(basePath).append('/').append(skill.name())
-                    .append("/SKILL.md\n");
-        }
-        return sb.toString();
+        return null;
     }
 
     private void setupSkillGroupContext(Long sessionId, String skillGroupsEnabled) {

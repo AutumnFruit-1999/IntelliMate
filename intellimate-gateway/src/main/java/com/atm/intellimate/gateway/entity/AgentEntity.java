@@ -13,9 +13,7 @@ public class AgentEntity {
 
     private String name;
     private String model;
-    private String systemPrompt;
     private String soulMd;
-    private String userMd;
     private String agentsMd;
     private Integer maxTurns;
     private Integer timeoutSeconds;
@@ -38,12 +36,8 @@ public class AgentEntity {
     public void setName(String name) { this.name = name; }
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
-    public String getSystemPrompt() { return systemPrompt; }
-    public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; }
     public String getSoulMd() { return soulMd; }
     public void setSoulMd(String soulMd) { this.soulMd = soulMd; }
-    public String getUserMd() { return userMd; }
-    public void setUserMd(String userMd) { this.userMd = userMd; }
     public String getAgentsMd() { return agentsMd; }
     public void setAgentsMd(String agentsMd) { this.agentsMd = agentsMd; }
     public Integer getMaxTurns() { return maxTurns; }

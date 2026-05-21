@@ -213,15 +213,50 @@ function ImportanceBar({ importance }: { importance: number }) {
 
 function ConsolidationCard({ entry }: { entry: ConsolidationLogEntry }) {
   const saved = entry.tokensBefore - entry.tokensAfter;
+  const [expanded, setExpanded] = useState(false);
   return (
     <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800 p-3">
       <div className="flex items-center gap-3 text-xs text-indigo-700 dark:text-indigo-300">
         <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
         <span>{entry.chunksSelected} chunks</span>
         <span>{entry.tokensBefore} → {entry.tokensAfter} tokens (节省 {saved})</span>
+        {entry.factsStoredToLongTerm !== undefined && (
+          <span className={entry.factsStoredToLongTerm ? "text-green-600 dark:text-green-400" : "text-slate-400"}>
+            {entry.factsStoredToLongTerm ? "✓ 已存入长期记忆" : "○ 未存入长期记忆"}
+          </span>
+        )}
       </div>
+
+      {entry.candidates && entry.candidates.length > 0 && (
+        <div className="mt-2">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-indigo-500 hover:text-indigo-700 dark:text-indigo-400"
+          >
+            {expanded ? "▼ 收起压缩详情" : "▶ 展开压缩详情"}
+          </button>
+          {expanded && (
+            <div className="mt-1 space-y-1 pl-2 border-l-2 border-indigo-200 dark:border-indigo-700">
+              {entry.candidates.map((chunk, i) => (
+                <div key={i} className="text-xs text-slate-600 dark:text-slate-400">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono">
+                      {chunk.type}
+                    </span>
+                    <span className="text-slate-400">{chunk.tokens}t</span>
+                    <span className="text-slate-400">imp:{chunk.importance.toFixed(2)}</span>
+                  </span>
+                  <p className="mt-0.5 text-slate-500 dark:text-slate-400 truncate">{chunk.preview}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {entry.extractedFacts.length > 0 && (
         <div className="mt-2 space-y-1">
+          <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400">提取的事实：</p>
           {entry.extractedFacts.map((fact, i) => (
             <p key={i} className="text-xs text-slate-600 dark:text-slate-400">• {fact}</p>
           ))}

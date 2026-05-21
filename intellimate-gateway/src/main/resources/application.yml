@@ -2,6 +2,8 @@ server:
   port: ${INTELLIMATE_PORT:3007}
 
 spring:
+  main:
+    allow-circular-references: true
   application:
     name: intellimate-gateway
 

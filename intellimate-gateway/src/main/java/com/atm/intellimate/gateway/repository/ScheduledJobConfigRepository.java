@@ -15,6 +15,10 @@ public interface ScheduledJobConfigRepository extends ReactiveCrudRepository<Sch
 
     Flux<ScheduledJobConfigEntity> findByEnabled(Integer enabled);
 
+    Flux<ScheduledJobConfigEntity> findByJobGroup(String jobGroup);
+
+    Flux<ScheduledJobConfigEntity> findByEnabledAndJobGroup(Integer enabled, String jobGroup);
+
     @Query("SELECT * FROM scheduled_job_config WHERE enabled = 1 AND next_fire_time IS NOT NULL AND next_fire_time <= :now")
     Flux<ScheduledJobConfigEntity> findDueJobs(LocalDateTime now);
 

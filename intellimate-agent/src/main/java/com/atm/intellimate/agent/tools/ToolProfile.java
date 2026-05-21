@@ -9,7 +9,9 @@ import java.util.Set;
  */
 public enum ToolProfile {
 
-    FULL(Set.of("exec", "readFile", "writeFile", "editFile", "webSearch", "webFetch")),
+    FULL(Set.of("exec", "readFile", "writeFile", "editFile", "webSearch", "webFetch",
+            "createTodoTask", "listTodoTasks", "updateTodoTask", "deleteTodoTask",
+            "createScheduledJob", "listScheduledJobs", "updateScheduledJob", "deleteScheduledJob")),
     CODING(Set.of("exec", "readFile", "writeFile", "editFile")),
     MESSAGING(Set.of("webSearch", "webFetch")),
     MINIMAL(Set.of());

@@ -8,7 +8,6 @@ export interface HeartbeatConfig {
   wakeTime: string;
   sleepTime: string;
   heartbeatIntervalMinutes: number;
-  personalityPrompt: string;
 }
 
 export interface HeartbeatState {

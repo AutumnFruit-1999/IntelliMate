@@ -10,7 +10,7 @@ import AgentDelegationConfig from "./AgentDelegationConfig";
 import HeartbeatConfigPanel from "./HeartbeatConfigPanel";
 import TaskManager from "./TaskManager";
 
-export type ContextTab = "soul" | "user" | "agents" | "tools" | "mcp" | "skills" | "model" | "delegation" | "heartbeat" | "tasks";
+export type ContextTab = "soul" | "agents" | "tools" | "mcp" | "skills" | "model" | "delegation" | "heartbeat" | "tasks";
 
 interface AgentConfigModalProps {
   open: boolean;
@@ -22,7 +22,7 @@ interface AgentConfigModalProps {
 const CONTEXT_TABS: {
   key: Exclude<ContextTab, "tools" | "mcp" | "skills" | "model">;
   label: string;
-  field: "soulMd" | "userMd" | "agentsMd";
+  field: "soulMd" | "agentsMd";
   title: string;
   desc: string;
   placeholder: string;
@@ -37,15 +37,6 @@ const CONTEXT_TABS: {
       "例如：\n你是一个友好且专业的技术助手。\n你擅长 Java / Spring 技术栈。\n你回复时语气简洁、逻辑清晰，避免冗余。",
   },
   {
-    key: "user",
-    label: "USER",
-    field: "userMd",
-    title: "用户信息",
-    desc: "描述你是谁，帮助助手更好地理解你",
-    placeholder:
-      "例如：\n我是一名后端开发工程师，主要使用 Java 21 + Spring Boot 3。\n时区：UTC+8（北京时间）\n偏好：中文回复，代码注释使用英文。",
-  },
-  {
     key: "agents",
     label: "AGENTS",
     field: "agentsMd",
@@ -58,7 +49,6 @@ const CONTEXT_TABS: {
 
 const ALL_TABS: { key: ContextTab; label: string }[] = [
   { key: "soul", label: "SOUL" },
-  { key: "user", label: "USER" },
   { key: "agents", label: "AGENTS" },
   { key: "tools", label: "工具选择" },
   { key: "mcp", label: "MCP 工具" },

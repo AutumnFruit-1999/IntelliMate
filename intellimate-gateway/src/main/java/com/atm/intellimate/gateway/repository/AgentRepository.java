@@ -22,8 +22,8 @@ public interface AgentRepository extends ReactiveCrudRepository<AgentEntity, Lon
     }
 
     @Modifying
-    @Query("UPDATE agent SET soul_md = :soulMd, user_md = :userMd, agents_md = :agentsMd WHERE name = :name AND deleted = 0")
-    Mono<Integer> updateContextByName(String name, String soulMd, String userMd, String agentsMd);
+    @Query("UPDATE agent SET soul_md = :soulMd, agents_md = :agentsMd WHERE name = :name AND deleted = 0")
+    Mono<Integer> updateContextByName(String name, String soulMd, String agentsMd);
 
     @Modifying
     @Query("UPDATE agent SET deleted = 1 WHERE name = :name AND deleted = 0")

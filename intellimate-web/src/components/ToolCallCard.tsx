@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { ToolCallInfo } from "../stores/chatStore";
 import {
   ChevronRight,
@@ -13,12 +13,27 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  ListTodo,
+  Clock,
 } from "lucide-react";
+import { TaskCard } from "./chat/TaskCard";
+import { ScheduledJobCard } from "./chat/ScheduledJobCard";
 
 const MAX_CONTENT = 2000;
 
+const TASK_TOOL_NAMES = new Set([
+  "createTodoTask", "listTodoTasks", "updateTodoTask", "deleteTodoTask",
+  "createScheduledJob", "listScheduledJobs", "updateScheduledJob", "deleteScheduledJob",
+]);
+
+const TODO_TOOL_NAMES = new Set([
+  "createTodoTask", "listTodoTasks", "updateTodoTask", "deleteTodoTask",
+]);
+
 export function getToolIcon(name: string, size = 14) {
   const iconProps = { size, className: "flex-shrink-0" };
+  if (TODO_TOOL_NAMES.has(name)) return <ListTodo {...iconProps} />;
+  if (TASK_TOOL_NAMES.has(name)) return <Clock {...iconProps} />;
   switch (name) {
     case "exec":
       return <Terminal {...iconProps} />;
@@ -86,11 +101,29 @@ interface ToolCallCardProps {
   compact?: boolean;
 }
 
+function tryParseTaskResult(info: ToolCallInfo): React.ReactNode | null {
+  if (!TASK_TOOL_NAMES.has(info.name) || !info.result || !info.success) return null;
+  try {
+    let data = JSON.parse(info.result);
+    if (typeof data === "string") data = JSON.parse(data);
+    if (!data.success) return null;
+    if (TODO_TOOL_NAMES.has(info.name)) {
+      return <TaskCard action={data.action} task={data.task} tasks={data.tasks} total={data.total} agentId={data.agentId} />;
+    }
+    return <ScheduledJobCard action={data.action} job={data.job} jobs={data.jobs} total={data.total} />;
+  } catch {
+    return null;
+  }
+}
+
 export default function ToolCallCard({ info, compact = false }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
   const statusLabel =
     info.status === "calling" ? "调用中" : info.status === "done" ? "完成" : "失败";
   const hasDetail = !!(info.arguments || info.result !== undefined);
+
+  const taskCard = useMemo(() => tryParseTaskResult(info), [info.name, info.result, info.success]);
+  if (taskCard && info.status === "done") return <>{taskCard}</>;
 
   const header = (
     <button

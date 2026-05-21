@@ -1,9 +1,12 @@
 package com.atm.intellimate.gateway.http;
 
 import com.atm.intellimate.gateway.entity.HeartbeatConfigEntity;
+import com.atm.intellimate.gateway.heartbeat.HeartbeatEngine;
 import com.atm.intellimate.gateway.heartbeat.LifecycleState;
 import com.atm.intellimate.gateway.repository.HeartbeatConfigRepository;
 import com.atm.intellimate.gateway.repository.HeartbeatLogRepository;
+import com.atm.intellimate.gateway.websocket.SessionRegistry;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -19,11 +22,38 @@ public class HeartbeatController {
 
     private final HeartbeatConfigRepository configRepo;
     private final HeartbeatLogRepository logRepo;
+    private final SessionRegistry sessionRegistry;
+    private final HeartbeatEngine heartbeatEngine;
 
     public HeartbeatController(HeartbeatConfigRepository configRepo,
-                               HeartbeatLogRepository logRepo) {
+                               HeartbeatLogRepository logRepo,
+                               SessionRegistry sessionRegistry,
+                               @Lazy HeartbeatEngine heartbeatEngine) {
         this.configRepo = configRepo;
         this.logRepo = logRepo;
+        this.sessionRegistry = sessionRegistry;
+        this.heartbeatEngine = heartbeatEngine;
+    }
+
+    @GetMapping("/debug/online/{agentName}")
+    public Map<String, Object> checkAgentOnline(@PathVariable String agentName) {
+        boolean online = sessionRegistry.isAgentOnline(agentName);
+        int pushed = sessionRegistry.pushToAllAgentSessions(agentName, "agent.proactive", Map.of(
+                "agentName", agentName,
+                "requestId", "debug-" + System.currentTimeMillis(),
+                "text", "[DEBUG] 心跳测试推送",
+                "source", "debug",
+                "timestamp", System.currentTimeMillis()
+        ));
+        return Map.of("agentName", agentName, "online", online, "pushedToSessions", pushed);
+    }
+
+    @PostMapping("/{agentId}/trigger")
+    public Mono<Map<String, Object>> triggerHeartbeat(@PathVariable Long agentId) {
+        return configRepo.findByAgentId(agentId)
+                .flatMap(config -> heartbeatEngine.forceHeartbeat(config)
+                        .thenReturn(Map.<String, Object>of("status", "triggered", "agentId", agentId)))
+                .defaultIfEmpty(Map.of("status", "no_config", "agentId", agentId));
     }
 
     @GetMapping("/{agentId}")
@@ -49,8 +79,6 @@ public class HeartbeatController {
                         config.setSleepTime((String) body.get("sleepTime"));
                     if (body.containsKey("heartbeatIntervalMinutes"))
                         config.setHeartbeatIntervalMinutes(((Number) body.get("heartbeatIntervalMinutes")).intValue());
-                    if (body.containsKey("personalityPrompt"))
-                        config.setPersonalityPrompt((String) body.get("personalityPrompt"));
                     config.setUpdatedAt(LocalDateTime.now());
                     return configRepo.save(config);
                 })
@@ -91,7 +119,6 @@ public class HeartbeatController {
         dto.put("wakeTime", e.getWakeTime());
         dto.put("sleepTime", e.getSleepTime());
         dto.put("heartbeatIntervalMinutes", e.getHeartbeatIntervalMinutes());
-        dto.put("personalityPrompt", e.getPersonalityPrompt());
         return dto;
     }
 
@@ -103,7 +130,6 @@ public class HeartbeatController {
         dto.put("wakeTime", "06:00");
         dto.put("sleepTime", "23:00");
         dto.put("heartbeatIntervalMinutes", 60);
-        dto.put("personalityPrompt", "");
         return dto;
     }
 

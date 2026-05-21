@@ -118,16 +118,33 @@ public class MemoryConsolidator {
             return null;
         }
 
+        int totalTokens = workingMemory.getTokenUsage();
+        int candidateTokens = candidates.stream().mapToInt(MemoryChunk::estimatedTokens).sum();
+        log.info("[Consolidation] agent={} | trigger: {}/{} tokens ({}%) | candidates: {} chunks, {} tokens",
+                agentId, totalTokens, workingMemory.getTokenBudget(),
+                (int) (workingMemory.usageRatio() * 100), candidates.size(), candidateTokens);
+        for (int i = 0; i < candidates.size(); i++) {
+            MemoryChunk c = candidates.get(i);
+            String preview = c.content().length() > 80
+                    ? c.content().substring(0, 80) + "..."
+                    : c.content();
+            log.info("[Consolidation]   chunk[{}] type={} tokens={} importance={} | {}",
+                    i, c.type(), c.estimatedTokens(), String.format("%.2f", c.importance()), preview);
+        }
+
         ConsolidationResult result = doLLMConsolidate(candidates);
         if (result == null) {
-            log.warn("All consolidation attempts failed; deferring consolidation");
+            log.warn("[Consolidation] All attempts failed for agent={}; deferring", agentId);
             return null;
         }
 
         int tokensBefore = workingMemory.getTokenUsage();
         workingMemory.replaceWithConsolidated(candidates, result.summaryChunk());
 
+        boolean factsStored = false;
         if (longTermMemory != null && !result.facts().isEmpty()) {
+            factsStored = true;
+            log.info("[Consolidation] Storing {} facts to long-term memory for agent={}", result.facts().size(), agentId);
             Flux.fromIterable(result.facts())
                     .concatMap(fact -> longTermMemory.store(fact, userId, agentId)
                             .onErrorResume(e -> {
@@ -135,15 +152,31 @@ public class MemoryConsolidator {
                                 return Mono.empty();
                             }))
                     .subscribe();
+        } else if (longTermMemory == null && !result.facts().isEmpty()) {
+            log.info("[Consolidation] {} facts extracted but long-term memory disabled, skipping storage", result.facts().size());
         }
 
+        List<ConsolidationResult.SourceChunkPreview> previews = candidates.stream()
+                .map(c -> {
+                    String preview = c.content().length() > 80
+                            ? c.content().substring(0, 80) + "..."
+                            : c.content();
+                    return new ConsolidationResult.SourceChunkPreview(
+                            c.type().name(), c.estimatedTokens(), c.importance(), preview);
+                })
+                .toList();
+
         int tokensAfter = workingMemory.getTokenUsage();
+        log.info("[Consolidation] Done: {} chunks → 1 summary | tokens: {} → {} (saved {})",
+                candidates.size(), tokensBefore, tokensAfter, tokensBefore - tokensAfter);
         return new ConsolidationResult(
                 result.summaryChunk(),
                 result.facts(),
                 candidates.size(),
                 tokensBefore,
-                tokensAfter
+                tokensAfter,
+                previews,
+                factsStored
         );
     }
 

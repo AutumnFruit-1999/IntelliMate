@@ -49,7 +49,6 @@ public class AgentController {
                 defaultAgent.put("model", defaults.getModel());
                 defaultAgent.put("modelDisplayName", resolveModelDisplayName(defaults.getModel()));
                 defaultAgent.put("hasSoul", defaults.getSoulMd() != null && !defaults.getSoulMd().isBlank());
-                defaultAgent.put("hasUser", defaults.getUserMd() != null && !defaults.getUserMd().isBlank());
                 defaultAgent.put("hasAgents", defaults.getAgentsMd() != null && !defaults.getAgentsMd().isBlank());
                 defaultAgent.put("isDefault", true);
                 list.addFirst(defaultAgent);
@@ -100,7 +99,6 @@ public class AgentController {
                 .switchIfEmpty(Mono.defer(() -> createDefaultEntity(name)))
                 .flatMap(entity -> {
                     if (body.containsKey("model")) entity.setModel((String) body.get("model"));
-                    if (body.containsKey("systemPrompt")) entity.setSystemPrompt((String) body.get("systemPrompt"));
                     if (body.containsKey("maxTurns")) entity.setMaxTurns((Integer) body.get("maxTurns"));
                     if (body.containsKey("timeoutSeconds")) entity.setTimeoutSeconds((Integer) body.get("timeoutSeconds"));
                     if (body.containsKey("toolsEnabled")) {
@@ -163,21 +161,19 @@ public class AgentController {
     public Mono<Map<String, Object>> updateContext(@PathVariable String name,
                                                     @RequestBody Map<String, String> body) {
         String soulMd = body.get("soulMd");
-        String userMd = body.get("userMd");
         String agentsMd = body.get("agentsMd");
 
-        log.info("Updating context for agent={}: soul={}chars, user={}chars, agents={}chars",
+        log.info("Updating context for agent={}: soul={}chars, agents={}chars",
                 name,
                 soulMd != null ? soulMd.length() : 0,
-                userMd != null ? userMd.length() : 0,
                 agentsMd != null ? agentsMd.length() : 0);
 
-        return agentRepository.updateContextByName(name, soulMd, userMd, agentsMd)
+        return agentRepository.updateContextByName(name, soulMd, agentsMd)
                 .flatMap(rows -> {
                     if (rows > 0) {
                         return Mono.just(Map.<String, Object>of("success", true));
                     }
-                    return createAndUpdateContext(name, soulMd, userMd, agentsMd);
+                    return createAndUpdateContext(name, soulMd, agentsMd);
                 });
     }
 
@@ -197,7 +193,7 @@ public class AgentController {
                 });
     }
 
-    private Mono<Map<String, Object>> createAndUpdateContext(String name, String soulMd, String userMd, String agentsMd) {
+    private Mono<Map<String, Object>> createAndUpdateContext(String name, String soulMd, String agentsMd) {
         IntelliMateProperties.Agent defaults = properties.getAgent();
         AgentEntity entity = new AgentEntity();
         entity.setName(name);
@@ -205,7 +201,6 @@ public class AgentController {
         entity.setMaxTurns(defaults.getMaxTurns());
         entity.setTimeoutSeconds(defaults.getTimeoutSeconds());
         entity.setSoulMd(soulMd);
-        entity.setUserMd(userMd);
         entity.setAgentsMd(agentsMd);
         entity.setDeleted(0);
         entity.setCreatedAt(LocalDateTime.now());
@@ -234,7 +229,6 @@ public class AgentController {
         dto.put("model", entity.getModel());
         dto.put("modelDisplayName", resolveModelDisplayName(entity.getModel()));
         dto.put("hasSoul", entity.getSoulMd() != null && !entity.getSoulMd().isBlank());
-        dto.put("hasUser", entity.getUserMd() != null && !entity.getUserMd().isBlank());
         dto.put("hasAgents", entity.getAgentsMd() != null && !entity.getAgentsMd().isBlank());
         dto.put("toolsEnabled", entity.getToolsEnabled());
         dto.put("canDelegate", entity.getCanDelegate() != null && entity.getCanDelegate() == 1);
@@ -248,7 +242,6 @@ public class AgentController {
         dto.put("name", entity.getName());
         dto.put("model", entity.getModel());
         dto.put("soulMd", entity.getSoulMd());
-        dto.put("userMd", entity.getUserMd());
         dto.put("agentsMd", entity.getAgentsMd());
         dto.put("toolsEnabled", entity.getToolsEnabled());
         dto.put("mcpToolsEnabled", entity.getMcpToolsEnabled());
@@ -267,7 +260,6 @@ public class AgentController {
         dto.put("name", name);
         dto.put("model", defaults.getModel());
         dto.put("soulMd", defaults.getSoulMd());
-        dto.put("userMd", defaults.getUserMd());
         dto.put("agentsMd", defaults.getAgentsMd());
         dto.put("toolsEnabled", (String) null);
         dto.put("mcpToolsEnabled", (String) null);

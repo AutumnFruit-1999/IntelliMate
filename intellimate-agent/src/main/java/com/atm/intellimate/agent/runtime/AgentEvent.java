@@ -133,8 +133,12 @@ public sealed interface AgentEvent {
             String createdAt
     ) {}
 
+    record ChunkPreview(String type, int tokens, float importance, String preview) {}
+
     record ConsolidationTriggered(
             int chunksSelected, int tokensBefore, int tokensAfter,
-            List<String> extractedFacts
+            List<String> extractedFacts,
+            List<ChunkPreview> candidates,
+            boolean factsStoredToLongTerm
     ) implements AgentEvent {}
 }
