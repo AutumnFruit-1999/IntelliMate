@@ -40,6 +40,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -249,7 +250,11 @@ public class MessagePipeline {
     private Flux<TranscriptMessageEntity> loadHistory(Long sessionId, Long planId) {
         int limit = properties.getAgent().getHistoryLimit();
         if (planId != null) {
-            return sessionManager.getPlanHistory(sessionId, planId, limit);
+            int contextLimit = Math.max(4, limit / 4);
+            return Flux.merge(
+                    sessionManager.getChatHistory(sessionId, contextLimit),
+                    sessionManager.getPlanHistory(sessionId, planId, limit)
+            ).sort(Comparator.comparing(TranscriptMessageEntity::getCreatedAt)).take(limit);
         }
         return sessionManager.getChatHistory(sessionId, limit);
     }
