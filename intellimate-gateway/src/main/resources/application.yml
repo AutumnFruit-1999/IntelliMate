@@ -67,7 +67,7 @@ intellimate:
     plan-step-timeout-seconds: 120
     plan-approval-timeout-seconds: 600
   skills:
-    dir: ${INTELLIMATE_SKILLS_DIR:./skills/}
+    dir: ${INTELLIMATE_SKILLS_DIR:../skills/}
   scheduler:
     enabled: true
     tick-period-seconds: 10

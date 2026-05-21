@@ -34,7 +34,7 @@ public class GetSkillContentTool {
 
         String content = skillContentProvider.readSkillContent(trimmed);
         if (content != null) {
-            return content;
+            return resolveBaseDir(content, trimmed);
         }
 
         List<String> allNames = skillContentProvider.listAllSkillNames();
@@ -48,7 +48,7 @@ public class GetSkillContentTool {
                 String matched = skillContentProvider.readSkillContent(name);
                 if (matched != null) {
                     log.info("Fuzzy matched '{}' -> '{}'", trimmed, name);
-                    return matched;
+                    return resolveBaseDir(matched, name);
                 }
             }
         }
@@ -58,7 +58,7 @@ public class GetSkillContentTool {
                 String matched = skillContentProvider.readSkillContent(name);
                 if (matched != null) {
                     log.info("Partial matched '{}' -> '{}'", trimmed, name);
-                    return matched;
+                    return resolveBaseDir(matched, name);
                 }
             }
         }
@@ -67,5 +67,14 @@ public class GetSkillContentTool {
         sb.append("Skill not found: ").append(trimmed).append("\n可用的技能有: ");
         sb.append(String.join(", ", allNames));
         return sb.toString();
+    }
+
+    private String resolveBaseDir(String content, String skillName) {
+        if (!content.contains("{baseDir}")) {
+            return content;
+        }
+        String basePath = skillContentProvider.getSkillsBasePath();
+        String skillDir = basePath + "/" + skillName;
+        return content.replace("{baseDir}", skillDir);
     }
 }

@@ -29,7 +29,7 @@ public class SkillContentProviderImpl implements SkillContentProvider {
     private final SkillGroupRepository groupRepository;
     private final SkillGroupMemberRepository memberRepository;
 
-    @Value("${intellimate.skills.dir:./skills}")
+    @Value("${intellimate.skills.dir:../skills}")
     private String skillsDir;
 
     public SkillContentProviderImpl(SkillDefinitionRepository repository,

@@ -56,7 +56,7 @@ class MessagePipelineApproveExecuteTest {
         pipeline = new MessagePipeline(
                 sessionManager, agentRuntime, properties,
                 agentConfigService, commandHandler, auditService,
-                planService, sessionRegistry, sessionRepository, null);
+                planService, sessionRegistry, sessionRepository, null, null);
     }
 
     private PlanEntity makePlan(Long id, Long sessionId, String status) {

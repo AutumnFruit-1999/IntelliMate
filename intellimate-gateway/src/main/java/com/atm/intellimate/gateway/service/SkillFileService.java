@@ -21,7 +21,7 @@ public class SkillFileService {
 
     private static final Logger log = LoggerFactory.getLogger(SkillFileService.class);
 
-    @Value("${intellimate.skills.dir:./skills}")
+    @Value("${intellimate.skills.dir:../skills}")
     private String skillsDir;
 
     public Path getSkillPath(String skillName) {
