@@ -4,6 +4,7 @@ import com.atm.intellimate.agent.runtime.AgentEvent;
 import com.atm.intellimate.agent.runtime.AgentRunRequest;
 import com.atm.intellimate.agent.runtime.AgentRuntime;
 import com.atm.intellimate.gateway.config.AgentConfigService;
+import com.atm.intellimate.gateway.service.ChatInjectionService;
 import com.atm.intellimate.gateway.scheduler.PromptTemplateRenderer;
 import com.atm.intellimate.gateway.scheduler.ScheduledJob;
 import com.atm.intellimate.gateway.scheduler.model.JobExecutionContext;
@@ -36,17 +37,20 @@ public class AgentPromptJob implements ScheduledJob {
     private final SessionRegistry sessionRegistry;
     private final PromptTemplateRenderer templateRenderer;
     private final MemorySystem memorySystem;
+    private final ChatInjectionService chatInjectionService;
 
     public AgentPromptJob(AgentConfigService agentConfigService,
                           AgentRuntime agentRuntime,
                           SessionRegistry sessionRegistry,
                           PromptTemplateRenderer templateRenderer,
-                          MemorySystem memorySystem) {
+                          MemorySystem memorySystem,
+                          ChatInjectionService chatInjectionService) {
         this.agentConfigService = agentConfigService;
         this.agentRuntime = agentRuntime;
         this.sessionRegistry = sessionRegistry;
         this.templateRenderer = templateRenderer;
         this.memorySystem = memorySystem;
+        this.chatInjectionService = chatInjectionService;
     }
 
     @Override
@@ -128,8 +132,17 @@ public class AgentPromptJob implements ScheduledJob {
                                         responseText.set(done.fullText());
                                     }
                                 })
-                                .then(Mono.fromSupplier(() -> {
-                                    String response = responseText.get();
+                                .then(Mono.fromSupplier(responseText::get))
+                                .flatMap(response -> chatInjectionService
+                                        .injectAgentMessage(agentName, response,
+                                                ChatInjectionService.ProactiveSource.SCHEDULED_JOB)
+                                        .onErrorResume(e -> {
+                                            log.warn("AgentPromptJob [{}]: failed to inject chat message for agent '{}': {}",
+                                                    context.jobName(), agentName, e.getMessage());
+                                            return Mono.just(0);
+                                        })
+                                        .thenReturn(response))
+                                .map(response -> {
                                     String summary = response.length() > 200
                                             ? response.substring(0, 200) + "..."
                                             : response;
@@ -148,7 +161,7 @@ public class AgentPromptJob implements ScheduledJob {
                                             "templateMode", isTemplate,
                                             "memoriesInjected", history.size()
                                     ));
-                                }));
+                                });
                     })
             );
         }).onErrorResume(e -> {
