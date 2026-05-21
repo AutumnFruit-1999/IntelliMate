@@ -14,6 +14,7 @@ import com.atm.intellimate.gateway.repository.AgentRepository;
 import com.atm.intellimate.gateway.repository.AgentTaskRepository;
 import com.atm.intellimate.gateway.repository.HeartbeatLogRepository;
 import com.atm.intellimate.gateway.repository.OfflineMessageRepository;
+import com.atm.intellimate.gateway.service.ChatInjectionService;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +46,7 @@ class HeartbeatEngineTest {
     @Mock private AgentRuntime agentRuntime;
     @Mock private AgentConfigService agentConfigService;
     @Mock private AgentRepository agentRepository;
+    @Mock private ChatInjectionService chatInjectionService;
 
     private HeartbeatEngine engine;
 
@@ -52,7 +54,8 @@ class HeartbeatEngineTest {
     void setUp() {
         engine = new HeartbeatEngine(
                 logRepo, taskRepo, offlineMsgRepo, sessionRegistry,
-                contextBuilder, agentRuntime, agentConfigService, agentRepository);
+                contextBuilder, agentRuntime, agentConfigService, agentRepository,
+                chatInjectionService);
     }
 
     /**
@@ -132,6 +135,9 @@ class HeartbeatEngineTest {
 
         when(logRepo.save(any(HeartbeatLogEntity.class)))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        when(chatInjectionService.injectAgentMessage(eq("小助手"), eq(llmText),
+                eq(ChatInjectionService.ProactiveSource.HEARTBEAT)))
+                .thenReturn(Mono.just(1));
         when(sessionRegistry.pushToAgent(eq("小助手"), eq("heartbeat.message"), any()))
                 .thenReturn(true);
 
@@ -145,6 +151,8 @@ class HeartbeatEngineTest {
         assertThat(logCaptor.getValue().getResponse()).isEqualTo(llmText);
 
         verify(sessionRegistry).pushToAgent(eq("小助手"), eq("heartbeat.message"), any());
+        verify(chatInjectionService).injectAgentMessage(eq("小助手"), eq(llmText),
+                eq(ChatInjectionService.ProactiveSource.HEARTBEAT));
     }
 
     @Test
@@ -168,6 +176,7 @@ class HeartbeatEngineTest {
 
         verify(logRepo).save(any());
         verify(sessionRegistry, never()).pushToAgent(any(), any(), any());
+        verify(chatInjectionService, never()).injectAgentMessage(any(), any(), any());
     }
 
     @Test
@@ -185,6 +194,8 @@ class HeartbeatEngineTest {
 
         when(logRepo.save(any(HeartbeatLogEntity.class)))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        when(chatInjectionService.injectAgentMessage(any(), any(), any()))
+                .thenReturn(Mono.just(1));
         when(sessionRegistry.pushToAgent(any(), any(), any())).thenReturn(true);
 
         StepVerifier.create(engine.processHeartbeat(config))
@@ -219,6 +230,8 @@ class HeartbeatEngineTest {
 
         when(logRepo.save(any(HeartbeatLogEntity.class)))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        when(chatInjectionService.injectAgentMessage(any(), any(), any()))
+                .thenReturn(Mono.just(1));
         when(sessionRegistry.pushToAgent(any(), any(), any())).thenReturn(true);
 
         StepVerifier.create(engine.processHeartbeat(config))
@@ -259,6 +272,8 @@ class HeartbeatEngineTest {
 
         when(logRepo.save(any(HeartbeatLogEntity.class)))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        when(chatInjectionService.injectAgentMessage(any(), any(), any()))
+                .thenReturn(Mono.just(1));
         when(sessionRegistry.pushToAgent(any(), any(), any())).thenReturn(true);
 
         StepVerifier.create(engine.processHeartbeat(config))
@@ -284,6 +299,9 @@ class HeartbeatEngineTest {
 
         when(logRepo.save(any(HeartbeatLogEntity.class)))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        when(chatInjectionService.injectAgentMessage(eq("小助手"), eq("晚安"),
+                eq(ChatInjectionService.ProactiveSource.HEARTBEAT)))
+                .thenReturn(Mono.just(1));
         when(sessionRegistry.pushToAgent(any(), any(), any())).thenReturn(false);
         when(offlineMsgRepo.save(any(OfflineMessageEntity.class)))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));

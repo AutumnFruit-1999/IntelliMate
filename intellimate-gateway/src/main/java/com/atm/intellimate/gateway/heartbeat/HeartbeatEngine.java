@@ -12,6 +12,7 @@ import com.atm.intellimate.gateway.repository.AgentRepository;
 import com.atm.intellimate.gateway.repository.AgentTaskRepository;
 import com.atm.intellimate.gateway.repository.HeartbeatLogRepository;
 import com.atm.intellimate.gateway.repository.OfflineMessageRepository;
+import com.atm.intellimate.gateway.service.ChatInjectionService;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,7 @@ public class HeartbeatEngine {
     private final AgentRuntime agentRuntime;
     private final AgentConfigService agentConfigService;
     private final AgentRepository agentRepository;
+    private final ChatInjectionService chatInjectionService;
 
     public HeartbeatEngine(HeartbeatLogRepository logRepo,
                            AgentTaskRepository taskRepo,
@@ -50,7 +52,8 @@ public class HeartbeatEngine {
                            HeartbeatContextBuilder contextBuilder,
                            AgentRuntime agentRuntime,
                            AgentConfigService agentConfigService,
-                           AgentRepository agentRepository) {
+                           AgentRepository agentRepository,
+                           ChatInjectionService chatInjectionService) {
         this.logRepo = logRepo;
         this.taskRepo = taskRepo;
         this.offlineMsgRepo = offlineMsgRepo;
@@ -59,6 +62,7 @@ public class HeartbeatEngine {
         this.agentRuntime = agentRuntime;
         this.agentConfigService = agentConfigService;
         this.agentRepository = agentRepository;
+        this.chatInjectionService = chatInjectionService;
     }
 
     public Mono<Void> processHeartbeat(HeartbeatConfigEntity config) {
@@ -121,6 +125,7 @@ public class HeartbeatEngine {
                                             return saveLog(config, state, prompt, response).then();
                                         }
                                         return saveLog(config, state, prompt, response)
+                                                .then(injectToChat(agentName, response))
                                                 .then(deliver(config, agentName, response));
                                     });
                         }));
@@ -192,6 +197,16 @@ public class HeartbeatEngine {
         logEntry.setDelivered(0);
         logEntry.setCreatedAt(LocalDateTime.now());
         return logRepo.save(logEntry);
+    }
+
+    private Mono<Void> injectToChat(String agentName, String response) {
+        return chatInjectionService
+                .injectAgentMessage(agentName, response, ChatInjectionService.ProactiveSource.HEARTBEAT)
+                .onErrorResume(e -> {
+                    log.warn("Failed to inject heartbeat chat message for agent {}: {}", agentName, e.getMessage());
+                    return Mono.just(0);
+                })
+                .then();
     }
 
     private Mono<Void> deliver(HeartbeatConfigEntity config, String agentName, String response) {
