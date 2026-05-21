@@ -7,7 +7,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Sinks;
 
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -18,7 +20,7 @@ public class SessionRegistry {
 
     private final AtomicLong seqGenerator = new AtomicLong(0);
     private final ConcurrentHashMap<String, Sinks.Many<GatewayFrame>> sessionSinks = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> agentSessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<String>> agentSessions = new ConcurrentHashMap<>();
 
     public void register(String wsSessionId, Sinks.Many<GatewayFrame> sink) {
         sessionSinks.put(wsSessionId, sink);
@@ -26,28 +28,48 @@ public class SessionRegistry {
     }
 
     public void bindAgent(String wsSessionId, String agentName) {
-        agentSessions.put(agentName, wsSessionId);
+        agentSessions
+                .computeIfAbsent(agentName, k -> ConcurrentHashMap.newKeySet())
+                .add(wsSessionId);
         log.debug("Agent '{}' bound to session {}", agentName, wsSessionId);
     }
 
     public void unregister(String wsSessionId) {
         sessionSinks.remove(wsSessionId);
-        agentSessions.entrySet().removeIf(e -> e.getValue().equals(wsSessionId));
+        agentSessions.values().forEach(set -> set.remove(wsSessionId));
+        agentSessions.entrySet().removeIf(e -> e.getValue().isEmpty());
         log.debug("Session unregistered: {}", wsSessionId);
     }
 
     public boolean isAgentOnline(String agentName) {
-        String sid = agentSessions.get(agentName);
-        return sid != null && sessionSinks.containsKey(sid);
+        Set<String> sids = agentSessions.get(agentName);
+        if (sids == null || sids.isEmpty()) return false;
+        return sids.stream().anyMatch(sessionSinks::containsKey);
     }
 
     public boolean pushToAgent(String agentName, String eventType, Map<String, Object> payload) {
-        String sid = agentSessions.get(agentName);
-        if (sid == null) return false;
-        Sinks.Many<GatewayFrame> sink = sessionSinks.get(sid);
-        if (sink == null) return false;
+        return pushToAllAgentSessions(agentName, eventType, payload) > 0;
+    }
+
+    public int pushToAllAgentSessions(String agentName, String eventType, Map<String, Object> payload) {
+        Set<String> sids = agentSessions.get(agentName);
+        if (sids == null || sids.isEmpty()) return 0;
+
         EventFrame frame = new EventFrame(eventType, payload, seqGenerator.incrementAndGet());
-        return sink.tryEmitNext(frame).isSuccess();
+        int delivered = 0;
+        Iterator<String> iter = sids.iterator();
+        while (iter.hasNext()) {
+            String sid = iter.next();
+            Sinks.Many<GatewayFrame> sink = sessionSinks.get(sid);
+            if (sink == null) {
+                iter.remove();
+                continue;
+            }
+            if (sink.tryEmitNext(frame).isSuccess()) {
+                delivered++;
+            }
+        }
+        return delivered;
     }
 
     public void broadcast(String eventType, Map<String, Object> payload) {
