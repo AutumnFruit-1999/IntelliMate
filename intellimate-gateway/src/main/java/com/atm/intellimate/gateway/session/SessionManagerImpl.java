@@ -91,4 +91,28 @@ public class SessionManagerImpl implements SessionManager {
         return transcriptRepository.deleteBySessionId(sessionId)
                 .doOnSuccess(v -> log.info("Reset session: id={}", sessionId));
     }
+
+    @Override
+    public Mono<Long> findOrCreateProactiveSession(String agentName) {
+        String channelId = "webchat";
+        String contextType = "dm";
+        String contextId = "proactive::" + agentName;
+
+        return sessionRepository.findBySessionKey(channelId, contextType, contextId)
+                .map(SessionEntity::getId)
+                .switchIfEmpty(Mono.defer(() -> {
+                    SessionEntity newSession = new SessionEntity();
+                    newSession.setChannelId(channelId);
+                    newSession.setContextType(contextType);
+                    newSession.setContextId(contextId);
+                    newSession.setAgentName(agentName);
+                    newSession.setLastActiveAt(LocalDateTime.now());
+                    newSession.setCreatedAt(LocalDateTime.now());
+                    newSession.setDeleted(0);
+                    return sessionRepository.save(newSession)
+                            .doOnSuccess(s -> log.info("Created proactive session: id={}, agent={}",
+                                    s.getId(), agentName))
+                            .map(SessionEntity::getId);
+                }));
+    }
 }

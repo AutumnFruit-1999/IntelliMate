@@ -23,4 +23,6 @@ public interface SessionManager {
     Flux<TranscriptMessageEntity> getChatHistory(Long sessionId, int limit);
 
     Mono<Void> resetSession(Long sessionId);
+
+    Mono<Long> findOrCreateProactiveSession(String agentName);
 }
