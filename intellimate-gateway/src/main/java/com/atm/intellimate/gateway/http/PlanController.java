@@ -33,23 +33,34 @@ public class PlanController {
     @GetMapping
     public Mono<List<Map<String, Object>>> listPlans(
             @RequestParam(required = false) String agentName,
-            @RequestParam(required = false) String status) {
-
-        boolean hasAgent = agentName != null && !agentName.isBlank();
-        boolean hasStatus = status != null && !status.isBlank();
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long sessionId,
+            @RequestParam(required = false, defaultValue = "false") boolean includeSteps,
+            @RequestParam(required = false, defaultValue = "50") int limit) {
 
         Flux<PlanEntity> flux;
-        if (hasAgent && hasStatus) {
-            flux = planRepository.findByAgentNameAndStatusOrderByCreatedAtDesc(agentName, status);
-        } else if (hasAgent) {
-            flux = planRepository.findByAgentNameOrderByCreatedAtDesc(agentName);
-        } else if (hasStatus) {
-            flux = planRepository.findByStatusOrderByCreatedAtDesc(status);
+        if (sessionId != null) {
+            flux = planRepository.findBySessionIdOrderByCreatedAtDesc(sessionId);
+            if (status != null && !status.isBlank()) {
+                String[] statuses = status.split(",");
+                Set<String> allowed = Set.of(statuses);
+                flux = flux.filter(p -> allowed.contains(p.getStatus()));
+            }
         } else {
-            flux = planRepository.findAllOrderByCreatedAtDesc();
+            boolean hasAgent = agentName != null && !agentName.isBlank();
+            boolean hasStatus = status != null && !status.isBlank();
+            if (hasAgent && hasStatus) {
+                flux = planRepository.findByAgentNameAndStatusOrderByCreatedAtDesc(agentName, status);
+            } else if (hasAgent) {
+                flux = planRepository.findByAgentNameOrderByCreatedAtDesc(agentName);
+            } else if (hasStatus) {
+                flux = planRepository.findByStatusOrderByCreatedAtDesc(status);
+            } else {
+                flux = planRepository.findAllOrderByCreatedAtDesc();
+            }
         }
 
-        return flux.collectList().flatMap(plans -> {
+        return flux.take(limit).collectList().flatMap(plans -> {
             Set<Long> sessionIds = plans.stream()
                     .map(PlanEntity::getSessionId)
                     .filter(Objects::nonNull)
@@ -66,7 +77,8 @@ public class PlanController {
                     Flux.fromIterable(plans)
                             .flatMap(plan -> planStepRepository.findByPlanIdOrderByStepIndex(plan.getId())
                                     .collectList()
-                                    .map(steps -> toPlanSummary(plan, steps, agentMap.get(plan.getSessionId()))))
+                                    .map(steps -> toPlanSummary(plan, steps,
+                                            agentMap.get(plan.getSessionId()), includeSteps)))
                             .collectList()
                             .map(list -> {
                                 list.sort((a, b) -> {
@@ -127,16 +139,21 @@ public class PlanController {
                 .thenReturn(Map.<String, Object>of("deleted", planIds.size()));
     }
 
-    private Map<String, Object> toPlanSummary(PlanEntity plan, List<PlanStepEntity> steps, String agentName) {
+    private Map<String, Object> toPlanSummary(PlanEntity plan, List<PlanStepEntity> steps,
+                                               String agentName, boolean includeSteps) {
         long completed = steps.stream().filter(s -> "completed".equals(s.getStatus())).count();
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("planId", plan.getId());
         map.put("title", plan.getTitle());
         map.put("status", plan.getStatus());
+        map.put("completionSummary", plan.getCompletionSummary());
         map.put("totalSteps", steps.size());
         map.put("completedSteps", completed);
         map.put("createdAt", plan.getCreatedAt() != null ? plan.getCreatedAt().toString() : null);
         map.put("agentName", agentName);
+        if (includeSteps) {
+            map.put("steps", steps.stream().map(this::toStepMap).toList());
+        }
         return map;
     }
 

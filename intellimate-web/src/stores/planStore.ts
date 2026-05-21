@@ -29,6 +29,7 @@ export interface Plan {
   planId: number;
   title: string;
   status: PlanStatus;
+  completionSummary?: string | null;
   steps: PlanStep[];
 }
 
@@ -79,6 +80,7 @@ interface PlanState {
   handlePlanCompleted(payload: Record<string, unknown>): void;
   setAwaitingApproval(planId: number): void;
   syncFromServer(planId: number): Promise<void>;
+  loadHistoryFromServer(sessionId: number): Promise<void>;
   clearPlan(): void;
   dismissPlan(): void;
   viewHistoryPlan(direction: "prev" | "next"): void;
@@ -344,6 +346,36 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       setTimeout(() => {
         fetchPlan(planId).then(applyData).catch(() => {});
       }, 3000);
+    }
+  },
+
+  async loadHistoryFromServer(sessionId: number) {
+    try {
+      const params = new URLSearchParams({
+        sessionId: String(sessionId),
+        status: "completed,cancelled,failed",
+        includeSteps: "true",
+        limit: "5",
+      });
+      const response = await fetch(`/api/plans?${params}`);
+      if (!response.ok) return;
+      const plans = await response.json();
+      const historyPlans: Plan[] = plans.map((p: Record<string, unknown>) => ({
+        planId: (p.planId ?? p.id) as number,
+        title: p.title as string,
+        status: p.status as PlanStatus,
+        completionSummary: p.completionSummary as string | null | undefined,
+        steps: ((p.steps as Array<Record<string, unknown>>) ?? []).map((s) => ({
+          index: s.index as number,
+          title: s.title as string,
+          description: (s.description as string) || "",
+          status: ((s.status as string) || "pending") as PlanStepStatus,
+          resultSummary: s.resultSummary as string | undefined,
+        })),
+      }));
+      set({ planHistory: historyPlans });
+    } catch (e) {
+      console.error("[planStore] loadHistoryFromServer failed:", e);
     }
   },
 
