@@ -51,6 +51,17 @@ export function useWebSocket() {
             ) {
               planState.syncFromServer(planState.plan.planId);
             }
+            // 绑定当前 agent 以接收 proactive 消息
+            const agentState = useAgentStore.getState();
+            const currentAgentName = agentState.activeAgent;
+            if (currentAgentName && clientRef.current) {
+              clientRef.current.send({
+                type: "event",
+                event: "agent.bind",
+                payload: { agentName: currentAgentName },
+                seq: 0,
+              });
+            }
             break;
           }
           case "agent.chunk": {
@@ -92,6 +103,20 @@ export function useWebSocket() {
             if (planState.plan &&
                 !["completed", "cancelled", "failed"].includes(planState.plan.status)) {
               store.snapshotStepGroup();
+            }
+            break;
+          }
+          case "agent.proactive": {
+            const agentName = event.payload.agentName as string;
+            const text = event.payload.text as string;
+            const requestId = event.payload.requestId as string;
+            const source = (event.payload.source as string) || "unknown";
+            if (!text?.trim() || !agentName?.trim()) break;
+
+            if (store.isWaiting) {
+              store.bufferProactiveMessage(agentName, text, requestId, source);
+            } else {
+              store.addProactiveMessage(agentName, text, requestId, source);
             }
             break;
           }
