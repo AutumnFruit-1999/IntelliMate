@@ -47,20 +47,21 @@ public class PlanService {
                     log.info("createPlan: plan saved with id={}, sessionId={}", planId, sessionId);
                     AtomicInteger idx = new AtomicInteger(1);
                     int expectedCount = steps.size();
-                    return Flux.fromIterable(steps)
-                            .map(s -> {
-                                PlanStepEntity step = new PlanStepEntity();
-                                step.setPlanId(planId);
-                                step.setStepIndex(idx.getAndIncrement());
-                                step.setTitle(s.title());
-                                step.setDescription(s.description());
-                                step.setStatus("pending");
-                                return step;
-                            })
-                            .concatMap(step -> planStepRepository.save(step)
+                    List<PlanStepEntity> stepEntities = new ArrayList<>();
+                    for (StepInput s : steps) {
+                        PlanStepEntity step = new PlanStepEntity();
+                        step.setPlanId(planId);
+                        step.setStepIndex(idx.getAndIncrement());
+                        step.setTitle(s.title());
+                        step.setDescription(s.description());
+                        step.setStatus("pending");
+                        stepEntities.add(step);
+                    }
+                    return Flux.fromIterable(stepEntities)
+                            .flatMap(step -> planStepRepository.save(step)
                                     .doOnNext(saved -> log.debug(
                                             "createPlan: step saved id={}, planId={}, stepIndex={}",
-                                            saved.getId(), saved.getPlanId(), saved.getStepIndex())))
+                                            saved.getId(), saved.getPlanId(), saved.getStepIndex())), 4)
                             .count()
                             .flatMap(savedCount -> {
                                 if (savedCount != expectedCount) {
@@ -137,9 +138,12 @@ public class PlanService {
                 .collectList()
                 .flatMap(existingSteps -> {
                     int newIndex = afterIndex + 1;
-                    Flux<PlanStepEntity> reindex = Flux.fromIterable(existingSteps)
+                    List<PlanStepEntity> toReindex = existingSteps.stream()
                             .filter(s -> s.getStepIndex() >= newIndex)
-                            .flatMap(s -> {
+                            .sorted(java.util.Comparator.comparingInt(PlanStepEntity::getStepIndex).reversed())
+                            .toList();
+                    Flux<PlanStepEntity> reindex = Flux.fromIterable(toReindex)
+                            .concatMap(s -> {
                                 s.setStepIndex(s.getStepIndex() + 1);
                                 return planStepRepository.save(s);
                             });
@@ -164,7 +168,7 @@ public class PlanService {
                         .flatMapMany(steps -> {
                             AtomicInteger idx = new AtomicInteger(1);
                             return Flux.fromIterable(steps)
-                                    .flatMap(s -> {
+                                    .concatMap(s -> {
                                         s.setStepIndex(idx.getAndIncrement());
                                         return planStepRepository.save(s);
                                     });
@@ -188,7 +192,14 @@ public class PlanService {
                             });
                     return skipPending.then(Mono.empty());
                 })
-                .then(updatePlanStatus(planId, "completed"));
+                .then(planRepository.findById(planId)
+                        .flatMap(plan -> {
+                            log.info("Plan {} status: {} -> completed", planId, plan.getStatus());
+                            plan.setStatus("completed");
+                            plan.setCompletionSummary(summary);
+                            plan.setUpdatedAt(LocalDateTime.now());
+                            return planRepository.save(plan);
+                        }));
     }
 
     // ===== 用户操作 =====

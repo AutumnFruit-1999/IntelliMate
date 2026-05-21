@@ -13,6 +13,7 @@ public class PlanEntity {
     private Long sessionId;
     private String title;
     private String status;
+    private String completionSummary;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -24,6 +25,8 @@ public class PlanEntity {
     public void setTitle(String title) { this.title = title; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getCompletionSummary() { return completionSummary; }
+    public void setCompletionSummary(String completionSummary) { this.completionSummary = completionSummary; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
