@@ -76,6 +76,10 @@ interface ChatState {
   addHandoff: (requestId: string, info: HandoffInfo) => void;
   addParallelStart: (requestId: string, groupId: string, tasks: Array<{ agentName: string; task: string }>) => void;
   updateParallelProgress: (requestId: string, groupId: string, agentName: string, eventType: string, payload: Record<string, unknown>) => void;
+  proactiveBuffer: Array<{ agentName: string; text: string; requestId: string; source: string }>;
+  addProactiveMessage: (agentName: string, text: string, requestId: string, source: string) => void;
+  bufferProactiveMessage: (agentName: string, text: string, requestId: string, source: string) => void;
+  flushProactiveBuffer: () => void;
 }
 
 function getAgentMessages(state: ChatState): ChatMessage[] {
@@ -101,6 +105,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isWaiting: false,
   pendingForcePlan: null,
   messages: [],
+  proactiveBuffer: [],
 
   setCurrentAgent: (agent) => {
     const state = get();
@@ -167,6 +172,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       ),
     }));
+    setTimeout(() => get().flushProactiveBuffer(), 0);
   },
 
   addResponse: (response) => {
@@ -510,5 +516,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       );
     });
+  },
+
+  addProactiveMessage: (agentName, text, requestId, source) => {
+    const agent = agentName || get().currentAgent;
+    const current = get().messagesByAgent[agent] ?? [];
+    const newMsg: ChatMessage = {
+      id: `assistant-${requestId}`,
+      role: "assistant",
+      content: text,
+      streaming: false,
+      timestamp: Date.now(),
+      requestId,
+    };
+    const newByAgent = { ...get().messagesByAgent, [agent]: [...current, newMsg] };
+
+    if (agent === get().currentAgent) {
+      set({ messagesByAgent: newByAgent, messages: [...current, newMsg] });
+    } else {
+      set({ messagesByAgent: newByAgent });
+    }
+  },
+
+  bufferProactiveMessage: (agentName, text, requestId, source) => {
+    set((state) => ({
+      proactiveBuffer: [...state.proactiveBuffer, { agentName, text, requestId, source }],
+    }));
+  },
+
+  flushProactiveBuffer: () => {
+    const buffer = get().proactiveBuffer;
+    if (buffer.length === 0) return;
+    for (const msg of buffer) {
+      get().addProactiveMessage(msg.agentName, msg.text, msg.requestId, msg.source);
+    }
+    set({ proactiveBuffer: [] });
   },
 }));
