@@ -71,7 +71,7 @@ public class MemoryRetrieval {
                 });
     }
 
-    private static final double MIN_RELEVANCE_THRESHOLD = 0.05;
+    private static final double MIN_RELEVANCE_THRESHOLD = 0.20;
 
     private List<MemoryChunk> selectAndScore(List<MemoryEntry> candidates, String cue,
                                               int maxInjectionTokens, double lambda) {
