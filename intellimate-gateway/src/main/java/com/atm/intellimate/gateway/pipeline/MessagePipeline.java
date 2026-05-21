@@ -19,6 +19,7 @@ import com.atm.intellimate.gateway.entity.PlanEntity;
 import com.atm.intellimate.gateway.entity.PlanStepEntity;
 import com.atm.intellimate.gateway.entity.SessionEntity;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
+import com.atm.intellimate.gateway.repository.SessionRepository;
 import com.atm.intellimate.gateway.service.PlanService;
 import com.atm.intellimate.gateway.session.SessionManager;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
@@ -58,6 +59,7 @@ public class MessagePipeline {
     private final PlanService planService;
     private final LongTermMemory longTermMemory;
     private final SessionRegistry sessionRegistry;
+    private final SessionRepository sessionRepository;
     private final AtomicLong seqGenerator = new AtomicLong(0);
     private final ConcurrentMap<String, Long> wsSessionToDbSession = new ConcurrentHashMap<>();
 
@@ -71,6 +73,7 @@ public class MessagePipeline {
                            AuditService auditService,
                            PlanService planService,
                            SessionRegistry sessionRegistry,
+                           SessionRepository sessionRepository,
                            @Autowired(required = false) LongTermMemory longTermMemory) {
         this.sessionManager = sessionManager;
         this.agentRuntime = agentRuntime;
@@ -80,6 +83,7 @@ public class MessagePipeline {
         this.auditService = auditService;
         this.planService = planService;
         this.sessionRegistry = sessionRegistry;
+        this.sessionRepository = sessionRepository;
         this.longTermMemory = longTermMemory;
     }
 
@@ -90,7 +94,7 @@ public class MessagePipeline {
         }
 
         if (request.method() != null && request.method().startsWith("plan.")) {
-            return processPlanRequest(request);
+            return processPlanRequest(request, wsSessionId);
         }
 
         if (!"conversation.message".equals(request.method())) {
@@ -477,10 +481,38 @@ public class MessagePipeline {
     }
 
     @SuppressWarnings("unchecked")
-    private Flux<GatewayFrame> processPlanRequest(RequestFrame request) {
+    private Flux<GatewayFrame> processPlanRequest(RequestFrame request, String wsSessionId) {
         try {
             Map<String, Object> params = (Map<String, Object>) request.params();
             return switch (request.method()) {
+                case "plan.approve_and_execute" -> {
+                    Long planId = ((Number) params.get("planId")).longValue();
+                    yield planService.approvePlan(planId, true, null)
+                            .flatMap(approvedPlan -> planService.resumePlan(planId))
+                            .flatMapMany(executingPlan -> {
+                                EventFrame statusEvt = new EventFrame("plan.status_changed",
+                                        Map.of("planId", executingPlan.getId(), "status", executingPlan.getStatus()),
+                                        seqGenerator.incrementAndGet());
+
+                                Long sessionId = executingPlan.getSessionId();
+                                Flux<GatewayFrame> agentExecution = sessionRepository.findById(sessionId)
+                                        .flatMapMany(session -> {
+                                            wsSessionToDbSession.put(wsSessionId, session.getId());
+                                            return processMessageStreaming(session, "开始执行计划", request.id(), wsSessionId, false);
+                                        });
+
+                                return Flux.concat(Flux.<GatewayFrame>just(statusEvt), agentExecution);
+                            })
+                            .onErrorResume(e -> {
+                                log.error("plan.approve_and_execute failed for planId={}: {}", planId, e.getMessage(), e);
+                                return planService.getPlanById(planId)
+                                        .map(p -> ResponseFrame.failure(request.id(),
+                                                e.getMessage(),
+                                                Map.of("currentStatus", p.getStatus())))
+                                        .defaultIfEmpty(ResponseFrame.failure(request.id(), e.getMessage()))
+                                        .flux();
+                            });
+                }
                 case "plan.approve" -> {
                     Long planId = ((Number) params.get("planId")).longValue();
                     boolean approved = Boolean.TRUE.equals(params.get("approved"));
@@ -889,15 +921,20 @@ public class MessagePipeline {
                     seqGenerator.incrementAndGet()
             ));
 
-            case AgentEvent.ConsolidationTriggered ct -> Flux.just(new EventFrame(
-                    "memory.consolidation",
-                    Map.of("chunksSelected", ct.chunksSelected(),
-                           "tokensBefore", ct.tokensBefore(),
-                           "tokensAfter", ct.tokensAfter(),
-                           "extractedFacts", ct.extractedFacts(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
+            case AgentEvent.ConsolidationTriggered ct -> {
+                var payload = new java.util.LinkedHashMap<String, Object>();
+                payload.put("chunksSelected", ct.chunksSelected());
+                payload.put("tokensBefore", ct.tokensBefore());
+                payload.put("tokensAfter", ct.tokensAfter());
+                payload.put("extractedFacts", ct.extractedFacts());
+                payload.put("candidates", ct.candidates().stream()
+                        .map(c -> Map.of("type", c.type(), "tokens", c.tokens(),
+                                "importance", c.importance(), "preview", c.preview()))
+                        .toList());
+                payload.put("factsStoredToLongTerm", ct.factsStoredToLongTerm());
+                payload.put("requestId", requestId);
+                yield Flux.just(new EventFrame("memory.consolidation", payload, seqGenerator.incrementAndGet()));
+            }
         };
     }
 

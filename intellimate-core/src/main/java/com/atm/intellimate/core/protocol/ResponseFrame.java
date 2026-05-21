@@ -19,4 +19,8 @@ public record ResponseFrame(
     public static ResponseFrame failure(String id, Object error) {
         return new ResponseFrame(id, false, null, error);
     }
+
+    public static ResponseFrame failure(String id, Object error, Object payload) {
+        return new ResponseFrame(id, false, payload, error);
+    }
 }
