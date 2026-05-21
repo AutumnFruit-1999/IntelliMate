@@ -3,6 +3,7 @@ import { usePlanStore } from "../stores/planStore";
 import type { RequestFrame, ResponseFrame } from "../lib/protocol";
 import {
   createPlanApprove,
+  createPlanApproveAndExecute,
   createPlanPause,
   createPlanResume,
   createPlanCancel,
@@ -133,26 +134,21 @@ export default function PlanPanel({
     setApproveStarting(true);
     try {
       const res = await onSendPlanActionAndWait(
-        createPlanApprove(plan.planId, true),
+        createPlanApproveAndExecute(plan.planId),
       );
       if (!res.ok) {
-        console.error("[PlanPanel] plan.approve failed:", res.error);
-        return;
+        const currentStatus = (res.payload as Record<string, unknown>)?.currentStatus as string | undefined;
+        if (currentStatus === "approved") {
+          console.warn("[PlanPanel] approved but execution failed, user can retry via resume");
+        }
+        console.error("[PlanPanel] plan.approve_and_execute failed:", res.error);
       }
-      const resumeRes = await onSendPlanActionAndWait(
-        createPlanResume(plan.planId),
-      );
-      if (!resumeRes.ok) {
-        console.error("[PlanPanel] plan.resume failed:", resumeRes.error);
-        return;
-      }
-      onSendMessage("开始执行计划");
     } catch (e) {
       console.error("[PlanPanel] approve and execute:", e);
     } finally {
       setApproveStarting(false);
     }
-  }, [plan, onSendMessage, onSendPlanActionAndWait]);
+  }, [plan, onSendPlanActionAndWait]);
 
   return (
     <div className="w-[420px] flex-shrink-0 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-col h-full overflow-hidden">

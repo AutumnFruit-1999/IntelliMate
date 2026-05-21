@@ -19,6 +19,7 @@ interface PlanSummary {
   completedSteps: number;
   createdAt: string | null;
   agentName: string | null;
+  completionSummary?: string | null;
 }
 
 interface PlanStepDetail {
@@ -467,6 +468,11 @@ function PlanRow({
         <tr>
           <td colSpan={8} className="bg-slate-50/50 dark:bg-slate-800/30">
             <div className="px-12 py-3">
+              {plan.completionSummary && (
+                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2 line-clamp-3 italic">
+                  {plan.completionSummary}
+                </div>
+              )}
               {!stepDetails ? (
                 <div className="text-xs text-slate-400">加载步骤...</div>
               ) : stepDetails.length === 0 ? (

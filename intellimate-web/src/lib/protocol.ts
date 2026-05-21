@@ -112,6 +112,10 @@ export function createPlanAddStep(
   return createRequest("plan.add_step", { planId, afterIndex, title, description });
 }
 
+export function createPlanApproveAndExecute(planId: number): RequestFrame {
+  return createRequest("plan.approve_and_execute", { planId });
+}
+
 export function createPlanReorderSteps(
   planId: number,
   newOrder: number[],

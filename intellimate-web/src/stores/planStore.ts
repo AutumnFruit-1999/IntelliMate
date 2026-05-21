@@ -69,6 +69,7 @@ interface PlanState {
   planHistory: Plan[];
   currentPlanIndex: number;
   dismissed: boolean;
+  lastPlanEventTimestamp: number;
 
   handlePlanCreated(payload: Record<string, unknown>): void;
   handleStepStart(payload: Record<string, unknown>): void;
@@ -103,6 +104,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   planHistory: [],
   currentPlanIndex: 0,
   dismissed: false,
+  lastPlanEventTimestamp: 0,
 
   handlePlanCreated(payload) {
     useChatStore.getState().snapshotStepGroup(true);
@@ -140,6 +142,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         planHistory: history,
         currentPlanIndex: 0,
         dismissed: false,
+        lastPlanEventTimestamp: Date.now(),
       };
     });
   },
@@ -177,6 +180,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         currentStepIndex: stepIndex,
         pendingToolCalls: [],
         stepToolCalls: newStepToolCalls,
+        lastPlanEventTimestamp: Date.now(),
         plan: {
           ...pl,
           steps: pl.steps.map((s) =>
@@ -222,6 +226,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
             : state.currentStepIndex,
         pendingToolCalls,
         stepToolCalls,
+        lastPlanEventTimestamp: Date.now(),
         plan: {
           ...pl,
           steps: pl.steps.map((s) =>
@@ -250,7 +255,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       if (!pl || !matchesActivePlan(pl, payload)) return {};
       const existing = new Map(pl.steps.map((s) => [s.index, s]));
       const merged = currentSteps.map((ns) => existing.get(ns.index) ?? ns);
-      return { plan: { ...pl, steps: merged } };
+      return { plan: { ...pl, steps: merged }, lastPlanEventTimestamp: Date.now() };
     });
   },
 
@@ -275,9 +280,10 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         return {
           plan: updatedPlan,
           currentStepIndex: null,
+          lastPlanEventTimestamp: Date.now(),
         };
       }
-      return { plan: updatedPlan };
+      return { plan: updatedPlan, lastPlanEventTimestamp: Date.now() };
     });
   },
 
@@ -299,6 +305,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       return {
         currentStepIndex: null,
         plan: updatedPlan,
+        lastPlanEventTimestamp: Date.now(),
       };
     });
   },

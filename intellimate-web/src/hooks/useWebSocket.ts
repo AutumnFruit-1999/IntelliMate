@@ -16,7 +16,8 @@ const WS_URL =
   import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/ws`;
 const REQUEST_TIMEOUT_MS = 300_000;
 const PLAN_ACTION_WAIT_MS = 30_000;
-const PLAN_POLL_INTERVAL_MS = 10_000;
+const PLAN_STALE_CHECK_INTERVAL_MS = 15_000;
+const PLAN_STALE_THRESHOLD_MS = 60_000;
 
 export function useWebSocket() {
   const clientRef = useRef<WsClient | null>(null);
@@ -54,6 +55,7 @@ export function useWebSocket() {
             // 绑定当前 agent 以接收 proactive 消息
             const agentState = useAgentStore.getState();
             const currentAgentName = agentState.activeAgent;
+            console.log("[WS] session.welcome received, activeAgent:", currentAgentName);
             if (currentAgentName && clientRef.current) {
               clientRef.current.send({
                 type: "event",
@@ -61,6 +63,7 @@ export function useWebSocket() {
                 payload: { agentName: currentAgentName },
                 seq: 0,
               });
+              console.log("[WS] agent.bind sent for:", currentAgentName);
             }
             break;
           }
@@ -103,6 +106,7 @@ export function useWebSocket() {
             if (planState.plan &&
                 !["completed", "cancelled", "failed"].includes(planState.plan.status)) {
               store.snapshotStepGroup();
+              usePlanStore.getState().syncFromServer(planState.plan.planId);
             }
             break;
           }
@@ -321,6 +325,21 @@ export function useWebSocket() {
     };
   }, []);
 
+  const activeAgent = useAgentStore((s) => s.activeAgent);
+
+  useEffect(() => {
+    console.log("[WS] activeAgent changed:", activeAgent, "client:", !!clientRef.current);
+    if (activeAgent && clientRef.current) {
+      clientRef.current.send({
+        type: "event",
+        event: "agent.bind",
+        payload: { agentName: activeAgent },
+        seq: 0,
+      });
+      console.log("[WS] agent.bind sent via useEffect for:", activeAgent);
+    }
+  }, [activeAgent]);
+
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -333,13 +352,18 @@ export function useWebSocket() {
 
     const unsub = usePlanStore.subscribe((state) => {
       const plan = state.plan;
-      const isExecuting = plan && plan.status === "executing";
+      const isExecuting = plan && ["executing", "approved"].includes(plan.status);
 
       if (isExecuting && !pollTimerRef.current) {
         const planId = plan.planId;
         pollTimerRef.current = setInterval(() => {
-          usePlanStore.getState().syncFromServer(planId);
-        }, PLAN_POLL_INTERVAL_MS);
+          const { plan: currentPlan, lastPlanEventTimestamp, syncFromServer } = usePlanStore.getState();
+          if (!currentPlan || !["executing", "approved"].includes(currentPlan.status)) return;
+          const elapsed = Date.now() - lastPlanEventTimestamp;
+          if (elapsed > PLAN_STALE_THRESHOLD_MS) {
+            syncFromServer(planId);
+          }
+        }, PLAN_STALE_CHECK_INTERVAL_MS);
       } else if (!isExecuting) {
         stopPolling();
       }
