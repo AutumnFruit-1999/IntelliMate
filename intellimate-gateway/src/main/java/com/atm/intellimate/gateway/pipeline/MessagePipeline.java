@@ -23,6 +23,7 @@ import com.atm.intellimate.gateway.repository.SessionRepository;
 import com.atm.intellimate.gateway.service.PlanService;
 import com.atm.intellimate.gateway.session.SessionManager;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
+import com.atm.intellimate.memory.config.MemoryConfigProvider;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.ExtractedFact;
 import org.slf4j.Logger;
@@ -58,6 +59,7 @@ public class MessagePipeline {
     private final AuditService auditService;
     private final PlanService planService;
     private final LongTermMemory longTermMemory;
+    private final MemoryConfigProvider memoryConfigProvider;
     private final SessionRegistry sessionRegistry;
     private final SessionRepository sessionRepository;
     private final AtomicLong seqGenerator = new AtomicLong(0);
@@ -74,7 +76,8 @@ public class MessagePipeline {
                            PlanService planService,
                            SessionRegistry sessionRegistry,
                            SessionRepository sessionRepository,
-                           @Autowired(required = false) LongTermMemory longTermMemory) {
+                           @Autowired(required = false) LongTermMemory longTermMemory,
+                           @Autowired(required = false) MemoryConfigProvider memoryConfigProvider) {
         this.sessionManager = sessionManager;
         this.agentRuntime = agentRuntime;
         this.properties = properties;
@@ -85,6 +88,7 @@ public class MessagePipeline {
         this.sessionRegistry = sessionRegistry;
         this.sessionRepository = sessionRepository;
         this.longTermMemory = longTermMemory;
+        this.memoryConfigProvider = memoryConfigProvider;
     }
 
     @SuppressWarnings("unchecked")
@@ -423,12 +427,18 @@ public class MessagePipeline {
      * Format: "问题 + 解决步骤 + 结果" as one procedural entry, plus a brief episodic entry.
      */
     private void schedulePlanCompletionMemoryExtraction(Long sessionId, Long planId, String agentId, String userId) {
-        if (longTermMemory == null || planId == null || sessionId == null) {
+        if (longTermMemory == null || memoryConfigProvider == null || planId == null || sessionId == null) {
             return;
         }
         String effectiveAgentId = agentId != null && !agentId.isBlank() ? agentId : "default";
         String effectiveUserId = userId != null && !userId.isBlank() ? userId : "default";
-        Mono.defer(() -> Mono.zip(
+        memoryConfigProvider.resolve()
+                .filter(config -> config.longTermEnabled())
+                .switchIfEmpty(Mono.defer(() -> {
+                    log.debug("Plan completion memory extraction skipped: long-term memory disabled (planId={})", planId);
+                    return Mono.empty();
+                }))
+                .flatMap(config -> Mono.zip(
                         planService.getPlanById(planId).defaultIfEmpty(new PlanEntity()),
                         planService.getSteps(planId).collectList()))
                 .flatMap(tuple -> {
