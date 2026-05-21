@@ -128,7 +128,7 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
     private Flux<GatewayFrame> routeFrame(GatewayFrame frame, WebSocketSession session) {
         return switch (frame) {
             case RequestFrame req -> handleRequest(req, session);
-            case EventFrame evt -> handleEvent(evt);
+            case EventFrame evt -> handleEvent(evt, session);
             case ResponseFrame resp -> Flux.empty();
         };
     }
@@ -138,7 +138,18 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
         return messagePipeline.processRequest(request, session.getId());
     }
 
-    private Flux<GatewayFrame> handleEvent(EventFrame event) {
+    private Flux<GatewayFrame> handleEvent(EventFrame event, WebSocketSession session) {
+        if ("agent.bind".equals(event.event())) {
+            Object agentNameObj = null;
+            if (event.payload() instanceof Map<?, ?> payload) {
+                agentNameObj = payload.get("agentName");
+            }
+            if (agentNameObj instanceof String agentName && !agentName.isBlank()) {
+                sessionRegistry.bindAgent(session.getId(), agentName);
+                log.debug("Client-initiated agent bind: agent='{}', session={}", agentName, session.getId());
+            }
+            return Flux.empty();
+        }
         log.debug("Unhandled client event: {}", event.event());
         return Flux.empty();
     }
