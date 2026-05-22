@@ -17,6 +17,7 @@ public class IntelliMateProperties {
     private Security security = new Security();
     private Agent agent = new Agent();
     private Scheduler scheduler = new Scheduler();
+    private Proactive proactive = new Proactive();
     private Map<String, ChannelConfig> channels = new HashMap<>();
 
     public Server getServer() {
@@ -49,6 +50,14 @@ public class IntelliMateProperties {
 
     public void setScheduler(Scheduler scheduler) {
         this.scheduler = scheduler;
+    }
+
+    public Proactive getProactive() {
+        return proactive;
+    }
+
+    public void setProactive(Proactive proactive) {
+        this.proactive = proactive;
     }
 
     public Map<String, ChannelConfig> getChannels() {
@@ -201,6 +210,16 @@ public class IntelliMateProperties {
         public void setMaxConcurrentJobs(int maxConcurrentJobs) { this.maxConcurrentJobs = maxConcurrentJobs; }
         public long getConfigReloadDebounceMs() { return configReloadDebounceMs; }
         public void setConfigReloadDebounceMs(long configReloadDebounceMs) { this.configReloadDebounceMs = configReloadDebounceMs; }
+    }
+
+    public static class Proactive {
+        private int messageTtlHours = 24;
+        private int replayLimit = 20;
+
+        public int getMessageTtlHours() { return messageTtlHours; }
+        public void setMessageTtlHours(int messageTtlHours) { this.messageTtlHours = messageTtlHours; }
+        public int getReplayLimit() { return replayLimit; }
+        public void setReplayLimit(int replayLimit) { this.replayLimit = replayLimit; }
     }
 
     public static class ChannelConfig {

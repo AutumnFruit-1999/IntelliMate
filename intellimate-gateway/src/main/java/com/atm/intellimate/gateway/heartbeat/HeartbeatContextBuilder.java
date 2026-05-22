@@ -15,6 +15,9 @@ public class HeartbeatContextBuilder {
 
     public String buildPrompt(String agentName, LifecycleState state,
                               List<AgentTaskEntity> tasks, LocalDateTime now) {
+        boolean hasDueReminders = tasks.stream()
+                .anyMatch(t -> t.getRemindAt() != null && !t.getRemindAt().isAfter(now));
+
         StringBuilder sb = new StringBuilder();
         sb.append("你是 ").append(agentName).append("，现在是 ")
           .append(now.format(DATETIME_FMT)).append("（").append(state.description()).append("）。\n\n");
@@ -31,6 +34,9 @@ public class HeartbeatContextBuilder {
                 if (task.getPriority() != null && task.getPriority() > 0) {
                     sb.append(task.getPriority() == 2 ? " [紧急]" : " [重要]");
                 }
+                if (task.getRemindAt() != null && !task.getRemindAt().isAfter(now)) {
+                    sb.append(" ⏰到期提醒");
+                }
                 sb.append("\n");
             }
         }
@@ -39,7 +45,11 @@ public class HeartbeatContextBuilder {
         sb.append("- 如果是「刚醒来」状态：发送温暖的早安问候，提及今天的待办事项\n");
         sb.append("- 如果有到期/即将到期的任务：友好地提醒用户\n");
         sb.append("- 如果是「准备休息」状态：总结今天，提醒明天的事项\n");
-        sb.append("- 如果觉得没有必要说话：仅回复 [SILENT]\n\n");
+        if (hasDueReminders) {
+            sb.append("- ⚠️ 有标记为「⏰到期提醒」的任务时，你**必须**发送提醒消息，**禁止**回复 [SILENT]\n\n");
+        } else {
+            sb.append("- 如果觉得没有必要说话：仅回复 [SILENT]\n\n");
+        }
         sb.append("注意：保持简洁自然，像朋友一样聊天，不要过于正式或冗长（控制在 100 字以内）。");
 
         return sb.toString();

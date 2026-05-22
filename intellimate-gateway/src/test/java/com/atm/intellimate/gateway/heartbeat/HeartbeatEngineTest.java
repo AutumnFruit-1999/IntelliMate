@@ -9,13 +9,10 @@ import com.atm.intellimate.gateway.config.ResolvedAgentConfig;
 import com.atm.intellimate.gateway.entity.AgentEntity;
 import com.atm.intellimate.gateway.entity.HeartbeatConfigEntity;
 import com.atm.intellimate.gateway.entity.HeartbeatLogEntity;
-import com.atm.intellimate.gateway.entity.OfflineMessageEntity;
 import com.atm.intellimate.gateway.repository.AgentRepository;
 import com.atm.intellimate.gateway.repository.AgentTaskRepository;
 import com.atm.intellimate.gateway.repository.HeartbeatLogRepository;
-import com.atm.intellimate.gateway.repository.OfflineMessageRepository;
 import com.atm.intellimate.gateway.service.ChatInjectionService;
-import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,8 +37,6 @@ class HeartbeatEngineTest {
 
     @Mock private HeartbeatLogRepository logRepo;
     @Mock private AgentTaskRepository taskRepo;
-    @Mock private OfflineMessageRepository offlineMsgRepo;
-    @Mock private SessionRegistry sessionRegistry;
     @Mock private HeartbeatContextBuilder contextBuilder;
     @Mock private AgentRuntime agentRuntime;
     @Mock private AgentConfigService agentConfigService;
@@ -53,7 +48,7 @@ class HeartbeatEngineTest {
     @BeforeEach
     void setUp() {
         engine = new HeartbeatEngine(
-                logRepo, taskRepo, offlineMsgRepo, sessionRegistry,
+                logRepo, taskRepo,
                 contextBuilder, agentRuntime, agentConfigService, agentRepository,
                 chatInjectionService);
     }
@@ -123,8 +118,9 @@ class HeartbeatEngineTest {
         HeartbeatConfigEntity config = configForState(LifecycleState.WAKING);
         stubAgentResolution();
 
-        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
+        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"), any())).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
+        when(taskRepo.findDueReminders(eq(1L), any())).thenReturn(Flux.empty());
         when(contextBuilder.buildPrompt(eq("小助手"), eq(LifecycleState.WAKING), any(), any()))
                 .thenReturn("你是小助手...");
 
@@ -137,8 +133,6 @@ class HeartbeatEngineTest {
         when(chatInjectionService.injectAgentMessage(eq("小助手"), eq(llmText),
                 eq(ChatInjectionService.ProactiveSource.HEARTBEAT)))
                 .thenReturn(Mono.just(1));
-        when(sessionRegistry.pushToAgent(eq("小助手"), eq("heartbeat.message"), any()))
-                .thenReturn(true);
 
         StepVerifier.create(engine.processHeartbeat(config))
                 .verifyComplete();
@@ -149,7 +143,6 @@ class HeartbeatEngineTest {
         verify(logRepo).save(logCaptor.capture());
         assertThat(logCaptor.getValue().getResponse()).isEqualTo(llmText);
 
-        verify(sessionRegistry).pushToAgent(eq("小助手"), eq("heartbeat.message"), any());
         verify(chatInjectionService).injectAgentMessage(eq("小助手"), eq(llmText),
                 eq(ChatInjectionService.ProactiveSource.HEARTBEAT));
     }
@@ -160,8 +153,9 @@ class HeartbeatEngineTest {
         HeartbeatConfigEntity config = configForState(LifecycleState.WAKING);
         stubAgentResolution();
 
-        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
+        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"), any())).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
+        when(taskRepo.findDueReminders(eq(1L), any())).thenReturn(Flux.empty());
         when(contextBuilder.buildPrompt(any(), any(), any(), any())).thenReturn("prompt");
 
         when(agentRuntime.dispatch(any(AgentRunRequest.class)))
@@ -174,7 +168,6 @@ class HeartbeatEngineTest {
                 .verifyComplete();
 
         verify(logRepo).save(any());
-        verify(sessionRegistry, never()).pushToAgent(any(), any(), any());
         verify(chatInjectionService, never()).injectAgentMessage(any(), any(), any());
     }
 
@@ -184,8 +177,9 @@ class HeartbeatEngineTest {
         HeartbeatConfigEntity config = configForState(LifecycleState.WAKING);
         stubAgentResolution();
 
-        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
+        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"), any())).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
+        when(taskRepo.findDueReminders(eq(1L), any())).thenReturn(Flux.empty());
         when(contextBuilder.buildPrompt(any(), any(), any(), any())).thenReturn("prompt");
 
         when(agentRuntime.dispatch(any(AgentRunRequest.class)))
@@ -195,7 +189,6 @@ class HeartbeatEngineTest {
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         when(chatInjectionService.injectAgentMessage(any(), any(), any()))
                 .thenReturn(Mono.just(1));
-        when(sessionRegistry.pushToAgent(any(), any(), any())).thenReturn(true);
 
         StepVerifier.create(engine.processHeartbeat(config))
                 .verifyComplete();
@@ -211,8 +204,9 @@ class HeartbeatEngineTest {
         HeartbeatConfigEntity config = configForState(LifecycleState.WAKING);
 
         when(agentRepository.findById(1L)).thenReturn(Mono.empty());
-        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
+        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"), any())).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
+        when(taskRepo.findDueReminders(eq(1L), any())).thenReturn(Flux.empty());
         when(contextBuilder.buildPrompt(eq("Agent#1"), eq(LifecycleState.WAKING), any(), any()))
                 .thenReturn("prompt");
 
@@ -231,7 +225,6 @@ class HeartbeatEngineTest {
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         when(chatInjectionService.injectAgentMessage(any(), any(), any()))
                 .thenReturn(Mono.just(1));
-        when(sessionRegistry.pushToAgent(any(), any(), any())).thenReturn(true);
 
         StepVerifier.create(engine.processHeartbeat(config))
                 .verifyComplete();
@@ -258,8 +251,9 @@ class HeartbeatEngineTest {
         HeartbeatConfigEntity config = configForState(LifecycleState.WAKING);
         stubAgentResolution();
 
-        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
+        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"), any())).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
+        when(taskRepo.findDueReminders(eq(1L), any())).thenReturn(Flux.empty());
         when(contextBuilder.buildPrompt(any(), any(), any(), any())).thenReturn("prompt");
 
         when(agentRuntime.dispatch(any(AgentRunRequest.class)))
@@ -273,7 +267,6 @@ class HeartbeatEngineTest {
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         when(chatInjectionService.injectAgentMessage(any(), any(), any()))
                 .thenReturn(Mono.just(1));
-        when(sessionRegistry.pushToAgent(any(), any(), any())).thenReturn(true);
 
         StepVerifier.create(engine.processHeartbeat(config))
                 .verifyComplete();
@@ -281,36 +274,5 @@ class HeartbeatEngineTest {
         ArgumentCaptor<HeartbeatLogEntity> logCaptor = ArgumentCaptor.forClass(HeartbeatLogEntity.class);
         verify(logRepo).save(logCaptor.capture());
         assertThat(logCaptor.getValue().getResponse()).isEqualTo("早安！今天加油！");
-    }
-
-    @Test
-    @DisplayName("Agent offline - should cache to offline_message")
-    void processHeartbeat_agentOffline_shouldCacheMessage() {
-        HeartbeatConfigEntity config = configForState(LifecycleState.WAKING);
-        stubAgentResolution();
-
-        when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"))).thenReturn(Mono.empty());
-        when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
-        when(contextBuilder.buildPrompt(any(), any(), any(), any())).thenReturn("prompt");
-
-        when(agentRuntime.dispatch(any(AgentRunRequest.class)))
-                .thenReturn(Flux.just(new AgentEvent.Done("晚安", 1)));
-
-        when(logRepo.save(any(HeartbeatLogEntity.class)))
-                .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-        when(chatInjectionService.injectAgentMessage(eq("小助手"), eq("晚安"),
-                eq(ChatInjectionService.ProactiveSource.HEARTBEAT)))
-                .thenReturn(Mono.just(1));
-        when(sessionRegistry.pushToAgent(any(), any(), any())).thenReturn(false);
-        when(offlineMsgRepo.save(any(OfflineMessageEntity.class)))
-                .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-
-        StepVerifier.create(engine.processHeartbeat(config))
-                .verifyComplete();
-
-        ArgumentCaptor<OfflineMessageEntity> msgCaptor = ArgumentCaptor.forClass(OfflineMessageEntity.class);
-        verify(offlineMsgRepo).save(msgCaptor.capture());
-        assertThat(msgCaptor.getValue().getContent()).isEqualTo("晚安");
-        assertThat(msgCaptor.getValue().getMessageType()).isEqualTo("heartbeat");
     }
 }

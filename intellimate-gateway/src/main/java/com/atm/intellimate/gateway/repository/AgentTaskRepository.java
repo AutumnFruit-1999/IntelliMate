@@ -1,9 +1,11 @@
 package com.atm.intellimate.gateway.repository;
 
 import com.atm.intellimate.gateway.entity.AgentTaskEntity;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 
@@ -18,4 +20,8 @@ public interface AgentTaskRepository extends ReactiveCrudRepository<AgentTaskEnt
 
     @Query("SELECT * FROM agent_task WHERE agent_id = :agentId AND status = 'pending' AND due_at IS NOT NULL AND due_at <= :deadline ORDER BY due_at")
     Flux<AgentTaskEntity> findUpcomingTasks(Long agentId, LocalDateTime deadline);
+
+    @Modifying
+    @Query("UPDATE agent_task SET remind_at = NULL, updated_at = :now WHERE id = :taskId")
+    Mono<Long> clearRemindAt(Long taskId, LocalDateTime now);
 }

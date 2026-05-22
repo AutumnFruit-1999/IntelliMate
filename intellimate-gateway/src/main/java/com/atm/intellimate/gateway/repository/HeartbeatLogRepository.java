@@ -14,8 +14,8 @@ public interface HeartbeatLogRepository extends ReactiveCrudRepository<Heartbeat
     @Query("SELECT * FROM heartbeat_log WHERE agent_id = :agentId ORDER BY triggered_at DESC LIMIT 1")
     Mono<HeartbeatLogEntity> findLatestByAgentId(Long agentId);
 
-    @Query("SELECT * FROM heartbeat_log WHERE agent_id = :agentId AND state = :state AND DATE(triggered_at) = CURDATE() ORDER BY triggered_at DESC LIMIT 1")
-    Mono<HeartbeatLogEntity> findTodayByAgentIdAndState(Long agentId, String state);
+    @Query("SELECT * FROM heartbeat_log WHERE agent_id = :agentId AND state = :state AND triggered_at >= :startOfDay ORDER BY triggered_at DESC LIMIT 1")
+    Mono<HeartbeatLogEntity> findTodayByAgentIdAndState(Long agentId, String state, LocalDateTime startOfDay);
 
     @Query("SELECT * FROM heartbeat_log WHERE agent_id = :agentId ORDER BY triggered_at DESC LIMIT :limit")
     Flux<HeartbeatLogEntity> findRecentByAgentId(Long agentId, int limit);

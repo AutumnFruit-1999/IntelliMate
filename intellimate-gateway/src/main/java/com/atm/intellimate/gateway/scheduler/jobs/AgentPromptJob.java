@@ -9,7 +9,6 @@ import com.atm.intellimate.gateway.scheduler.PromptTemplateRenderer;
 import com.atm.intellimate.gateway.scheduler.ScheduledJob;
 import com.atm.intellimate.gateway.scheduler.model.JobExecutionContext;
 import com.atm.intellimate.gateway.scheduler.model.JobResult;
-import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import com.atm.intellimate.memory.MemorySystem;
 import com.atm.intellimate.memory.model.MemoryChunk;
 import org.slf4j.Logger;
@@ -35,20 +34,17 @@ public class AgentPromptJob implements ScheduledJob {
 
     private final AgentConfigService agentConfigService;
     private final AgentRuntime agentRuntime;
-    private final SessionRegistry sessionRegistry;
     private final PromptTemplateRenderer templateRenderer;
     private final MemorySystem memorySystem;
     private final ChatInjectionService chatInjectionService;
 
     public AgentPromptJob(AgentConfigService agentConfigService,
                           @Lazy AgentRuntime agentRuntime,
-                          SessionRegistry sessionRegistry,
                           PromptTemplateRenderer templateRenderer,
                           MemorySystem memorySystem,
                           ChatInjectionService chatInjectionService) {
         this.agentConfigService = agentConfigService;
         this.agentRuntime = agentRuntime;
-        this.sessionRegistry = sessionRegistry;
         this.templateRenderer = templateRenderer;
         this.memorySystem = memorySystem;
         this.chatInjectionService = chatInjectionService;
@@ -130,9 +126,15 @@ public class AgentPromptJob implements ScheduledJob {
                                     if (event instanceof AgentEvent.TextChunk chunk) {
                                         responseText.updateAndGet(s -> s + chunk.text());
                                     } else if (event instanceof AgentEvent.Done done) {
+                                        log.info("AgentPromptJob [{}]: agent '{}' Done event received, fullText length={}",
+                                                context.jobName(), agentName, done.fullText().length());
                                         responseText.set(done.fullText());
                                     }
                                 })
+                                .doOnComplete(() -> log.info("AgentPromptJob [{}]: dispatch flux completed for agent '{}'",
+                                        context.jobName(), agentName))
+                                .doOnError(e -> log.error("AgentPromptJob [{}]: dispatch flux error for agent '{}': {}",
+                                        context.jobName(), agentName, e.getMessage()))
                                 .then(Mono.fromSupplier(responseText::get))
                                 .flatMap(response -> chatInjectionService
                                         .injectAgentMessage(agentName, response,
@@ -147,13 +149,6 @@ public class AgentPromptJob implements ScheduledJob {
                                     String summary = response.length() > 200
                                             ? response.substring(0, 200) + "..."
                                             : response;
-
-                                    sessionRegistry.broadcast("scheduler.agent.response", Map.of(
-                                            "agentName", agentName,
-                                            "jobName", context.jobName(),
-                                            "response", summary,
-                                            "templateMode", isTemplate
-                                    ));
 
                                     return JobResult.ok("Agent responded (" + response.length() + " chars)", Map.of(
                                             "agentName", agentName,

@@ -72,6 +72,13 @@ public class SessionRegistry {
         return delivered;
     }
 
+    public boolean pushToSession(String wsSessionId, String eventType, Map<String, Object> payload) {
+        Sinks.Many<GatewayFrame> sink = sessionSinks.get(wsSessionId);
+        if (sink == null) return false;
+        EventFrame frame = new EventFrame(eventType, payload, seqGenerator.incrementAndGet());
+        return sink.tryEmitNext(frame).isSuccess();
+    }
+
     public void broadcast(String eventType, Map<String, Object> payload) {
         if (sessionSinks.isEmpty()) return;
         EventFrame frame = new EventFrame(eventType, payload, seqGenerator.incrementAndGet());
