@@ -48,12 +48,14 @@
 
 ### 四种状态
 
-| 状态 | 说明 | 时间范围 | 行为 |
-|------|------|----------|------|
-| SLEEPING（休眠中） | Agent 处于休息时段 | sleepTime 至 wakeTime | 完全静默，不执行任何心跳或任务提醒 |
-| WAKING（刚醒来） | Agent 刚起床的第一个小时 | wakeTime 至 wakeTime+1h | 发送早安问候，提及今天的待办。每天仅触发一次 |
-| ACTIVE（活跃中） | Agent 正常活跃时段 | wakeTime+1h 至 sleepTime-2h | 按间隔检查，有到期任务时主动提醒；无任务时保持静默 |
-| WINDING_DOWN（准备休息） | 即将进入休眠的两小时 | sleepTime-2h 至 sleepTime | 总结今天、提醒明天事项。每天仅触发一次 |
+
+| 状态                 | 说明              | 时间范围                       | 行为                        |
+| ------------------ | --------------- | -------------------------- | ------------------------- |
+| SLEEPING（休眠中）      | Agent 处于休息时段    | sleepTime 至 wakeTime       | 完全静默，不执行任何心跳或任务提醒         |
+| WAKING（刚醒来）        | Agent 刚起床的第一个小时 | wakeTime 至 wakeTime+1h     | 发送早安问候，提及今天的待办。每天仅触发一次    |
+| ACTIVE（活跃中）        | Agent 正常活跃时段    | wakeTime+1h 至 sleepTime-2h | 按间隔检查，有到期任务时主动提醒；无任务时保持静默 |
+| WINDING_DOWN（准备休息） | 即将进入休眠的两小时      | sleepTime-2h 至 sleepTime   | 总结今天、提醒明天事项。每天仅触发一次       |
+
 
 ### 状态计算示例
 
@@ -201,36 +203,42 @@ Agent 任务（`agent_task` 表）可以设置 `remind_at` 字段指定提醒时
 
 ### heartbeat_config 表
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | BIGINT | 主键 |
-| agent_id | BIGINT | 关联的 Agent ID |
-| enabled | INT | 是否启用（1=启用，0=禁用） |
-| timezone | VARCHAR | Agent 时区（如 Asia/Shanghai） |
-| wake_time | VARCHAR | 起床时间（HH:mm 格式） |
-| sleep_time | VARCHAR | 睡觉时间（HH:mm 格式） |
-| heartbeat_interval_minutes | INT | ACTIVE 状态下的心跳间隔（分钟） |
+
+| 字段                         | 类型      | 说明                        |
+| -------------------------- | ------- | ------------------------- |
+| id                         | BIGINT  | 主键                        |
+| agent_id                   | BIGINT  | 关联的 Agent ID              |
+| enabled                    | INT     | 是否启用（1=启用，0=禁用）           |
+| timezone                   | VARCHAR | Agent 时区（如 Asia/Shanghai） |
+| wake_time                  | VARCHAR | 起床时间（HH:mm 格式）            |
+| sleep_time                 | VARCHAR | 睡觉时间（HH:mm 格式）            |
+| heartbeat_interval_minutes | INT     | ACTIVE 状态下的心跳间隔（分钟）       |
+
 
 ### heartbeat_log 表
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | BIGINT | 主键 |
-| agent_id | BIGINT | Agent ID |
-| state | VARCHAR | 触发时的生命周期状态 |
-| triggered_at | DATETIME | 触发时间 |
-| prompt_used | TEXT | 发送给 LLM 的 prompt |
-| response | TEXT | LLM 返回的回复内容 |
-| delivered | INT | 投递状态 |
+
+| 字段           | 类型       | 说明               |
+| ------------ | -------- | ---------------- |
+| id           | BIGINT   | 主键               |
+| agent_id     | BIGINT   | Agent ID         |
+| state        | VARCHAR  | 触发时的生命周期状态       |
+| triggered_at | DATETIME | 触发时间             |
+| prompt_used  | TEXT     | 发送给 LLM 的 prompt |
+| response     | TEXT     | LLM 返回的回复内容      |
+| delivered    | INT      | 投递状态             |
+
 
 ### agent_task 表（心跳相关字段）
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
+
+| 字段        | 类型       | 说明                           |
+| --------- | -------- | ---------------------------- |
 | remind_at | DATETIME | 提醒时间。到期后心跳引擎会触发提醒，处理后置为 NULL |
-| due_at | DATETIME | 截止时间。用于构建 LLM prompt 中的任务上下文 |
-| priority | INT | 优先级。0=普通，1=重要，2=紧急 |
-| status | VARCHAR | 任务状态。pending 状态的任务参与心跳提醒判定 |
+| due_at    | DATETIME | 截止时间。用于构建 LLM prompt 中的任务上下文 |
+| priority  | INT      | 优先级。0=普通，1=重要，2=紧急           |
+| status    | VARCHAR  | 任务状态。pending 状态的任务参与心跳提醒判定   |
+
 
 ## 配置参数
 
@@ -245,6 +253,7 @@ intellimate:
 ```
 
 每个 Agent 的心跳行为通过 `heartbeat_config` 表独立配置：
+
 - `timezone`：决定生命周期状态计算的时区基准
 - `wake_time` / `sleep_time`：定义 Agent 的作息时间
 - `heartbeat_interval_minutes`：ACTIVE 状态下的检查间隔
@@ -264,21 +273,25 @@ proactive 消息通过 session 的 `context_id LIKE 'proactive::%'` 来识别，
 
 ### 心跳配置管理
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /api/heartbeat/configs | 获取所有心跳配置 |
-| GET | /api/heartbeat/{agentId} | 获取指定 Agent 的心跳配置 |
-| PUT | /api/heartbeat/{agentId} | 更新 Agent 的心跳配置 |
-| GET | /api/heartbeat/{agentId}/state | 获取 Agent 当前生命周期状态 |
-| GET | /api/heartbeat/{agentId}/logs | 获取 Agent 的心跳日志 |
-| POST | /api/heartbeat/{agentId}/trigger | 手动触发一次心跳（跳过触发判定） |
+
+| 方法   | 路径                               | 说明                |
+| ---- | -------------------------------- | ----------------- |
+| GET  | /api/heartbeat/configs           | 获取所有心跳配置          |
+| GET  | /api/heartbeat/{agentId}         | 获取指定 Agent 的心跳配置  |
+| PUT  | /api/heartbeat/{agentId}         | 更新 Agent 的心跳配置    |
+| GET  | /api/heartbeat/{agentId}/state   | 获取 Agent 当前生命周期状态 |
+| GET  | /api/heartbeat/{agentId}/logs    | 获取 Agent 的心跳日志    |
+| POST | /api/heartbeat/{agentId}/trigger | 手动触发一次心跳（跳过触发判定）  |
+
 
 ### WebSocket 事件
 
-| 事件名 | 方向 | 说明 |
-|--------|------|------|
-| agent.proactive | 服务端 → 客户端 | 推送 Agent 主动消息 |
-| agent.bind | 客户端 → 服务端 | 绑定到指定 Agent，触发待发消息回放 |
+
+| 事件名             | 方向        | 说明                   |
+| --------------- | --------- | -------------------- |
+| agent.proactive | 服务端 → 客户端 | 推送 Agent 主动消息        |
+| agent.bind      | 客户端 → 服务端 | 绑定到指定 Agent，开始接收该 Agent 的主动消息 |
+
 
 `agent.proactive` 事件的 payload 结构：
 
