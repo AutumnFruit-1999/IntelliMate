@@ -70,7 +70,6 @@ intellimate:
     dir: ${INTELLIMATE_SKILLS_DIR:../skills/}
   proactive:
     message-ttl-hours: 24
-    replay-limit: 20
   scheduler:
     enabled: true
     tick-period-seconds: 10

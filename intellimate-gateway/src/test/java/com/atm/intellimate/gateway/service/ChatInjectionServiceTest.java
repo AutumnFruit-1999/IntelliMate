@@ -1,8 +1,6 @@
 package com.atm.intellimate.gateway.service;
 
-import com.atm.intellimate.core.config.IntelliMateProperties;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
-import com.atm.intellimate.gateway.repository.TranscriptMessageRepository;
 import com.atm.intellimate.gateway.session.SessionManager;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,14 +23,12 @@ class ChatInjectionServiceTest {
 
     @Mock private SessionRegistry sessionRegistry;
     @Mock private SessionManager sessionManager;
-    @Mock private TranscriptMessageRepository transcriptRepo;
 
     private ChatInjectionService service;
 
     @BeforeEach
     void setUp() {
-        IntelliMateProperties properties = new IntelliMateProperties();
-        service = new ChatInjectionService(sessionRegistry, sessionManager, transcriptRepo, properties);
+        service = new ChatInjectionService(sessionRegistry, sessionManager);
     }
 
     @Test

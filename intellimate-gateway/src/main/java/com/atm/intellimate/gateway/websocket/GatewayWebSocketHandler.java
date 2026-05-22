@@ -6,7 +6,6 @@ import com.atm.intellimate.core.protocol.RequestFrame;
 import com.atm.intellimate.core.protocol.ResponseFrame;
 import com.atm.intellimate.gateway.pipeline.MessagePipeline;
 import com.atm.intellimate.gateway.security.SecurityService;
-import com.atm.intellimate.gateway.service.ChatInjectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.lang.NonNull;
@@ -36,19 +35,16 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
     private final SecurityService securityService;
     private final MessagePipeline messagePipeline;
     private final SessionRegistry sessionRegistry;
-    private final ChatInjectionService chatInjectionService;
     private final AtomicLong seqGenerator = new AtomicLong(0);
 
     public GatewayWebSocketHandler(ProtocolCodec codec,
                                    SecurityService securityService,
                                    MessagePipeline messagePipeline,
-                                   SessionRegistry sessionRegistry,
-                                   ChatInjectionService chatInjectionService) {
+                                   SessionRegistry sessionRegistry) {
         this.codec = codec;
         this.securityService = securityService;
         this.messagePipeline = messagePipeline;
         this.sessionRegistry = sessionRegistry;
-        this.chatInjectionService = chatInjectionService;
     }
 
     @Override
@@ -124,7 +120,6 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
                     receiver.dispose();
                     heartbeat.dispose();
                     sessionRegistry.unregister(session.getId());
-                    chatInjectionService.clearSessionDeliveryState(session.getId());
                     messagePipeline.onWebSocketDisconnect(session.getId());
                     log.info("WebSocket disconnected: sessionId={}, signal={}", session.getId(), signal);
                 });
@@ -152,8 +147,6 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
             if (agentNameObj instanceof String agentName && !agentName.isBlank()) {
                 sessionRegistry.bindAgent(session.getId(), agentName);
                 log.info("Agent bind: agent='{}', session={}", agentName, session.getId());
-                chatInjectionService.deliverPendingMessages(agentName, session.getId())
-                        .subscribe();
             }
             return Flux.empty();
         }
