@@ -74,7 +74,7 @@ public class HeartbeatEngine {
                 .defaultIfEmpty("Agent#" + config.getAgentId())
                 .flatMap(agentName -> {
                     if (!chatInjectionService.isAgentOnline(agentName)) {
-                        return clearDueReminders(config.getAgentId());
+                        return Mono.empty();
                     }
                     return shouldTrigger(config, state)
                             .flatMap(shouldFire -> {
@@ -82,12 +82,6 @@ public class HeartbeatEngine {
                                 return executeBeat(config, state, now);
                             });
                 });
-    }
-
-    private Mono<Void> clearDueReminders(Long agentId) {
-        return taskRepo.findDueReminders(agentId, LocalDateTime.now())
-                .flatMap(task -> taskRepo.clearRemindAt(task.getId(), LocalDateTime.now()))
-                .then();
     }
 
     public Mono<Void> forceHeartbeat(HeartbeatConfigEntity config) {
