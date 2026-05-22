@@ -214,9 +214,12 @@ public class IntelliMateProperties {
 
     public static class Proactive {
         private int messageTtlHours = 24;
+        private int replayLimit = 20;
 
         public int getMessageTtlHours() { return messageTtlHours; }
         public void setMessageTtlHours(int messageTtlHours) { this.messageTtlHours = messageTtlHours; }
+        public int getReplayLimit() { return replayLimit; }
+        public void setReplayLimit(int replayLimit) { this.replayLimit = replayLimit; }
     }
 
     public static class ChannelConfig {
