@@ -25,4 +25,12 @@ public interface SessionManager {
     Mono<Void> resetSession(Long sessionId);
 
     Mono<Long> findOrCreateProactiveSession(String agentName);
+
+    Mono<SessionEntity> findActiveSession(String agentName);
+
+    Mono<SessionEntity> archiveAndCreateNew(String agentName);
+
+    Flux<SessionEntity> getArchivedSessions(String agentName, int limit, int offset);
+
+    Mono<Long> countArchivedSessions(String agentName);
 }

@@ -119,4 +119,63 @@ public class SessionManagerImpl implements SessionManager {
                             .map(SessionEntity::getId);
                 }));
     }
+
+    @Override
+    public Mono<SessionEntity> findActiveSession(String agentName) {
+        return sessionRepository.findActiveByAgentName(agentName)
+                .switchIfEmpty(Mono.defer(() -> {
+                    // 兼容旧数据：查找没有明确 status 的旧 session 并设为 active
+                    return sessionRepository.findBySessionKey("webchat", "dm", agentName)
+                            .flatMap(s -> {
+                                s.setStatus("active");
+                                return sessionRepository.save(s);
+                            });
+                }));
+    }
+
+    @Override
+    public Mono<SessionEntity> archiveAndCreateNew(String agentName) {
+        return findActiveSession(agentName)
+                .flatMap(activeSession ->
+                    transcriptRepository.findRecentBySessionIdNoPlanAfter(
+                            activeSession.getId(),
+                            activeSession.getCreatedAt(),
+                            50
+                    )
+                    .filter(m -> "user".equals(m.getRole()))
+                    .next()
+                    .map(firstMsg -> {
+                        String content = firstMsg.getContent();
+                        return content.length() > 30 ? content.substring(0, 30) : content;
+                    })
+                    .defaultIfEmpty("空对话")
+                    .flatMap(title -> sessionRepository.archiveSession(activeSession.getId(), title))
+                    .then(Mono.defer(() -> createNewActiveSession(agentName)))
+                )
+                .switchIfEmpty(Mono.defer(() -> createNewActiveSession(agentName)));
+    }
+
+    @Override
+    public Flux<SessionEntity> getArchivedSessions(String agentName, int limit, int offset) {
+        return sessionRepository.findArchivedByAgentName(agentName, limit, offset);
+    }
+
+    @Override
+    public Mono<Long> countArchivedSessions(String agentName) {
+        return sessionRepository.countArchivedByAgentName(agentName);
+    }
+
+    private Mono<SessionEntity> createNewActiveSession(String agentName) {
+        SessionEntity newSession = new SessionEntity();
+        newSession.setChannelId("webchat");
+        newSession.setContextType("dm");
+        newSession.setContextId(agentName);
+        newSession.setAgentName(agentName);
+        newSession.setStatus("active");
+        newSession.setLastActiveAt(LocalDateTime.now());
+        newSession.setCreatedAt(LocalDateTime.now());
+        newSession.setDeleted(0);
+        return sessionRepository.save(newSession)
+                .doOnSuccess(s -> log.info("Created new active session: id={}, agent={}", s.getId(), agentName));
+    }
 }
