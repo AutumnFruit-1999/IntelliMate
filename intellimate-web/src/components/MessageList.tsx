@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "../stores/chatStore";
+import { useAgentStore } from "../stores/agentStore";
 import MessageBubble from "./MessageBubble";
 import { ArrowDown } from "lucide-react";
 
@@ -9,8 +11,17 @@ interface MessageListProps {
 
 export default function MessageList({ onSend }: MessageListProps) {
   const messages = useChatStore((s) => s.messages);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { historyHasMore, loadingHistory, loadMoreHistory } = useChatStore(
+    useShallow((s) => ({
+      historyHasMore: s.historyHasMore,
+      loadingHistory: s.loadingHistory,
+      loadMoreHistory: s.loadMoreHistory,
+    }))
+  );
+  const activeAgent = useAgentStore((s) => s.activeAgent);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -52,6 +63,20 @@ export default function MessageList({ onSend }: MessageListProps) {
     }
   }, [messages, autoScroll]);
 
+  useEffect(() => {
+    if (!sentinelRef.current || !historyHasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingHistory && activeAgent) {
+          loadMoreHistory(activeAgent);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [historyHasMore, loadingHistory, activeAgent, loadMoreHistory]);
+
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -68,6 +93,12 @@ export default function MessageList({ onSend }: MessageListProps) {
         onScroll={handleScroll}
         className="h-full overflow-y-auto px-4 md:px-6"
       >
+        <div ref={sentinelRef} className="h-1" />
+        {loadingHistory && (
+          <div className="flex justify-center py-2">
+            <div className="text-xs text-slate-400">加载更早的消息...</div>
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-slate-400 dark:text-slate-500">
             <div className="text-4xl mb-4">🤖</div>
