@@ -74,6 +74,20 @@ public class SessionHistoryController {
                 });
     }
 
+    @GetMapping("/{agentName}/search")
+    public Mono<Map<String, Object>> searchMessages(
+            @PathVariable String agentName,
+            @RequestParam String q,
+            @RequestParam(defaultValue = "20") int limit) {
+        if (q == null || q.isBlank()) {
+            return Mono.just(Map.of("results", List.of()));
+        }
+        return transcriptRepository.searchByAgentNameAndKeyword(agentName, q.trim(), limit)
+                .map(this::toMessageDto)
+                .collectList()
+                .map(results -> Map.<String, Object>of("results", results));
+    }
+
     @GetMapping("/by-id/{sessionId}/messages")
     public Mono<Map<String, Object>> getSessionMessages(
             @PathVariable Long sessionId,

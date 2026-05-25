@@ -33,4 +33,11 @@ public interface TranscriptMessageRepository extends ReactiveCrudRepository<Tran
 
     @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND plan_id IS NULL AND created_at > :after ORDER BY created_at ASC LIMIT :limit")
     Flux<TranscriptMessageEntity> findRecentBySessionIdNoPlanAfter(Long sessionId, LocalDateTime after, int limit);
+
+    @Query("SELECT tm.* FROM transcript_message tm " +
+           "INNER JOIN session s ON tm.session_id = s.id " +
+           "WHERE s.agent_name = :agentName AND s.channel_id = 'webchat' AND s.deleted = 0 " +
+           "AND tm.content LIKE CONCAT('%', :keyword, '%') " +
+           "ORDER BY tm.created_at DESC LIMIT :limit")
+    Flux<TranscriptMessageEntity> searchByAgentNameAndKeyword(String agentName, String keyword, int limit);
 }
