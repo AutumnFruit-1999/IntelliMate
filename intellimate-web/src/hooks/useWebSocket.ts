@@ -22,6 +22,7 @@ const PLAN_STALE_THRESHOLD_MS = 60_000;
 
 export function useWebSocket() {
   const clientRef = useRef<WsClient | null>(null);
+  const sendMessageRef = useRef<(text: string, forcePlan?: boolean, regenerate?: boolean) => void>(() => {});
   const timeoutTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
@@ -122,6 +123,11 @@ export function useWebSocket() {
                 !["completed", "cancelled", "failed"].includes(planState.plan.status)) {
               store.snapshotStepGroup();
               usePlanStore.getState().syncFromServer(planState.plan.planId);
+            }
+            const queued = useChatStore.getState().queuedMessage;
+            if (queued) {
+              useChatStore.getState().setQueuedMessage(null);
+              setTimeout(() => sendMessageRef.current(queued), 100);
             }
             break;
           }
@@ -454,6 +460,8 @@ export function useWebSocket() {
     }, REQUEST_TIMEOUT_MS);
     timeoutTimers.current.set(req.id, timer);
   }, []);
+
+  sendMessageRef.current = sendMessage;
 
   const sendPlanAction = useCallback((request: RequestFrame) => {
     const client = clientRef.current;

@@ -58,6 +58,7 @@ interface ChatState {
   connectionState: ConnectionState;
   wsSessionId: string | null;
   isWaiting: boolean;
+  queuedMessage: string | null;
   pendingForcePlan: { text: string } | null;
 
   messages: ChatMessage[];
@@ -75,6 +76,7 @@ interface ChatState {
 
   setConnectionState: (state: ConnectionState) => void;
   setWsSessionId: (id: string) => void;
+  setQueuedMessage: (msg: string | null) => void;
   addUserMessage: (text: string, requestId: string, regenerate?: boolean) => void;
   removeLastAssistantMessage: () => void;
   appendChunk: (requestId: string, chunk: string) => void;
@@ -140,6 +142,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   connectionState: "disconnected",
   wsSessionId: null,
   isWaiting: false,
+  queuedMessage: null,
   reconnectAttempt: 0,
   reconnectCountdown: 0,
   pendingForcePlan: null,
@@ -186,6 +189,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setConnectionState: (connectionState) => set({ connectionState }),
 
   setWsSessionId: (wsSessionId) => set({ wsSessionId }),
+
+  setQueuedMessage: (msg) => set({ queuedMessage: msg }),
 
   addUserMessage: (text, requestId, regenerate) => {
     const agentState = useAgentStore.getState();
