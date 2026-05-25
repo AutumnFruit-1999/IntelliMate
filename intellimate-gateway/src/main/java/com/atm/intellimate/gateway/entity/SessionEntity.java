@@ -15,6 +15,8 @@ public class SessionEntity {
     private String contextType;
     private String contextId;
     private String agentName;
+    private String status;
+    private String title;
     private LocalDateTime lastActiveAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -30,6 +32,10 @@ public class SessionEntity {
     public void setContextId(String contextId) { this.contextId = contextId; }
     public String getAgentName() { return agentName; }
     public void setAgentName(String agentName) { this.agentName = agentName; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
     public LocalDateTime getLastActiveAt() { return lastActiveAt; }
     public void setLastActiveAt(LocalDateTime lastActiveAt) { this.lastActiveAt = lastActiveAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
