@@ -20,6 +20,7 @@ import com.atm.intellimate.gateway.session.SessionManager;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -80,8 +81,20 @@ public class MessagePipeline {
         this.sessionRepository = sessionRepository;
     }
 
-    @SuppressWarnings("unchecked")
     public Flux<GatewayFrame> processRequest(RequestFrame request, String wsSessionId) {
+        return withTraceMdc(buildRequestFlux(request, wsSessionId));
+    }
+
+    private Flux<GatewayFrame> withTraceMdc(Flux<GatewayFrame> flux) {
+        return flux.transformDeferredContextual((f, ctx) -> {
+            String traceId = ctx.getOrDefault("traceId", "none");
+            return f.doOnSubscribe(s -> MDC.put("traceId", traceId))
+                    .doFinally(signal -> MDC.remove("traceId"));
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private Flux<GatewayFrame> buildRequestFlux(RequestFrame request, String wsSessionId) {
         if ("conversation.cancel".equals(request.method())) {
             return processCancelRequest(request, wsSessionId);
         }
