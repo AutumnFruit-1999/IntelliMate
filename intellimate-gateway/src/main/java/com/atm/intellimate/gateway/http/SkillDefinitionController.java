@@ -1,5 +1,9 @@
 package com.atm.intellimate.gateway.http;
 
+import com.atm.intellimate.core.exception.ErrorCode;
+import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.dto.ApiResponse;
+import com.atm.intellimate.gateway.dto.SkillDTO;
 import com.atm.intellimate.gateway.entity.SkillDefinitionEntity;
 import com.atm.intellimate.gateway.entity.SkillVersionEntity;
 import com.atm.intellimate.gateway.repository.SkillDefinitionRepository;
@@ -9,12 +13,10 @@ import com.atm.intellimate.gateway.service.SkillFileService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -47,34 +49,39 @@ public class SkillDefinitionController {
     }
 
     @GetMapping
-    public Mono<List<SkillDefinitionEntity>> listAll() {
-        return repository.findAll().collectList();
+    public Mono<ApiResponse<List<SkillDTO>>> listAll() {
+        return repository.findAll()
+                .map(SkillDTO::fromEntity)
+                .collectList()
+                .map(ApiResponse::ok);
     }
 
     @GetMapping("/{id}")
-    public Mono<SkillDefinitionEntity> getById(@PathVariable Long id) {
+    public Mono<ApiResponse<SkillDTO>> getById(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+                .map(SkillDTO::fromEntity)
+                .map(ApiResponse::ok)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)));
     }
 
     @PostMapping
-    public Mono<SkillDefinitionEntity> create(@RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<SkillDTO>> create(@RequestBody Map<String, Object> body) {
         return Mono.defer(() -> {
             String name = (String) body.get("name");
             if (name == null || !SKILL_NAME_PATTERN.matcher(name).matches()) {
-                return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED,
                         "Skill 名称必须以字母开头，只能包含字母、数字、下划线和连字符，最长 128 字符"));
             }
 
             String description = (String) body.get("description");
             if (description == null || description.isBlank()) {
-                return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED,
                         "description（触发描述）不能为空"));
             }
 
             return repository.findByName(name)
                     .flatMap(existing -> Mono.<SkillDefinitionEntity>error(
-                            new ResponseStatusException(HttpStatus.CONFLICT, "Skill 名称已存在: " + name)))
+                            new IntelliMateException(ErrorCode.VALIDATION_FAILED, "Skill 名称已存在: " + name)))
                     .switchIfEmpty(Mono.defer(() -> {
                         String content = (String) body.get("content");
 
@@ -95,32 +102,36 @@ public class SkillDefinitionController {
                                 .doOnNext(saved -> {
                                     fileService.createSkillDirectory(name, content);
                                 });
-                    }));
+                    }))
+                    .map(SkillDTO::fromEntity)
+                    .map(ApiResponse::ok);
         });
     }
 
     @PutMapping("/{id}")
-    public Mono<SkillDefinitionEntity> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<SkillDTO>> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
                 .flatMap(entity -> {
                     if (body.containsKey("name")) {
                         String name = (String) body.get("name");
                         if (name != null && !SKILL_NAME_PATTERN.matcher(name).matches()) {
-                            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED,
                                     "Skill 名称格式不合法"));
                         }
                         return repository.findByName(name)
                                 .filter(existing -> !existing.getId().equals(id))
                                 .flatMap(dup -> Mono.<SkillDefinitionEntity>error(
-                                        new ResponseStatusException(HttpStatus.CONFLICT, "Skill 名称已存在: " + name)))
+                                        new IntelliMateException(ErrorCode.VALIDATION_FAILED, "Skill 名称已存在: " + name)))
                                 .switchIfEmpty(Mono.defer(() -> {
                                     entity.setName(name);
                                     return applyUpdates(entity, body);
                                 }));
                     }
                     return applyUpdates(entity, body);
-                });
+                })
+                .map(SkillDTO::fromEntity)
+                .map(ApiResponse::ok);
     }
 
     private Mono<SkillDefinitionEntity> applyUpdates(SkillDefinitionEntity entity, Map<String, Object> body) {
@@ -170,14 +181,14 @@ public class SkillDefinitionController {
     }
 
     @DeleteMapping("/{id}")
-    public Mono<Map<String, Object>> delete(@PathVariable Long id) {
+    public Mono<ApiResponse<Map<String, Object>>> delete(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
                 .flatMap(entity -> repository.delete(entity).thenReturn(entity))
                 .doOnNext(deleted -> fileService.deleteSkillDirectory(deleted.getName()))
-                .map(deleted -> Map.<String, Object>of(
+                .map(deleted -> ApiResponse.ok(Map.<String, Object>of(
                         "success", true,
-                        "deletedName", deleted.getName()));
+                        "deletedName", deleted.getName())));
     }
 
     // ─── Export ───
@@ -185,7 +196,7 @@ public class SkillDefinitionController {
     @GetMapping("/{id}/export")
     public Mono<ResponseEntity<String>> exportSkillMd(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
                 .map(entity -> {
                     StringBuilder sb = new StringBuilder();
                     sb.append("---\n");
@@ -214,7 +225,7 @@ public class SkillDefinitionController {
     @GetMapping("/{id}/export/zip")
     public Mono<ResponseEntity<byte[]>> exportSkillZip(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
                 .map(entity -> {
                     byte[] zipData = fileService.zipSkillDirectory(entity.getName());
                     return ResponseEntity.ok()
@@ -228,19 +239,19 @@ public class SkillDefinitionController {
     // ─── File Management ───
 
     @GetMapping("/{id}/files")
-    public Mono<SkillFileService.SkillFiles> listFiles(@PathVariable Long id) {
+    public Mono<ApiResponse<SkillFileService.SkillFiles>> listFiles(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
-                .map(entity -> fileService.listFiles(entity.getName()));
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
+                .map(entity -> ApiResponse.ok(fileService.listFiles(entity.getName())));
     }
 
     @PostMapping("/{id}/files/{type}")
-    public Mono<Map<String, Object>> uploadFile(
+    public Mono<ApiResponse<Map<String, Object>>> uploadFile(
             @PathVariable Long id,
             @PathVariable String type,
             @RequestPart("file") FilePart filePart) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
                 .flatMap(entity -> filePart.content()
                         .map(dataBuffer -> {
                             byte[] bytes = new byte[dataBuffer.readableByteCount()];
@@ -259,28 +270,28 @@ public class SkillDefinitionController {
                             return entity;
                         }).subscribeOn(Schedulers.boundedElastic()))
                         .flatMap(ent -> updateFileFlags(ent))
-                        .map(saved -> Map.<String, Object>of(
+                        .map(saved -> ApiResponse.ok(Map.<String, Object>of(
                                 "success", true,
                                 "filename", filePart.filename(),
-                                "type", type)));
+                                "type", type))));
     }
 
     @DeleteMapping("/{id}/files/{type}/{filename}")
-    public Mono<Map<String, Object>> deleteFile(
+    public Mono<ApiResponse<Map<String, Object>>> deleteFile(
             @PathVariable Long id,
             @PathVariable String type,
             @PathVariable String filename) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
                 .flatMap(entity -> Mono.fromCallable(() -> {
                     fileService.deleteFile(entity.getName(), type, filename);
                     return entity;
                 }).subscribeOn(Schedulers.boundedElastic()))
                 .flatMap(ent -> updateFileFlags(ent))
-                .map(saved -> Map.<String, Object>of(
+                .map(saved -> ApiResponse.ok(Map.<String, Object>of(
                         "success", true,
                         "deletedFile", filename,
-                        "type", type));
+                        "type", type)));
     }
 
     private Mono<SkillDefinitionEntity> updateFileFlags(SkillDefinitionEntity entity) {
@@ -295,26 +306,28 @@ public class SkillDefinitionController {
     // ─── Version Management ───
 
     @GetMapping("/{id}/versions")
-    public Mono<List<SkillVersionEntity>> listVersions(@PathVariable Long id) {
+    public Mono<ApiResponse<List<SkillVersionEntity>>> listVersions(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
-                .flatMap(entity -> versionRepository.findAllBySkillIdOrderByVersionDesc(id).collectList());
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
+                .flatMap(entity -> versionRepository.findAllBySkillIdOrderByVersionDesc(id).collectList())
+                .map(ApiResponse::ok);
     }
 
     @GetMapping("/{id}/versions/{version}")
-    public Mono<SkillVersionEntity> getVersion(@PathVariable Long id, @PathVariable Integer version) {
+    public Mono<ApiResponse<SkillVersionEntity>> getVersion(@PathVariable Long id, @PathVariable Integer version) {
         return versionRepository.findBySkillIdAndVersion(id, version)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,
+                .map(ApiResponse::ok)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND,
                         "Version " + version + " not found")));
     }
 
     @PostMapping("/{id}/rollback/{version}")
-    public Mono<SkillDefinitionEntity> rollback(@PathVariable Long id, @PathVariable Integer version) {
+    public Mono<ApiResponse<SkillDTO>> rollback(@PathVariable Long id, @PathVariable Integer version) {
         return Mono.zip(
                 repository.findById(id)
-                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND))),
+                        .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND))),
                 versionRepository.findBySkillIdAndVersion(id, version)
-                        .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND,
                                 "Version " + version + " not found")))
         ).flatMap(tuple -> {
             var current = tuple.getT1();
@@ -328,13 +341,15 @@ public class SkillDefinitionController {
                         fileService.updateSkillContent(current.getName(), target.getContent());
                         return repository.save(current);
                     }));
-        });
+        })
+                .map(SkillDTO::fromEntity)
+                .map(ApiResponse::ok);
     }
 
     // ─── Usage Statistics ───
 
     @GetMapping("/stats")
-    public Mono<List<Map<String, Object>>> usageStats() {
+    public Mono<ApiResponse<List<Map<String, Object>>>> usageStats() {
         return usageLogRepository.findUsageStats()
                 .map(row -> {
                     Map<String, Object> map = new java.util.HashMap<>();
@@ -343,19 +358,20 @@ public class SkillDefinitionController {
                     map.put("lastActivatedAt", row.getLastAt() != null ? row.getLastAt().toString() : "");
                     return map;
                 })
-                .collectList();
+                .collectList()
+                .map(ApiResponse::ok);
     }
 
     @GetMapping("/{id}/stats")
-    public Mono<Map<String, Object>> skillStats(@PathVariable Long id) {
+    public Mono<ApiResponse<Map<String, Object>>> skillStats(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
                 .flatMap(entity -> usageLogRepository.countBySkillName(entity.getName())
                         .map(count -> {
                             Map<String, Object> map = new java.util.HashMap<>();
                             map.put("skillName", entity.getName() != null ? entity.getName() : "");
                             map.put("totalActivations", count);
-                            return map;
+                            return ApiResponse.ok(map);
                         }));
     }
 

@@ -2,15 +2,16 @@ package com.atm.intellimate.gateway.http;
 
 import com.atm.intellimate.agent.runtime.AgentEvent;
 import com.atm.intellimate.agent.runtime.AgentRuntime;
+import com.atm.intellimate.core.exception.ErrorCode;
+import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.dto.ApiResponse;
 import com.atm.intellimate.gateway.entity.AgentMemoryArchiveEntity;
 import com.atm.intellimate.gateway.entity.AgentMemoryEntity;
 import com.atm.intellimate.gateway.repository.AgentMemoryArchiveRepository;
 import com.atm.intellimate.gateway.repository.AgentMemoryRepository;
 import com.atm.intellimate.gateway.service.MemoryConfigService;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -38,7 +39,7 @@ public class MemoryController {
     }
 
     @GetMapping("/config")
-    public Mono<Map<String, Object>> getConfig() {
+    public Mono<ApiResponse<Map<String, Object>>> getConfig() {
         return configService.resolveGrouped().map(items -> {
             Map<String, Object> grouped = new LinkedHashMap<>();
             Map<String, Object> working = new LinkedHashMap<>();
@@ -64,24 +65,24 @@ public class MemoryController {
             grouped.put("working", working);
             grouped.put("consolidation", consolidation);
             grouped.put("longTerm", longTerm);
-            return grouped;
+            return ApiResponse.ok(grouped);
         });
     }
 
     @PutMapping("/config")
-    public Mono<Map<String, String>> updateConfig(@RequestBody Map<String, String> updates) {
+    public Mono<ApiResponse<Map<String, String>>> updateConfig(@RequestBody Map<String, String> updates) {
         return configService.updateConfig(updates)
-                .then(Mono.just(Map.of("success", "true")));
+                .then(Mono.just(ApiResponse.ok(Map.of("success", "true"))));
     }
 
     @PostMapping("/config/reset")
-    public Mono<Map<String, String>> resetConfig() {
+    public Mono<ApiResponse<Map<String, String>>> resetConfig() {
         return configService.resetToDefaults()
-                .then(Mono.just(Map.of("success", "true")));
+                .then(Mono.just(ApiResponse.ok(Map.of("success", "true"))));
     }
 
     @GetMapping("/long-term")
-    public Mono<List<Map<String, Object>>> getLongTermMemories(
+    public Mono<ApiResponse<List<Map<String, Object>>>> getLongTermMemories(
             @RequestParam(required = false) String userId,
             @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "default") String agentId) {
@@ -98,7 +99,7 @@ public class MemoryController {
             m.put("lastAccessedAt", e.getLastAccessedAt());
             m.put("createdAt", e.getCreatedAt());
             return m;
-        }).collectList();
+        }).collectList().map(ApiResponse::ok);
     }
 
     private Flux<AgentMemoryEntity> resolveMemoryQuery(String userId, String agentId, String type) {
@@ -114,35 +115,37 @@ public class MemoryController {
     }
 
     @GetMapping("/long-term/{id}")
-    public Mono<Map<String, Object>> getLongTermMemoryById(@PathVariable Long id) {
+    public Mono<ApiResponse<Map<String, Object>>> getLongTermMemoryById(@PathVariable Long id) {
         return agentMemoryRepository.findById(id)
                 .map(this::toLongTermMap)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory not found")));
+                .map(ApiResponse::ok)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SESSION_NOT_FOUND, "Memory not found")));
     }
 
     @GetMapping("/archive")
-    public Mono<List<Map<String, Object>>> getArchivedMemories(
+    public Mono<ApiResponse<List<Map<String, Object>>>> getArchivedMemories(
             @RequestParam(defaultValue = "default") String userId,
             @RequestParam(defaultValue = "default") String agentId) {
         return agentMemoryArchiveRepository.findByUserIdAndAgentId(userId, agentId)
                 .map(this::toArchiveMap)
-                .collectList();
+                .collectList()
+                .map(ApiResponse::ok);
     }
 
     @DeleteMapping("/long-term/{id}")
-    public Mono<Map<String, String>> deleteLongTermMemory(@PathVariable Long id) {
+    public Mono<ApiResponse<Map<String, String>>> deleteLongTermMemory(@PathVariable Long id) {
         return agentMemoryRepository.existsById(id)
                 .flatMap(exists -> {
                     if (!exists) {
-                        return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory not found"));
+                        return Mono.error(new IntelliMateException(ErrorCode.SESSION_NOT_FOUND, "Memory not found"));
                     }
                     return longTermMemory.deleteById(id)
-                            .then(Mono.just(Map.of("success", "true")));
+                            .then(Mono.just(ApiResponse.ok(Map.of("success", "true"))));
                 });
     }
 
     @GetMapping("/stats")
-    public Mono<Map<String, Object>> getStats(
+    public Mono<ApiResponse<Map<String, Object>>> getStats(
             @RequestParam(defaultValue = "default") String userId,
             @RequestParam(defaultValue = "default") String agentId) {
         return longTermMemory.getStats(userId, agentId).map(stats -> {
@@ -151,15 +154,15 @@ public class MemoryController {
             m.put("semanticCount", stats.semanticCount());
             m.put("proceduralCount", stats.proceduralCount());
             m.put("totalCount", stats.totalCount());
-            return m;
+            return ApiResponse.ok(m);
         });
     }
 
     @GetMapping("/working/{sessionId}")
-    public Mono<Map<String, Object>> getWorkingMemory(@PathVariable Long sessionId) {
+    public Mono<ApiResponse<Map<String, Object>>> getWorkingMemory(@PathVariable Long sessionId) {
         AgentEvent.MemorySnapshot snap = AgentRuntime.getLatestSnapshot(sessionId);
         if (snap == null) {
-            return Mono.just(Map.of("message", "No active working memory for session"));
+            return Mono.just(ApiResponse.ok(Map.of("message", "No active working memory for session")));
         }
         List<Map<String, Object>> chunks = snap.chunks().stream()
                 .map(c -> {
@@ -181,7 +184,7 @@ public class MemoryController {
         body.put("usageRatio", snap.usageRatio());
         body.put("chunkCount", snap.chunkCount());
         body.put("chunks", chunks);
-        return Mono.just(body);
+        return Mono.just(ApiResponse.ok(body));
     }
 
     private Map<String, Object> toLongTermMap(AgentMemoryEntity e) {

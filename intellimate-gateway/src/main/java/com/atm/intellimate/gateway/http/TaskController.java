@@ -1,10 +1,11 @@
 package com.atm.intellimate.gateway.http;
 
+import com.atm.intellimate.core.exception.ErrorCode;
+import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.dto.ApiResponse;
 import com.atm.intellimate.gateway.entity.AgentTaskEntity;
 import com.atm.intellimate.gateway.repository.AgentTaskRepository;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
@@ -22,16 +23,16 @@ public class TaskController {
     }
 
     @GetMapping("/{agentId}")
-    public Mono<List<AgentTaskEntity>> listTasks(@PathVariable Long agentId,
+    public Mono<ApiResponse<List<AgentTaskEntity>>> listTasks(@PathVariable Long agentId,
                                                   @RequestParam(required = false) String status) {
-        if (status != null) {
-            return taskRepo.findByAgentIdAndStatus(agentId, status).collectList();
-        }
-        return taskRepo.findByAgentId(agentId).collectList();
+        Mono<List<AgentTaskEntity>> tasks = status != null
+                ? taskRepo.findByAgentIdAndStatus(agentId, status).collectList()
+                : taskRepo.findByAgentId(agentId).collectList();
+        return tasks.map(ApiResponse::ok);
     }
 
     @PostMapping("/{agentId}")
-    public Mono<AgentTaskEntity> createTask(@PathVariable Long agentId,
+    public Mono<ApiResponse<AgentTaskEntity>> createTask(@PathVariable Long agentId,
                                              @RequestBody Map<String, Object> body) {
         AgentTaskEntity task = new AgentTaskEntity();
         task.setAgentId(agentId);
@@ -43,15 +44,15 @@ public class TaskController {
         task.setPriority(body.get("priority") != null ? ((Number) body.get("priority")).intValue() : 0);
         task.setCreatedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
-        return taskRepo.save(task);
+        return taskRepo.save(task).map(ApiResponse::ok);
     }
 
     @PutMapping("/{agentId}/{taskId}")
-    public Mono<AgentTaskEntity> updateTask(@PathVariable Long agentId,
+    public Mono<ApiResponse<AgentTaskEntity>> updateTask(@PathVariable Long agentId,
                                              @PathVariable Long taskId,
                                              @RequestBody Map<String, Object> body) {
         return taskRepo.findById(taskId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SESSION_NOT_FOUND, "Task not found")))
                 .flatMap(task -> {
                     if (body.containsKey("title")) task.setTitle((String) body.get("title"));
                     if (body.containsKey("description")) task.setDescription((String) body.get("description"));
@@ -63,13 +64,14 @@ public class TaskController {
                         task.setRemindAt(body.get("remindAt") != null ? LocalDateTime.parse((String) body.get("remindAt")) : null);
                     task.setUpdatedAt(LocalDateTime.now());
                     return taskRepo.save(task);
-                });
+                })
+                .map(ApiResponse::ok);
     }
 
     @DeleteMapping("/{agentId}/{taskId}")
-    public Mono<Map<String, Object>> deleteTask(@PathVariable Long agentId,
+    public Mono<ApiResponse<Map<String, Object>>> deleteTask(@PathVariable Long agentId,
                                                  @PathVariable Long taskId) {
         return taskRepo.deleteById(taskId)
-                .thenReturn(Map.<String, Object>of("success", true));
+                .thenReturn(ApiResponse.ok(Map.<String, Object>of("success", true)));
     }
 }

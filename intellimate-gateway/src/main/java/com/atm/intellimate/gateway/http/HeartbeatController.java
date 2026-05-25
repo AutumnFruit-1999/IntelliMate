@@ -1,5 +1,6 @@
 package com.atm.intellimate.gateway.http;
 
+import com.atm.intellimate.gateway.dto.ApiResponse;
 import com.atm.intellimate.gateway.entity.HeartbeatConfigEntity;
 import com.atm.intellimate.gateway.heartbeat.HeartbeatEngine;
 import com.atm.intellimate.gateway.heartbeat.LifecycleState;
@@ -36,7 +37,7 @@ public class HeartbeatController {
     }
 
     @GetMapping("/debug/online/{agentName}")
-    public Map<String, Object> checkAgentOnline(@PathVariable String agentName) {
+    public ApiResponse<Map<String, Object>> checkAgentOnline(@PathVariable String agentName) {
         boolean online = sessionRegistry.isAgentOnline(agentName);
         int pushed = sessionRegistry.pushToAllAgentSessions(agentName, "agent.proactive", Map.of(
                 "agentName", agentName,
@@ -45,26 +46,27 @@ public class HeartbeatController {
                 "source", "debug",
                 "timestamp", System.currentTimeMillis()
         ));
-        return Map.of("agentName", agentName, "online", online, "pushedToSessions", pushed);
+        return ApiResponse.ok(Map.of("agentName", agentName, "online", online, "pushedToSessions", pushed));
     }
 
     @PostMapping("/{agentId}/trigger")
-    public Mono<Map<String, Object>> triggerHeartbeat(@PathVariable Long agentId) {
+    public Mono<ApiResponse<Map<String, Object>>> triggerHeartbeat(@PathVariable Long agentId) {
         return configRepo.findByAgentId(agentId)
                 .flatMap(config -> heartbeatEngine.forceHeartbeat(config)
-                        .thenReturn(Map.<String, Object>of("status", "triggered", "agentId", agentId)))
-                .defaultIfEmpty(Map.of("status", "no_config", "agentId", agentId));
+                        .thenReturn(ApiResponse.ok(Map.<String, Object>of("status", "triggered", "agentId", agentId))))
+                .defaultIfEmpty(ApiResponse.ok(Map.of("status", "no_config", "agentId", agentId)));
     }
 
     @GetMapping("/{agentId}")
-    public Mono<Map<String, Object>> getConfig(@PathVariable Long agentId) {
+    public Mono<ApiResponse<Map<String, Object>>> getConfig(@PathVariable Long agentId) {
         return configRepo.findByAgentId(agentId)
                 .map(this::toDto)
-                .defaultIfEmpty(defaultConfig(agentId));
+                .map(ApiResponse::ok)
+                .defaultIfEmpty(ApiResponse.ok(defaultConfig(agentId)));
     }
 
     @PutMapping("/{agentId}")
-    public Mono<Map<String, Object>> updateConfig(@PathVariable Long agentId,
+    public Mono<ApiResponse<Map<String, Object>>> updateConfig(@PathVariable Long agentId,
                                                    @RequestBody Map<String, Object> body) {
         return configRepo.findByAgentId(agentId)
                 .defaultIfEmpty(newConfig(agentId))
@@ -82,11 +84,12 @@ public class HeartbeatController {
                     config.setUpdatedAt(LocalDateTime.now());
                     return configRepo.save(config);
                 })
-                .map(this::toDto);
+                .map(this::toDto)
+                .map(ApiResponse::ok);
     }
 
     @GetMapping("/{agentId}/state")
-    public Mono<Map<String, Object>> getState(@PathVariable Long agentId) {
+    public Mono<ApiResponse<Map<String, Object>>> getState(@PathVariable Long agentId) {
         return configRepo.findByAgentId(agentId)
                 .map(config -> {
                     ZoneId zone = ZoneId.of(config.getTimezone());
@@ -98,16 +101,17 @@ public class HeartbeatController {
                     dto.put("currentState", state.name());
                     dto.put("stateDescription", state.description());
                     dto.put("currentTime", now.toString());
-                    return dto;
+                    return ApiResponse.ok(dto);
                 })
-                .defaultIfEmpty(Map.of("currentState", "UNCONFIGURED"));
+                .defaultIfEmpty(ApiResponse.ok(Map.of("currentState", "UNCONFIGURED")));
     }
 
     @SuppressWarnings("unchecked")
     @GetMapping("/{agentId}/logs")
-    public Mono<Object> getLogs(@PathVariable Long agentId,
+    public Mono<ApiResponse<Object>> getLogs(@PathVariable Long agentId,
                                 @RequestParam(defaultValue = "20") int limit) {
-        return logRepo.findRecentByAgentId(agentId, limit).collectList().map(l -> (Object) l);
+        return logRepo.findRecentByAgentId(agentId, limit).collectList()
+                .map(list -> ApiResponse.ok((Object) list));
     }
 
     private Map<String, Object> toDto(HeartbeatConfigEntity e) {

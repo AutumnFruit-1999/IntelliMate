@@ -1,15 +1,17 @@
 package com.atm.intellimate.gateway.http;
 
 import com.atm.intellimate.agent.tools.ToolsEngine;
+import com.atm.intellimate.core.exception.ErrorCode;
+import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.dto.ApiResponse;
+import com.atm.intellimate.gateway.dto.McpServerDTO;
 import com.atm.intellimate.gateway.entity.McpServerEntity;
 import com.atm.intellimate.gateway.repository.McpServerRepository;
 import com.atm.intellimate.gateway.service.McpToolProviderImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -40,28 +42,33 @@ public class McpServerController {
     }
 
     @GetMapping
-    public Mono<List<McpServerEntity>> listAll() {
-        return repository.findAll().collectList();
+    public Mono<ApiResponse<List<McpServerDTO>>> listAll() {
+        return repository.findAll()
+                .map(McpServerDTO::fromEntity)
+                .collectList()
+                .map(ApiResponse::ok);
     }
 
     @GetMapping("/{id}")
-    public Mono<McpServerEntity> getById(@PathVariable Long id) {
+    public Mono<ApiResponse<McpServerDTO>> getById(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+                .map(McpServerDTO::fromEntity)
+                .map(ApiResponse::ok)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.MCP_SERVER_NOT_FOUND)));
     }
 
     @PostMapping
-    public Mono<McpServerEntity> create(@RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<McpServerDTO>> create(@RequestBody Map<String, Object> body) {
         return Mono.defer(() -> {
             String name = (String) body.get("name");
             if (name == null || !NAME_PATTERN.matcher(name).matches()) {
-                return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED,
                         "服务名称必须以字母开头，只能包含字母、数字、下划线和短横线，长度 1~64 个字符"));
             }
 
             return repository.findByName(name)
                     .flatMap(existing -> Mono.<McpServerEntity>error(
-                            new ResponseStatusException(HttpStatus.CONFLICT, "服务名称已存在: " + name)))
+                            new IntelliMateException(ErrorCode.VALIDATION_FAILED, "服务名称已存在: " + name)))
                     .switchIfEmpty(Mono.defer(() -> {
                         McpServerEntity entity = new McpServerEntity();
                         entity.setName(name);
@@ -73,20 +80,22 @@ public class McpServerController {
                         entity.setUpdatedAt(LocalDateTime.now());
                         return repository.save(entity);
                     }))
-                    .flatMap(this::tryConnectAndUpdate);
+                    .flatMap(this::tryConnectAndUpdate)
+                    .map(McpServerDTO::fromEntity)
+                    .map(ApiResponse::ok);
         });
     }
 
     @PutMapping("/{id}")
-    public Mono<McpServerEntity> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<McpServerDTO>> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.MCP_SERVER_NOT_FOUND)))
                 .flatMap(entity -> {
                     String oldName = entity.getName();
                     if (body.containsKey("name")) {
                         String name = (String) body.get("name");
                         if (!NAME_PATTERN.matcher(name).matches()) {
-                            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED,
                                     "服务名称必须以字母开头，只能包含字母、数字、下划线和短横线，长度 1~64 个字符"));
                         }
                         entity.setName(name);
@@ -110,23 +119,26 @@ public class McpServerController {
                                 toolsEngine.refresh();
                                 return Mono.just(saved);
                             });
-                });
+                })
+                .map(McpServerDTO::fromEntity)
+                .map(ApiResponse::ok);
     }
 
     @DeleteMapping("/{id}")
-    public Mono<Map<String, Object>> delete(@PathVariable Long id) {
+    public Mono<ApiResponse<Map<String, Object>>> delete(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.MCP_SERVER_NOT_FOUND)))
                 .flatMap(entity -> repository.delete(entity).thenReturn(entity))
                 .doOnNext(entity -> {
                     mcpToolProvider.disconnectServer(entity.getName());
                     toolsEngine.refresh();
                 })
-                .map(entity -> Map.<String, Object>of("success", true, "deletedName", entity.getName()));
+                .map(entity -> ApiResponse.ok(Map.<String, Object>of(
+                        "success", true, "deletedName", entity.getName())));
     }
 
     @PostMapping("/reconnect")
-    public Mono<Map<String, Object>> reconnectAll() {
+    public Mono<ApiResponse<Map<String, Object>>> reconnectAll() {
         return repository.findAllByEnabled(1)
                 .collectList()
                 .flatMap(servers -> Mono.fromCallable(() -> {
@@ -141,28 +153,24 @@ public class McpServerController {
                         }
                     }
                     toolsEngine.refresh();
-                    return Map.<String, Object>of(
+                    return ApiResponse.ok(Map.<String, Object>of(
                             "success", true,
                             "connected", success,
                             "failed", failed,
                             "totalTools", toolsEngine.getMcpCount()
-                    );
+                    ));
                 }).subscribeOn(Schedulers.boundedElastic()));
     }
 
     @PostMapping("/{id}/test")
-    public Mono<Map<String, Object>> test(@PathVariable Long id) {
+    public Mono<ApiResponse<Map<String, Object>>> test(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.MCP_SERVER_NOT_FOUND)))
                 .flatMap(entity -> doTestConnection(entity));
     }
 
-    /**
-     * Test connection with config from request body (no DB record needed).
-     * Allows testing before saving.
-     */
     @PostMapping("/test-config")
-    public Mono<Map<String, Object>> testConfig(@RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<Map<String, Object>>> testConfig(@RequestBody Map<String, Object> body) {
         return Mono.defer(() -> {
             McpServerEntity entity = new McpServerEntity();
             entity.setName((String) body.getOrDefault("name", "test"));
@@ -173,14 +181,14 @@ public class McpServerController {
         });
     }
 
-    private Mono<Map<String, Object>> doTestConnection(McpServerEntity entity) {
+    private Mono<ApiResponse<Map<String, Object>>> doTestConnection(McpServerEntity entity) {
         return Mono.fromCallable(() -> {
             var tools = mcpToolProvider.testConnection(entity);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("success", true);
             result.put("serverName", entity.getName());
             result.put("toolsDiscovered", tools);
-            return result;
+            return ApiResponse.ok(result);
         }).subscribeOn(Schedulers.boundedElastic())
         .onErrorResume(e -> {
             Map<String, Object> err = new LinkedHashMap<>();
@@ -188,14 +196,10 @@ public class McpServerController {
             err.put("serverName", entity.getName());
             err.put("error", e.getMessage());
             err.put("toolsDiscovered", List.of());
-            return Mono.just(err);
+            return Mono.just(ApiResponse.ok(err));
         });
     }
 
-    /**
-     * Try to connect to the MCP server. If connection fails, mark as disconnected
-     * (clear toolsDiscovered) and return the entity -- never propagate the error.
-     */
     private Mono<McpServerEntity> tryConnectAndUpdate(McpServerEntity entity) {
         return Mono.fromCallable(() -> {
             try {

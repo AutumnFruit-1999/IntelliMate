@@ -51,7 +51,9 @@ class MemoryControllerTest {
     void setUp() {
         MemoryController controller = new MemoryController(
                 configService, longTermMemory, agentMemoryRepository, agentMemoryArchiveRepository);
-        client = WebTestClient.bindToController(controller).build();
+        client = WebTestClient.bindToController(controller)
+                .controllerAdvice(new GlobalExceptionHandler())
+                .build();
     }
 
     @Test
@@ -65,8 +67,9 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.working.token_budget.value").isEqualTo("128000")
-                .jsonPath("$.working.token_budget.type").isEqualTo("number");
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.working.token_budget.value").isEqualTo("128000")
+                .jsonPath("$.data.working.token_budget.type").isEqualTo("number");
     }
 
     @Test
@@ -80,7 +83,8 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.success").isEqualTo("true");
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.success").isEqualTo("true");
 
         verify(configService).updateConfig(anyMap());
     }
@@ -94,7 +98,8 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.success").isEqualTo("true");
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.success").isEqualTo("true");
 
         verify(configService).resetToDefaults();
     }
@@ -112,11 +117,12 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$[0].id").isEqualTo(1)
-                .jsonPath("$[0].content").isEqualTo("User prefers dark mode")
-                .jsonPath("$[0].memoryType").isEqualTo("episodic")
-                .jsonPath("$[0].agentId").isEqualTo("default")
-                .jsonPath("$[0].importance").isEqualTo(0.8);
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data[0].id").isEqualTo(1)
+                .jsonPath("$.data[0].content").isEqualTo("User prefers dark mode")
+                .jsonPath("$.data[0].memoryType").isEqualTo("episodic")
+                .jsonPath("$.data[0].agentId").isEqualTo("default")
+                .jsonPath("$.data[0].importance").isEqualTo(0.8);
     }
 
     @Test
@@ -132,8 +138,8 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$[0].agentId").isEqualTo("alpha")
-                .jsonPath("$[0].content").isEqualTo("Agent-specific");
+                .jsonPath("$.data[0].agentId").isEqualTo("alpha")
+                .jsonPath("$.data[0].content").isEqualTo("Agent-specific");
 
         verify(agentMemoryRepository).findByUserIdAndAgentId("default", "alpha");
     }
@@ -151,7 +157,7 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$[0].memoryType").isEqualTo("semantic");
+                .jsonPath("$.data[0].memoryType").isEqualTo("semantic");
     }
 
     @Test
@@ -164,7 +170,8 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.success").isEqualTo("true");
+                .jsonPath("$.success").isEqualTo(true)
+                .jsonPath("$.data.success").isEqualTo("true");
 
         verify(longTermMemory).deleteById(1L);
     }
@@ -189,10 +196,10 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.episodicCount").isEqualTo(5)
-                .jsonPath("$.semanticCount").isEqualTo(10)
-                .jsonPath("$.proceduralCount").isEqualTo(3)
-                .jsonPath("$.totalCount").isEqualTo(18);
+                .jsonPath("$.data.episodicCount").isEqualTo(5)
+                .jsonPath("$.data.semanticCount").isEqualTo(10)
+                .jsonPath("$.data.proceduralCount").isEqualTo(3)
+                .jsonPath("$.data.totalCount").isEqualTo(18);
 
         verify(longTermMemory).getStats("default", "default");
     }
@@ -207,7 +214,7 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.totalCount").isEqualTo(1);
+                .jsonPath("$.data.totalCount").isEqualTo(1);
 
         verify(longTermMemory).getStats("default", "beta");
     }
@@ -222,8 +229,8 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.id").isEqualTo(42)
-                .jsonPath("$.content").isEqualTo("detail");
+                .jsonPath("$.data.id").isEqualTo(42)
+                .jsonPath("$.data.content").isEqualTo("detail");
     }
 
     @Test
@@ -257,9 +264,9 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$[0].id").isEqualTo(10)
-                .jsonPath("$[0].archivedAt").exists()
-                .jsonPath("$[0].content").isEqualTo("cold memory");
+                .jsonPath("$.data[0].id").isEqualTo(10)
+                .jsonPath("$.data[0].archivedAt").exists()
+                .jsonPath("$.data[0].content").isEqualTo("cold memory");
 
         verify(agentMemoryArchiveRepository).findByUserIdAndAgentId("default", "default");
     }
@@ -287,15 +294,15 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.tokenBudget").isEqualTo(128000)
-                .jsonPath("$.tokenUsed").isEqualTo(5000)
-                .jsonPath("$.tokenEstimated").isEqualTo(4800)
-                .jsonPath("$.usageRatio").isEqualTo(0.04)
-                .jsonPath("$.chunkCount").isEqualTo(1)
-                .jsonPath("$.chunks[0].id").isEqualTo("c1")
-                .jsonPath("$.chunks[0].type").isEqualTo("USER")
-                .jsonPath("$.chunks[0].importance").isEqualTo(0.5)
-                .jsonPath("$.chunks[0].tokens").isEqualTo(100);
+                .jsonPath("$.data.tokenBudget").isEqualTo(128000)
+                .jsonPath("$.data.tokenUsed").isEqualTo(5000)
+                .jsonPath("$.data.tokenEstimated").isEqualTo(4800)
+                .jsonPath("$.data.usageRatio").isEqualTo(0.04)
+                .jsonPath("$.data.chunkCount").isEqualTo(1)
+                .jsonPath("$.data.chunks[0].id").isEqualTo("c1")
+                .jsonPath("$.data.chunks[0].type").isEqualTo("USER")
+                .jsonPath("$.data.chunks[0].importance").isEqualTo(0.5)
+                .jsonPath("$.data.chunks[0].tokens").isEqualTo(100);
     }
 
     @Test
@@ -305,7 +312,7 @@ class MemoryControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.message").isEqualTo("No active working memory for session");
+                .jsonPath("$.data.message").isEqualTo("No active working memory for session");
     }
 
     private static AgentMemoryEntity memoryEntity(Long id, String userId, String type,
