@@ -1,3 +1,4 @@
+import { useNavigate, useLocation } from "react-router-dom";
 import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import ConnectionStatus from "./ConnectionStatus";
@@ -7,13 +8,6 @@ import { X, Bot, Settings, Sparkles, Cpu, ClipboardList, Brain, Timer } from "lu
 interface SidebarProps {
   open: boolean;
   onClose: () => void;
-  onOpenAgentManager: () => void;
-  onOpenToolManager: () => void;
-  onOpenSkillManager: () => void;
-  onOpenModelManager: () => void;
-  onOpenPlanHistory: () => void;
-  onOpenMemoryManager: () => void;
-  onOpenScheduler?: () => void;
   onCreateAgent: () => void;
   onSelectAgent: (name: string) => void;
 }
@@ -21,20 +15,20 @@ interface SidebarProps {
 export default function Sidebar({
   open,
   onClose,
-  onOpenAgentManager,
-  onOpenToolManager,
-  onOpenSkillManager,
-  onOpenModelManager,
-  onOpenPlanHistory,
-  onOpenMemoryManager,
-  onOpenScheduler,
   onCreateAgent,
   onSelectAgent,
 }: SidebarProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const wsSessionId = useChatStore((s) => s.wsSessionId);
   const agents = useAgentStore((s) => s.agents);
   const activeAgent = useAgentStore((s) => s.activeAgent);
   const removeAgent = useAgentStore((s) => s.removeAgent);
+
+  const navButtonClass = (path: string) =>
+    `w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors ${
+      location.pathname === path ? "bg-slate-200/80 dark:bg-slate-700" : ""
+    }`;
 
   return (
     <>
@@ -80,70 +74,70 @@ export default function Sidebar({
             <div className="space-y-1">
               <button
                 onClick={() => {
-                  onOpenAgentManager();
+                  navigate("/agents");
                   onClose();
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+                className={navButtonClass("/agents")}
               >
                 <Bot size={16} />
                 Agent 配置
               </button>
               <button
                 onClick={() => {
-                  onOpenToolManager();
+                  navigate("/tools");
                   onClose();
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+                className={navButtonClass("/tools")}
               >
                 <Settings size={16} />
                 工具管理
               </button>
               <button
                 onClick={() => {
-                  onOpenSkillManager();
+                  navigate("/skills");
                   onClose();
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+                className={navButtonClass("/skills")}
               >
                 <Sparkles size={16} />
                 Skills 管理
               </button>
               <button
                 onClick={() => {
-                  onOpenModelManager();
+                  navigate("/models");
                   onClose();
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+                className={navButtonClass("/models")}
               >
                 <Cpu size={16} />
                 模型管理
               </button>
               <button
                 onClick={() => {
-                  onOpenPlanHistory();
+                  navigate("/history");
                   onClose();
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+                className={navButtonClass("/history")}
               >
                 <ClipboardList size={16} />
                 任务历史
               </button>
               <button
                 onClick={() => {
-                  onOpenMemoryManager();
+                  navigate("/memory");
                   onClose();
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+                className={navButtonClass("/memory")}
               >
                 <Brain size={16} />
                 记忆观测
               </button>
               <button
                 onClick={() => {
-                  onOpenScheduler?.();
+                  navigate("/scheduler");
                   onClose();
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors"
+                className={navButtonClass("/scheduler")}
               >
                 <Timer size={16} />
                 调度中心

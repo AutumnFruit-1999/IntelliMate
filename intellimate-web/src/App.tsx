@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import ChatPanel from "./components/ChatPanel";
@@ -17,9 +18,10 @@ import { useAgentStore } from "./stores/agentStore";
 import { useChatStore } from "./stores/chatStore";
 import { usePlanStore } from "./stores/planStore";
 
-type ViewMode = "chat" | "agents" | "planHistory" | "toolManager" | "skillManager" | "modelManager" | "memoryManager" | "scheduler";
-
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("intellimate-theme");
@@ -29,7 +31,6 @@ export default function App() {
     return false;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("chat");
   const [agentConfigTarget, setAgentConfigTarget] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [planPanelOpen, setPlanPanelOpen] = useState(true);
@@ -82,23 +83,19 @@ export default function App() {
         useChatStore.getState().setCurrentAgent(name);
         usePlanStore.getState().clearPlan();
       }
-      setViewMode("chat");
+      navigate("/chat");
     },
-    [activeAgent, setActiveAgent],
+    [activeAgent, setActiveAgent, navigate],
   );
 
   const handleCreateAgent = useCallback(
     async (name: string, model: string) => {
       await createAgent(name, model);
       useChatStore.getState().setCurrentAgent(name);
-      setViewMode("chat");
+      navigate("/chat");
     },
-    [createAgent],
+    [createAgent, navigate],
   );
-
-  const handleOpenAgentManager = useCallback(() => {
-    setViewMode("agents");
-  }, []);
 
   const handleAgentCardClick = useCallback((name: string) => {
     setAgentConfigTarget(name);
@@ -109,13 +106,6 @@ export default function App() {
       <Sidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        onOpenAgentManager={handleOpenAgentManager}
-        onOpenToolManager={() => setViewMode("toolManager")}
-        onOpenSkillManager={() => setViewMode("skillManager")}
-        onOpenModelManager={() => setViewMode("modelManager")}
-        onOpenPlanHistory={() => setViewMode("planHistory")}
-        onOpenMemoryManager={() => setViewMode("memoryManager")}
-        onOpenScheduler={() => setViewMode("scheduler")}
         onCreateAgent={() => setCreateModalOpen(true)}
         onSelectAgent={handleSelectAgent}
       />
@@ -127,28 +117,37 @@ export default function App() {
           agentName={activeAgent}
         />
         <div className="flex flex-1 min-h-0">
-          {viewMode === "chat" ? (
-            <ChatPanel onSend={sendMessage} onCancel={cancelRequest} onSendPlanAction={sendPlanAction} />
-          ) : viewMode === "planHistory" ? (
-            <PlanHistoryTab onBack={() => setViewMode("chat")} />
-          ) : viewMode === "toolManager" ? (
-            <ToolManagerPage onBack={() => setViewMode("chat")} />
-          ) : viewMode === "skillManager" ? (
-            <SkillManagerPage onBack={() => setViewMode("chat")} />
-          ) : viewMode === "modelManager" ? (
-            <ModelManagerPage onBack={() => setViewMode("chat")} />
-          ) : viewMode === "memoryManager" ? (
-            <MemoryManagerPage onBack={() => setViewMode("chat")} activeAgent={activeAgent ?? undefined} />
-          ) : viewMode === "scheduler" ? (
-            <SchedulerDashboard />
-          ) : (
-            <AgentCardGrid
-              onSelectAgent={handleAgentCardClick}
-              onCreateAgent={() => setCreateModalOpen(true)}
-              onBack={() => setViewMode("chat")}
+          <Routes>
+            <Route path="/" element={<Navigate to="/chat" replace />} />
+            <Route
+              path="/chat"
+              element={
+                <ChatPanel onSend={sendMessage} onCancel={cancelRequest} onSendPlanAction={sendPlanAction} />
+              }
             />
-          )}
-          {showPlanPanel && viewMode === "chat" && (
+            <Route path="/history" element={<PlanHistoryTab onBack={() => navigate("/chat")} />} />
+            <Route
+              path="/agents"
+              element={
+                <AgentCardGrid
+                  onSelectAgent={handleAgentCardClick}
+                  onCreateAgent={() => setCreateModalOpen(true)}
+                  onBack={() => navigate("/chat")}
+                />
+              }
+            />
+            <Route path="/tools" element={<ToolManagerPage onBack={() => navigate("/chat")} />} />
+            <Route path="/skills" element={<SkillManagerPage onBack={() => navigate("/chat")} />} />
+            <Route path="/models" element={<ModelManagerPage onBack={() => navigate("/chat")} />} />
+            <Route
+              path="/memory"
+              element={
+                <MemoryManagerPage onBack={() => navigate("/chat")} activeAgent={activeAgent ?? undefined} />
+              }
+            />
+            <Route path="/scheduler" element={<SchedulerDashboard />} />
+          </Routes>
+          {showPlanPanel && location.pathname === "/chat" && (
             planPanelCollapsed ? (
               <div className="w-10 flex-shrink-0 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-col items-center py-3 gap-2">
                 <button
