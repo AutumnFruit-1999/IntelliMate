@@ -1,9 +1,10 @@
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import ConnectionStatus from "./ConnectionStatus";
 import AgentList from "./AgentList";
-import { X, Bot, Settings, Sparkles, Cpu, ClipboardList, Brain, Timer } from "lucide-react";
+import { X, Bot, Settings, Sparkles, Cpu, ClipboardList, Brain, Timer, ChevronDown, ChevronRight } from "lucide-react";
 
 interface SidebarProps {
   open: boolean;
@@ -24,6 +25,16 @@ export default function Sidebar({
   const agents = useAgentStore((s) => s.agents);
   const activeAgent = useAgentStore((s) => s.activeAgent);
   const removeAgent = useAgentStore((s) => s.removeAgent);
+
+  const managementPaths = ["/agents", "/tools", "/skills", "/models", "/memory", "/scheduler"];
+  const isInManagement = managementPaths.some((p) => location.pathname === p);
+  const [managementExpanded, setManagementExpanded] = useState(isInManagement);
+
+  useEffect(() => {
+    if (isInManagement && !managementExpanded) {
+      setManagementExpanded(true);
+    }
+  }, [isInManagement]);
 
   const navButtonClass = (path: string) =>
     `w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors ${
@@ -83,71 +94,77 @@ export default function Sidebar({
           </button>
 
           <div>
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+            <button
+              onClick={() => setManagementExpanded(!managementExpanded)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+            >
+              {managementExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               管理
-            </p>
-            <div className="space-y-1">
-              <button
-                onClick={() => {
-                  navigate("/agents");
-                  onClose();
-                }}
-                className={navButtonClass("/agents")}
-              >
-                <Bot size={16} />
-                Agent 配置
-              </button>
-              <button
-                onClick={() => {
-                  navigate("/tools");
-                  onClose();
-                }}
-                className={navButtonClass("/tools")}
-              >
-                <Settings size={16} />
-                工具管理
-              </button>
-              <button
-                onClick={() => {
-                  navigate("/skills");
-                  onClose();
-                }}
-                className={navButtonClass("/skills")}
-              >
-                <Sparkles size={16} />
-                Skills 管理
-              </button>
-              <button
-                onClick={() => {
-                  navigate("/models");
-                  onClose();
-                }}
-                className={navButtonClass("/models")}
-              >
-                <Cpu size={16} />
-                模型管理
-              </button>
-              <button
-                onClick={() => {
-                  navigate("/memory");
-                  onClose();
-                }}
-                className={navButtonClass("/memory")}
-              >
-                <Brain size={16} />
-                记忆观测
-              </button>
-              <button
-                onClick={() => {
-                  navigate("/scheduler");
-                  onClose();
-                }}
-                className={navButtonClass("/scheduler")}
-              >
-                <Timer size={16} />
-                调度中心
-              </button>
-            </div>
+            </button>
+            {managementExpanded && (
+              <div className="space-y-1 ml-2">
+                <button
+                  onClick={() => {
+                    navigate("/agents");
+                    onClose();
+                  }}
+                  className={navButtonClass("/agents")}
+                >
+                  <Bot size={16} />
+                  Agent 配置
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/tools");
+                    onClose();
+                  }}
+                  className={navButtonClass("/tools")}
+                >
+                  <Settings size={16} />
+                  工具管理
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/skills");
+                    onClose();
+                  }}
+                  className={navButtonClass("/skills")}
+                >
+                  <Sparkles size={16} />
+                  Skills 管理
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/models");
+                    onClose();
+                  }}
+                  className={navButtonClass("/models")}
+                >
+                  <Cpu size={16} />
+                  模型管理
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/memory");
+                    onClose();
+                  }}
+                  className={navButtonClass("/memory")}
+                >
+                  <Brain size={16} />
+                  记忆观测
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/scheduler");
+                    onClose();
+                  }}
+                  className={navButtonClass("/scheduler")}
+                >
+                  <Timer size={16} />
+                  调度中心
+                </button>
+              </div>
+            )}
           </div>
 
           <div>
