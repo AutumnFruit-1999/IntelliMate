@@ -13,13 +13,10 @@ import com.atm.intellimate.agent.tools.ToolsEngine;
 import com.atm.intellimate.agent.tools.WritePlanTool;
 import com.atm.intellimate.core.config.IntelliMateProperties;
 import com.atm.intellimate.memory.MemorySystem;
-import com.atm.intellimate.memory.config.MemoryConfigProvider;
 import com.atm.intellimate.memory.config.ResolvedMemoryConfig;
-import com.atm.intellimate.memory.consolidation.ConsolidationResult;
 import com.atm.intellimate.memory.consolidation.MemoryConsolidator;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.ContentCategory;
-import com.atm.intellimate.memory.model.ExtractedFact;
 import com.atm.intellimate.memory.model.MemoryChunk;
 import com.atm.intellimate.memory.perception.ImportanceAssessor;
 import com.atm.intellimate.memory.retrieval.MemoryRetrieval;
@@ -83,11 +80,11 @@ public class AgentRuntime {
     private final AgentSessionContext agentSessionContext;
     private final IntelliMateProperties properties;
     private final PlanOperations planOperations;
-    private final MemoryConfigProvider memoryConfigProvider;
     private final LongTermMemory longTermMemory;
     private final MemorySystem memorySystem;
     private final DelegationResolver delegationResolver;
     private final AgentPromptBuilder agentPromptBuilder;
+    private final AgentMemoryLifecycle agentMemoryLifecycle;
 
     private static final Set<String> DELEGATION_TOOL_NAMES = Set.of(
             "delegateAgent", "handoffToAgent", "delegateAgentsParallel");
@@ -101,11 +98,11 @@ public class AgentRuntime {
                         AgentSessionContext agentSessionContext,
                         IntelliMateProperties properties,
                         @Autowired(required = false) PlanOperations planOperations,
-                        @Autowired(required = false) MemoryConfigProvider memoryConfigProvider,
                         @Autowired(required = false) LongTermMemory longTermMemory,
                         @Autowired(required = false) MemorySystem memorySystem,
                         @Autowired(required = false) DelegationResolver delegationResolver,
-                        AgentPromptBuilder agentPromptBuilder) {
+                        AgentPromptBuilder agentPromptBuilder,
+                        AgentMemoryLifecycle agentMemoryLifecycle) {
         this.chatModelRegistry = chatModelRegistry;
         this.toolsEngine = toolsEngine;
         this.runQueueManager = runQueueManager;
@@ -115,11 +112,11 @@ public class AgentRuntime {
         this.agentSessionContext = agentSessionContext;
         this.properties = properties;
         this.planOperations = planOperations;
-        this.memoryConfigProvider = memoryConfigProvider;
         this.longTermMemory = longTermMemory;
         this.memorySystem = memorySystem;
         this.delegationResolver = delegationResolver;
         this.agentPromptBuilder = agentPromptBuilder;
+        this.agentMemoryLifecycle = agentMemoryLifecycle;
     }
 
     public Flux<AgentEvent> dispatch(AgentRunRequest request) {
@@ -132,11 +129,6 @@ public class AgentRuntime {
 
     private static final ConcurrentMap<Long, AgentEvent.MemorySnapshot> latestSnapshots = new ConcurrentHashMap<>();
 
-    private record DeferredEpisodicStore(WorkingMemory workingMemory, LongTermMemory ltm,
-                                          String userId, String agentId, Long sessionId,
-                                          int minChunksForEpisodic) {}
-    private static final ConcurrentMap<Long, DeferredEpisodicStore> deferredEpisodicStores = new ConcurrentHashMap<>();
-
     public static AgentEvent.MemorySnapshot getLatestSnapshot(Long sessionId) {
         return latestSnapshots.get(sessionId);
     }
@@ -146,10 +138,7 @@ public class AgentRuntime {
      * Only stores if chunks > 4 and no prior episodic was generated during this session.
      */
     public void flushDeferredEpisodicMemory(Long sessionId) {
-        DeferredEpisodicStore deferred = deferredEpisodicStores.remove(sessionId);
-        if (deferred == null) return;
-        storeSessionEpisodicMemory(deferred.workingMemory(), deferred.ltm(),
-                deferred.userId(), deferred.agentId(), deferred.sessionId(), deferred.minChunksForEpisodic());
+        agentMemoryLifecycle.flushDeferredEpisodicMemory(sessionId);
     }
 
     public void registerWsRun(String wsSessionId, org.reactivestreams.Subscription subscription) {
@@ -278,7 +267,7 @@ public class AgentRuntime {
             PlanStepTracker planStepTracker = request.activePlanId() != null && planOperations != null
                     ? new PlanStepTracker(request.activePlanId(), planOperations) : null;
 
-            return loadMemoryInitReactive(tokenEstimator)
+            return agentMemoryLifecycle.loadMemoryInitReactive(tokenEstimator)
                     .flatMapMany(memoryInit -> {
                         MemoryConsolidator consolidator = memoryInit.consolidator() != null
                                 ? memoryInit.consolidator()
@@ -385,76 +374,11 @@ public class AgentRuntime {
                                             }
                                             if (longTermMemory != null && ltEnabled && request.activePlanId() == null) {
                                                 int minChunks = resolvedMem != null ? resolvedMem.minChunksForEpisodic() : 4;
-                                                deferEpisodicStore(workingMemory, longTermMemory, sessionUserId, agentId, request.sessionId(), minChunks);
+                                                agentMemoryLifecycle.deferEpisodicStore(workingMemory, longTermMemory, sessionUserId, agentId, request.sessionId(), minChunks);
                                             }
                                         }));
                     });
         });
-    }
-
-    private record MemoryInit(ResolvedMemoryConfig resolved, MemoryConsolidator consolidator) {}
-
-    /**
-     * Resolves DB-backed memory config once per run for WorkingMemory thresholds,
-     * consolidator construction, and long-term retrieval settings.
-     */
-    private Mono<MemoryInit> loadMemoryInitReactive(TokenEstimator tokenEstimator) {
-        if (memoryConfigProvider == null) {
-            return Mono.just(new MemoryInit(null, null));
-        }
-        return memoryConfigProvider.resolve()
-                .timeout(Duration.ofSeconds(2))
-                .map(memConfig -> new MemoryInit(memConfig, createMemoryConsolidator(memConfig, tokenEstimator)))
-                .defaultIfEmpty(new MemoryInit(null, null))
-                .onErrorResume(e -> {
-                    log.warn("Failed to load memory config, using defaults: {}", e.getMessage());
-                    return Mono.just(new MemoryInit(null, null));
-                });
-    }
-
-    private MemoryConsolidator createMemoryConsolidator(ResolvedMemoryConfig memConfig, TokenEstimator tokenEstimator) {
-        try {
-            ResolvedModel consolidationModel = resolveModel(memConfig.consolidationModel());
-            ChatModel fallbackChatModel = null;
-            String fallbackModelId = null;
-            try {
-                ResolvedModel fallbackResolved = resolveModel(memConfig.fallbackModel());
-                fallbackChatModel = fallbackResolved.chatModel();
-                fallbackModelId = fallbackResolved.modelId();
-            } catch (Exception ignored) {
-                // optional fallback model
-            }
-            LongTermMemory effectiveLtm = memConfig.longTermEnabled() ? longTermMemory : null;
-            return new MemoryConsolidator(
-                    consolidationModel.chatModel(),
-                    fallbackChatModel,
-                    effectiveLtm,
-                    tokenEstimator,
-                    memConfig.maxSummaryTokens(),
-                    memConfig.maxRetries(),
-                    memConfig.timeoutMs(),
-                    consolidationModel.modelId(),
-                    fallbackModelId);
-        } catch (Exception e) {
-            log.warn("Failed to create MemoryConsolidator, using null: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    private static AgentEvent.ConsolidationTriggered toConsolidationTriggeredEvent(
-            ConsolidationResult cr, WorkingMemory workingMemory) {
-        WorkingMemory.MemorySnapshot snap = workingMemory.getSnapshot();
-        int tokensBefore = cr.tokensBefore() >= 0 ? cr.tokensBefore() : snap.tokenUsed();
-        int tokensAfter = cr.tokensAfter() >= 0 ? cr.tokensAfter() : snap.tokenUsed();
-        List<String> factStrings = cr.facts().stream()
-                .map(f -> f.content())
-                .toList();
-        List<AgentEvent.ChunkPreview> candidates = cr.sourceChunkPreviews().stream()
-                .map(p -> new AgentEvent.ChunkPreview(p.type(), p.tokens(), p.importance(), p.preview()))
-                .toList();
-        return new AgentEvent.ConsolidationTriggered(
-                cr.sourceChunkCount(), tokensBefore, tokensAfter, factStrings,
-                candidates, cr.factsStoredToLongTerm());
     }
 
     private Flux<AgentEvent> executeLoopTurn(
@@ -839,7 +763,7 @@ public class AgentRuntime {
                 .flatMapMany(optionalCr -> {
                     List<AgentEvent> events = new ArrayList<>();
                     optionalCr.ifPresent(cr -> {
-                        events.add(toConsolidationTriggeredEvent(cr, workingMemory));
+                        events.add(AgentMemoryLifecycle.toConsolidationTriggeredEvent(cr, workingMemory));
                         history.clear();
                         history.addAll(workingMemory.buildLLMInputSync());
                     });
@@ -1555,95 +1479,4 @@ public class AgentRuntime {
         };
     }
 
-    /**
-     * Defers episodic storage until WebSocket disconnects. Updates the deferred state on every agent run
-     * so that the latest conversation state is used when flush is triggered.
-     */
-    private void deferEpisodicStore(WorkingMemory workingMemory, LongTermMemory ltm,
-                                     String userId, String agentId, Long sessionId, int minChunksForEpisodic) {
-        deferredEpisodicStores.put(sessionId, new DeferredEpisodicStore(workingMemory, ltm, userId, agentId, sessionId, minChunksForEpisodic));
-    }
-
-    /**
-     * Asynchronously store an episodic summary of the session.
-     * Uses LLM summarization when no mid-session consolidation occurred and conversation is substantial.
-     */
-    private void storeSessionEpisodicMemory(WorkingMemory workingMemory, LongTermMemory ltm,
-                                             String userId, String agentId, Long sessionId, int minChunksForEpisodic) {
-        try {
-            List<MemoryChunk> chunks = workingMemory.getChunks();
-            if (chunks.size() <= minChunksForEpisodic) return;
-
-            if (workingMemory.getConsolidationCount() == 0) {
-                storeSessionEpisodicViaLLM(workingMemory, ltm, userId, agentId, sessionId);
-            } else {
-                storeSessionEpisodicSimple(chunks, ltm, userId, agentId, sessionId);
-            }
-        } catch (Exception e) {
-            log.warn("Error building session episodic memory: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * High-quality episodic: call consolidation model to summarize the entire session.
-     * Uses summarizeSession (processes ALL chunks) instead of tryConsolidate (which only processes old chunks).
-     */
-    private void storeSessionEpisodicViaLLM(WorkingMemory workingMemory, LongTermMemory ltm,
-                                             String userId, String agentId, Long sessionId) {
-        MemoryConsolidator consolidator = workingMemory.getConsolidator();
-        if (consolidator == null) {
-            consolidator = memorySystem != null ? memorySystem.getConsolidator() : null;
-        }
-        if (consolidator == null) {
-            storeSessionEpisodicSimple(workingMemory.getChunks(), ltm, userId, agentId, sessionId);
-            return;
-        }
-
-        final MemoryConsolidator effectiveConsolidator = consolidator;
-        final List<MemoryChunk> allChunks = new ArrayList<>(workingMemory.getChunks());
-        Mono.fromCallable(() -> effectiveConsolidator.summarizeSession(allChunks, agentId, userId))
-                .subscribeOn(Schedulers.boundedElastic())
-                .subscribe(
-                        result -> {
-                            if (result != null && !result.facts().isEmpty()) {
-                                log.info("Session {} full summarization: {} facts stored", sessionId, result.facts().size());
-                            } else {
-                                storeSessionEpisodicSimple(allChunks, ltm, userId, agentId, sessionId);
-                            }
-                        },
-                        e -> {
-                            log.warn("Session {} full summarization failed, falling back to simple: {}",
-                                    sessionId, e.getMessage());
-                            storeSessionEpisodicSimple(allChunks, ltm, userId, agentId, sessionId);
-                        });
-    }
-
-    private void storeSessionEpisodicSimple(List<MemoryChunk> chunks, LongTermMemory ltm,
-                                             String userId, String agentId, Long sessionId) {
-        StringBuilder summary = new StringBuilder();
-        summary.append("Session ").append(sessionId).append(" summary: ");
-        int userCount = 0, toolCount = 0;
-        for (MemoryChunk c : chunks) {
-            switch (c.type()) {
-                case USER -> userCount++;
-                case TOOL_INTERACTION -> toolCount++;
-                default -> {}
-            }
-        }
-        summary.append(userCount).append(" user turns, ").append(toolCount).append(" tool calls. ");
-
-        for (MemoryChunk c : chunks) {
-            if (c.type() == com.atm.intellimate.memory.model.ChunkType.USER) {
-                String preview = c.content().length() > 100 ? c.content().substring(0, 100) + "..." : c.content();
-                summary.append("Topics: ").append(preview);
-                break;
-            }
-        }
-
-        ExtractedFact episodic = new ExtractedFact("episodic", summary.toString(), 0.5f);
-        ltm.store(episodic, userId, agentId)
-                .subscribe(
-                        unused -> {},
-                        e -> log.warn("Failed to store session episodic memory for session {}: {}", sessionId, e.getMessage()));
-    }
 }
