@@ -75,7 +75,8 @@ interface ChatState {
 
   setConnectionState: (state: ConnectionState) => void;
   setWsSessionId: (id: string) => void;
-  addUserMessage: (text: string, requestId: string) => void;
+  addUserMessage: (text: string, requestId: string, regenerate?: boolean) => void;
+  removeLastAssistantMessage: () => void;
   appendChunk: (requestId: string, chunk: string) => void;
   finishStreaming: (requestId: string, fullText: string, totalTurns?: number) => void;
   addResponse: (response: ResponseFrame) => void;
@@ -186,7 +187,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setWsSessionId: (wsSessionId) => set({ wsSessionId }),
 
-  addUserMessage: (text, requestId) => {
+  addUserMessage: (text, requestId, regenerate) => {
     const agentState = useAgentStore.getState();
     const activeAgent = agentState.activeAgent;
     const agentInfo = agentState.agents.find((a) => a.name === activeAgent);
@@ -203,26 +204,47 @@ export const useChatStore = create<ChatState>((set, get) => ({
         maxTurns: 0,
         startedAt: Date.now(),
       },
-      ...updateAgentMessages(state, (msgs) => [
-        ...msgs,
-        {
-          id: generateId(),
-          role: "user",
-          content: text,
-          streaming: false,
-          timestamp: Date.now(),
-          requestId,
-        },
-        {
+      ...updateAgentMessages(state, (msgs) => {
+        const next: ChatMessage[] = [...msgs];
+        if (!regenerate) {
+          next.push({
+            id: generateId(),
+            role: "user",
+            content: text,
+            streaming: false,
+            timestamp: Date.now(),
+            requestId,
+          });
+        }
+        next.push({
           id: `assistant-${requestId}`,
           role: "assistant",
           content: "",
           streaming: true,
           timestamp: Date.now(),
           requestId,
-        },
-      ]),
+        });
+        return next;
+      }),
     }));
+  },
+
+  removeLastAssistantMessage: () => {
+    const agent = get().currentAgent;
+    const msgs = [...(get().messagesByAgent[agent] ?? [])];
+    let lastIdx = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "assistant") {
+        lastIdx = i;
+        break;
+      }
+    }
+    if (lastIdx >= 0) msgs.splice(lastIdx, 1);
+    set({
+      messagesByAgent: { ...get().messagesByAgent, [agent]: msgs },
+      messages: msgs,
+      isWaiting: false,
+    });
   },
 
   appendChunk: (requestId, chunk) => {

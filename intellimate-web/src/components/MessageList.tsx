@@ -3,12 +3,32 @@ import { useChatStore } from "../stores/chatStore";
 import MessageBubble from "./MessageBubble";
 import { ArrowDown } from "lucide-react";
 
-export default function MessageList() {
+interface MessageListProps {
+  onSend: (text: string, forcePlan?: boolean, regenerate?: boolean) => void;
+}
+
+export default function MessageList({ onSend }: MessageListProps) {
   const messages = useChatStore((s) => s.messages);
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  const lastAssistantIdx = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && !m.streaming) return i;
+    }
+    return -1;
+  }, [messages]);
+
+  const handleRegenerate = useCallback(() => {
+    const msgs = useChatStore.getState().messages;
+    const lastUserMsg = [...msgs].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+    useChatStore.getState().removeLastAssistantMessage();
+    onSend(lastUserMsg.content, false, true);
+  }, [onSend]);
 
   const lastAssistantWithToolsId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -55,11 +75,13 @@ export default function MessageList() {
             <p className="text-sm mt-1">输入消息开始对话</p>
           </div>
         )}
-        {messages.map((msg) => (
+        {messages.map((msg, idx) => (
           <MessageBubble
             key={msg.id}
             message={msg}
             isLastAssistantWithTools={msg.id === lastAssistantWithToolsId}
+            isLastAssistant={idx === lastAssistantIdx}
+            onRegenerate={idx === lastAssistantIdx ? handleRegenerate : undefined}
           />
         ))}
         <div ref={bottomRef} />

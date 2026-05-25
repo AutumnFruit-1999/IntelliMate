@@ -410,7 +410,7 @@ export function useWebSocket() {
     timeoutTimers.current.set(requestId, timer);
   }
 
-  const sendMessage = useCallback((text: string, forcePlan?: boolean) => {
+  const sendMessage = useCallback((text: string, forcePlan?: boolean, regenerate?: boolean) => {
     if (text.trim() === "/clear") {
       const agentName = useAgentStore.getState().activeAgent;
       if (!agentName) return;
@@ -442,9 +442,10 @@ export function useWebSocket() {
       contextType: "dm",
       agentName,
       ...(forcePlan ? { forcePlan: true } : {}),
+      ...(regenerate ? { regenerate: true } : {}),
     });
 
-    store.addUserMessage(text, req.id);
+    store.addUserMessage(text, req.id, regenerate);
     client.send(req);
 
     const timer = setTimeout(() => {

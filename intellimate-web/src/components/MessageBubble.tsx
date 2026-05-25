@@ -39,6 +39,8 @@ function formatMessageTime(timestamp: number): string {
 interface MessageBubbleProps {
   message: ChatMessage;
   isLastAssistantWithTools?: boolean;
+  isLastAssistant?: boolean;
+  onRegenerate?: () => void;
 }
 
 function TurnIndicator({ turn, maxTurns }: { turn: number; maxTurns: number }) {
@@ -50,7 +52,7 @@ function TurnIndicator({ turn, maxTurns }: { turn: number; maxTurns: number }) {
   );
 }
 
-export default memo(function MessageBubble({ message, isLastAssistantWithTools }: MessageBubbleProps) {
+export default memo(function MessageBubble({ message, isLastAssistantWithTools, isLastAssistant, onRegenerate }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -184,6 +186,20 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools }
             />
           )}
         </div>
+
+        {!isUser && isLastAssistant && !message.streaming && message.content && (
+          <button
+            type="button"
+            onClick={onRegenerate}
+            className="mt-1 text-[11px] text-slate-400 hover:text-blue-500 transition-colors flex items-center gap-1"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="1 4 1 10 7 10" />
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+            </svg>
+            重新生成
+          </button>
+        )}
 
         {!isUser && message.totalTurns != null && message.totalTurns > 1 && !message.streaming && (
           <div className="mt-1 text-xs text-gray-400">
