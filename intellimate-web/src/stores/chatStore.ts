@@ -62,6 +62,10 @@ interface ChatState {
 
   messages: ChatMessage[];
 
+  historyLoaded: boolean;
+  historyHasMore: boolean;
+  loadingHistory: boolean;
+
   setCurrentAgent: (agent: string) => void;
   reconnectAttempt: number;
   reconnectCountdown: number;
@@ -107,6 +111,11 @@ interface ChatState {
   setActivityTool: (name: string, description: string | null) => void;
   clearActivityTool: () => void;
   resetActivity: () => void;
+
+  loadHistoryFromServer: (agentName: string) => Promise<void>;
+  prependHistory: (messages: ChatMessage[]) => void;
+  loadMoreHistory: (agentName: string) => Promise<void>;
+  setHistoryLoaded: (loaded: boolean) => void;
 }
 
 function getAgentMessages(state: ChatState): ChatMessage[] {
@@ -134,6 +143,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   reconnectCountdown: 0,
   pendingForcePlan: null,
   messages: [],
+  historyLoaded: false,
+  historyHasMore: false,
+  loadingHistory: false,
   proactiveBuffer: [],
   activity: {
     phase: "idle",
@@ -152,6 +164,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentAgent: agent,
       messages: state.messagesByAgent[agent] ?? [],
       isWaiting: false,
+      historyLoaded: false,
     });
   },
 
@@ -690,4 +703,80 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     });
   },
+
+  loadHistoryFromServer: async (agentName: string) => {
+    const { fetchActiveMessages } = await import("../lib/sessionApi");
+    set({ loadingHistory: true });
+    try {
+      const resp = await fetchActiveMessages(agentName, 50);
+      const messages: ChatMessage[] = resp.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          id: `hist-${m.id}`,
+          role: m.role as "user" | "assistant",
+          content: m.content ?? "",
+          streaming: false,
+          timestamp: new Date(m.createdAt).getTime(),
+        }));
+      const current = get().currentAgent;
+      if (current === agentName) {
+        const existing = get().messagesByAgent[agentName] ?? [];
+        if (existing.length === 0) {
+          set({
+            messagesByAgent: { ...get().messagesByAgent, [agentName]: messages },
+            messages: messages,
+            historyLoaded: true,
+            historyHasMore: resp.hasMore,
+            loadingHistory: false,
+          });
+        } else {
+          set({ historyLoaded: true, historyHasMore: resp.hasMore, loadingHistory: false });
+        }
+      }
+    } catch (e) {
+      console.error("[chatStore] Failed to load history:", e);
+      set({ loadingHistory: false });
+    }
+  },
+
+  prependHistory: (messages: ChatMessage[]) => {
+    const agent = get().currentAgent;
+    const existing = get().messagesByAgent[agent] ?? [];
+    const merged = [...messages, ...existing];
+    set({
+      messagesByAgent: { ...get().messagesByAgent, [agent]: merged },
+      messages: merged,
+    });
+  },
+
+  loadMoreHistory: async (agentName: string) => {
+    const { fetchActiveMessages } = await import("../lib/sessionApi");
+    const currentMessages = get().messagesByAgent[agentName] ?? [];
+    if (currentMessages.length === 0) return;
+    const firstMsg = currentMessages[0];
+    const beforeId = firstMsg.id.startsWith("hist-")
+      ? parseInt(firstMsg.id.replace("hist-", ""), 10)
+      : undefined;
+    if (!beforeId) return;
+    set({ loadingHistory: true });
+    try {
+      const resp = await fetchActiveMessages(agentName, 50, beforeId);
+      const messages: ChatMessage[] = resp.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          id: `hist-${m.id}`,
+          role: m.role as "user" | "assistant",
+          content: m.content ?? "",
+          streaming: false,
+          timestamp: new Date(m.createdAt).getTime(),
+        }));
+      get().prependHistory(messages);
+      set({ historyHasMore: resp.hasMore, loadingHistory: false });
+    } catch (e) {
+      console.error("[chatStore] Failed to load more history:", e);
+      set({ loadingHistory: false });
+    }
+  },
+
+  setHistoryLoaded: (loaded: boolean) => set({ historyLoaded: loaded }),
 }));

@@ -75,6 +75,11 @@ export function useWebSocket() {
               });
               console.log("[WS] agent.bind sent for:", currentAgentName);
             }
+            // 加载消息历史
+            const chatState = useChatStore.getState();
+            if (currentAgentName && !chatState.historyLoaded) {
+              chatState.loadHistoryFromServer(currentAgentName);
+            }
             break;
           }
           case "agent.chunk": {
