@@ -1,6 +1,5 @@
 package com.atm.intellimate.gateway.pipeline;
 
-import com.atm.intellimate.agent.runtime.AgentEvent;
 import com.atm.intellimate.agent.runtime.AgentRunRequest;
 import com.atm.intellimate.agent.runtime.AgentRuntime;
 import com.atm.intellimate.agent.runtime.PlanExecutionAssessment;
@@ -29,10 +28,7 @@ import com.atm.intellimate.memory.model.ExtractedFact;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -40,7 +36,6 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -53,6 +48,8 @@ public class MessagePipeline {
     private static final Logger log = LoggerFactory.getLogger(MessagePipeline.class);
 
     private final SessionManager sessionManager;
+    private final MessageConverter messageConverter;
+    private final AgentEventMapper agentEventMapper;
     private final AgentRuntime agentRuntime;
     private final IntelliMateProperties properties;
     private final AgentConfigService agentConfigService;
@@ -69,6 +66,8 @@ public class MessagePipeline {
     private record PlanExecutionPayload(String markdown, PlanExecutionAssessment assessment) {}
 
     public MessagePipeline(SessionManager sessionManager,
+                           MessageConverter messageConverter,
+                           AgentEventMapper agentEventMapper,
                            AgentRuntime agentRuntime,
                            IntelliMateProperties properties,
                            AgentConfigService agentConfigService,
@@ -80,6 +79,8 @@ public class MessagePipeline {
                            @Autowired(required = false) LongTermMemory longTermMemory,
                            @Autowired(required = false) MemoryConfigProvider memoryConfigProvider) {
         this.sessionManager = sessionManager;
+        this.messageConverter = messageConverter;
+        this.agentEventMapper = agentEventMapper;
         this.agentRuntime = agentRuntime;
         this.properties = properties;
         this.agentConfigService = agentConfigService;
@@ -172,14 +173,14 @@ public class MessagePipeline {
                             .then(auditService.log("user_message", wsSessionId, session.getId(),
                                     userText.length() > 200 ? userText.substring(0, 200) + "..." : userText))
                             .then(Mono.zip(
-                                    loadHistory(session.getId(), effectivePlanId).collectList(),
+                                    messageConverter.loadHistory(session.getId(), effectivePlanId).collectList(),
                                     agentConfigService.resolve(session.getAgentName()),
                                     planExecuting
                                             ? buildPlanExecutionPayload(planId)
                                             : Mono.just(new PlanExecutionPayload("", null))
                             ))
                             .flatMapMany(tuple -> {
-                                List<Message> messages = convertToAiMessages(tuple.getT1());
+                                List<Message> messages = messageConverter.convertToAiMessages(tuple.getT1());
                                 ResolvedAgentConfig resolved = tuple.getT2();
                                 PlanExecutionPayload planPayload = tuple.getT3();
                                 String planContext = planPayload.markdown().isEmpty() ? null : planPayload.markdown();
@@ -207,7 +208,9 @@ public class MessagePipeline {
                                 StringBuilder fullResponse = new StringBuilder();
 
                                 Flux<GatewayFrame> events = agentRuntime.dispatch(runRequest)
-                                        .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session))
+                                        .concatMap(event -> agentEventMapper.mapAgentEvent(
+                                                event, requestId, fullResponse, session,
+                                                this::schedulePlanCompletionMemoryExtraction))
                                         .doOnSubscribe(sub -> agentRuntime.registerWsRun(wsSessionId, sub))
                                         .doFinally(sig -> agentRuntime.unregisterWsRun(wsSessionId));
 
@@ -251,18 +254,6 @@ public class MessagePipeline {
                                 return Flux.concat(events, tail);
                             });
                 });
-    }
-
-    private Flux<TranscriptMessageEntity> loadHistory(Long sessionId, Long planId) {
-        int limit = properties.getAgent().getHistoryLimit();
-        if (planId != null) {
-            int contextLimit = Math.max(4, limit / 4);
-            return Flux.merge(
-                    sessionManager.getChatHistory(sessionId, contextLimit),
-                    sessionManager.getPlanHistory(sessionId, planId, limit)
-            ).sort(Comparator.comparing(TranscriptMessageEntity::getCreatedAt)).take(limit);
-        }
-        return sessionManager.getChatHistory(sessionId, limit);
     }
 
     private Mono<PlanExecutionPayload> buildPlanExecutionPayload(Long planId) {
@@ -693,327 +684,6 @@ public class MessagePipeline {
         }
     }
 
-    private Flux<GatewayFrame> mapAgentEvent(
-            AgentEvent event, String requestId, StringBuilder fullResponse, SessionEntity session) {
-
-        return switch (event) {
-            case AgentEvent.TurnStart ts -> Flux.just(new EventFrame(
-                    "agent.turn_start",
-                    Map.of("turn", ts.turn(),
-                           "maxTurns", ts.maxTurns(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.TextChunk tc -> {
-                fullResponse.append(tc.text());
-                yield Flux.just(new EventFrame(
-                        "agent.chunk",
-                        Map.of("text", tc.text(), "requestId", requestId),
-                        seqGenerator.incrementAndGet()
-                ));
-            }
-
-            case AgentEvent.ToolCall tc -> Flux.just(new EventFrame(
-                    "agent.tool_call",
-                    Map.of("toolCallId", tc.toolCallId(),
-                           "name", tc.name(),
-                           "description", tc.description() != null ? tc.description() : "",
-                           "arguments", tc.arguments(),
-                           "turn", tc.turn(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.ToolResult tr -> Flux.just(new EventFrame(
-                    "agent.tool_result",
-                    Map.of("toolCallId", tr.toolCallId(),
-                           "name", tr.name(),
-                           "result", tr.result(),
-                           "success", tr.success(),
-                           "turn", tr.turn(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.Done done -> {
-                fullResponse.delete(0, fullResponse.length());
-                fullResponse.append(done.fullText());
-                yield Flux.just(new EventFrame(
-                        "agent.done",
-                        Map.of("text", done.fullText(),
-                               "totalTurns", done.totalTurns(),
-                               "requestId", requestId),
-                        seqGenerator.incrementAndGet()
-                ));
-            }
-
-            case AgentEvent.Error err -> Flux.just(
-                    ResponseFrame.failure(requestId, err.message())
-            );
-
-            case AgentEvent.ApprovalRequired ar -> Flux.just(new EventFrame(
-                    "agent.approval_required",
-                    Map.of("toolCallId", ar.toolCallId(),
-                           "name", ar.toolName(),
-                           "arguments", ar.arguments(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.ApprovalResponse ignored -> Flux.empty();
-
-            case AgentEvent.PlanCreated pc -> Flux.just(new EventFrame(
-                    "plan.created",
-                    Map.of("planId", pc.planId(),
-                           "title", pc.title(),
-                           "steps", pc.steps().stream()
-                                   .map(s -> Map.of("index", s.index(), "title", s.title(),
-                                           "description", s.description() != null ? s.description() : ""))
-                                   .toList(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.PlanAwaitingApproval pa -> Flux.just(new EventFrame(
-                    "plan.awaiting_approval",
-                    Map.of("planId", pa.planId(), "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.PlanStatusChanged psc -> Flux.just(new EventFrame(
-                    "plan.status_changed",
-                    Map.of("planId", psc.planId(), "status", psc.status(), "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.PlanStepStart pss -> Flux.just(new EventFrame(
-                    "plan.step_start",
-                    Map.of("planId", pss.planId(), "stepIndex", pss.stepIndex(),
-                           "title", pss.title(), "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.PlanStepDone psd -> Flux.just(new EventFrame(
-                    "plan.step_done",
-                    Map.of("planId", psd.planId(), "stepIndex", psd.stepIndex(),
-                           "status", psd.status(),
-                           "resultSummary", psd.resultSummary() != null ? psd.resultSummary() : "",
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.PlanAdjusted pa -> Flux.just(new EventFrame(
-                    "plan.adjusted",
-                    Map.of("planId", pa.planId(), "adjustType", pa.adjustType(),
-                           "currentSteps", pa.currentSteps().stream()
-                                   .map(s -> Map.of("index", s.index(), "title", s.title(),
-                                           "description", s.description() != null ? s.description() : ""))
-                                   .toList(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.PlanCompleted pcomp -> {
-                schedulePlanCompletionMemoryExtraction(session.getId(), pcomp.planId(), resolveAgentId(session), resolveUserId(session));
-                yield Flux.just(new EventFrame(
-                        "plan.completed",
-                        Map.of("planId", pcomp.planId(), "status", pcomp.status(), "requestId", requestId),
-                        seqGenerator.incrementAndGet()
-                ));
-            }
-
-            // ───── Delegation events ─────
-
-            case AgentEvent.DelegationStart ds -> Flux.just(new EventFrame(
-                    "workflow.delegation_start",
-                    Map.of("workerAgent", ds.workerAgentName(),
-                           "task", ds.task(),
-                           "delegationId", ds.delegationId(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.DelegationProgress dp -> {
-                if (dp.nestedEvent() instanceof AgentEvent.TextChunk tc) {
-                    yield Flux.just(new EventFrame(
-                            "workflow.delegation_progress",
-                            Map.of("workerAgent", dp.workerAgentName(),
-                                   "delegationId", dp.delegationId(),
-                                   "eventType", "chunk",
-                                   "text", tc.text(),
-                                   "requestId", requestId),
-                            seqGenerator.incrementAndGet()));
-                } else if (dp.nestedEvent() instanceof AgentEvent.ToolCall ntc) {
-                    yield Flux.just(new EventFrame(
-                            "workflow.delegation_progress",
-                            Map.of("workerAgent", dp.workerAgentName(),
-                                   "delegationId", dp.delegationId(),
-                                   "eventType", "tool_call",
-                                   "name", ntc.name(),
-                                   "arguments", ntc.arguments(),
-                                   "requestId", requestId),
-                            seqGenerator.incrementAndGet()));
-                } else if (dp.nestedEvent() instanceof AgentEvent.ToolResult ntr) {
-                    yield Flux.just(new EventFrame(
-                            "workflow.delegation_progress",
-                            Map.of("workerAgent", dp.workerAgentName(),
-                                   "delegationId", dp.delegationId(),
-                                   "eventType", "tool_result",
-                                   "name", ntr.name(),
-                                   "success", ntr.success(),
-                                   "requestId", requestId),
-                            seqGenerator.incrementAndGet()));
-                } else if (dp.nestedEvent() instanceof AgentEvent.TurnStart ts) {
-                    yield Flux.just(new EventFrame(
-                            "workflow.delegation_progress",
-                            Map.of("workerAgent", dp.workerAgentName(),
-                                   "delegationId", dp.delegationId(),
-                                   "eventType", "turn_start",
-                                   "turn", ts.turn(),
-                                   "requestId", requestId),
-                            seqGenerator.incrementAndGet()));
-                } else {
-                    yield Flux.empty();
-                }
-            }
-
-            case AgentEvent.DelegationResult dr -> Flux.just(new EventFrame(
-                    "workflow.delegation_result",
-                    Map.of("workerAgent", dr.workerAgentName(),
-                           "delegationId", dr.delegationId(),
-                           "result", dr.result() != null ? dr.result() : "",
-                           "success", dr.success(),
-                           "turnsUsed", dr.turnsUsed(),
-                           "durationMs", dr.durationMs(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.HandoffStart hs -> handleHandoff(hs, requestId, fullResponse, session);
-
-            case AgentEvent.ParallelStart ps -> Flux.just(new EventFrame(
-                    "workflow.parallel_start",
-                    Map.of("parallelGroupId", ps.parallelGroupId(),
-                           "tasks", ps.tasks().stream()
-                                   .map(t -> Map.of("agentName", t.agentName(), "task", t.task()))
-                                   .toList(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.ParallelProgress pp -> {
-                if (pp.nestedEvent() instanceof AgentEvent.TextChunk tc) {
-                    yield Flux.just(new EventFrame(
-                            "workflow.parallel_progress",
-                            Map.of("parallelGroupId", pp.parallelGroupId(),
-                                   "agentName", pp.agentName(),
-                                   "eventType", "chunk",
-                                   "text", tc.text(),
-                                   "requestId", requestId),
-                            seqGenerator.incrementAndGet()));
-                } else if (pp.nestedEvent() instanceof AgentEvent.Done done) {
-                    yield Flux.just(new EventFrame(
-                            "workflow.parallel_progress",
-                            Map.of("parallelGroupId", pp.parallelGroupId(),
-                                   "agentName", pp.agentName(),
-                                   "eventType", "done",
-                                   "text", done.fullText(),
-                                   "requestId", requestId),
-                            seqGenerator.incrementAndGet()));
-                } else {
-                    yield Flux.empty();
-                }
-            }
-
-            case AgentEvent.ParallelResult pr -> Flux.just(new EventFrame(
-                    "workflow.parallel_result",
-                    Map.of("parallelGroupId", pr.parallelGroupId(),
-                           "results", pr.results().stream()
-                                   .map(r -> Map.of("agentName", r.agentName(),
-                                           "result", r.result() != null ? r.result() : "",
-                                           "success", r.success(),
-                                           "durationMs", r.durationMs()))
-                                   .toList(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            // ───── Memory events ─────
-
-            case AgentEvent.MemorySnapshot ms -> Flux.just(new EventFrame(
-                    "memory.snapshot",
-                    Map.of("tokenBudget", ms.tokenBudget(),
-                           "tokenUsed", ms.tokenUsed(),
-                           "tokenEstimated", ms.tokenEstimated(),
-                           "usageRatio", ms.usageRatio(),
-                           "chunkCount", ms.chunkCount(),
-                           "chunks", ms.chunks().stream()
-                                   .map(c -> Map.of("id", c.id(), "type", c.type(),
-                                           "category", c.category(), "importance", c.importance(),
-                                           "tokens", c.tokens(), "contentPreview", c.contentPreview(),
-                                           "createdAt", c.createdAt()))
-                                   .toList(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.ConsolidationTriggered ct -> {
-                var payload = new java.util.LinkedHashMap<String, Object>();
-                payload.put("chunksSelected", ct.chunksSelected());
-                payload.put("tokensBefore", ct.tokensBefore());
-                payload.put("tokensAfter", ct.tokensAfter());
-                payload.put("extractedFacts", ct.extractedFacts());
-                payload.put("candidates", ct.candidates().stream()
-                        .map(c -> Map.of("type", c.type(), "tokens", c.tokens(),
-                                "importance", c.importance(), "preview", c.preview()))
-                        .toList());
-                payload.put("factsStoredToLongTerm", ct.factsStoredToLongTerm());
-                payload.put("requestId", requestId);
-                yield Flux.just(new EventFrame("memory.consolidation", payload, seqGenerator.incrementAndGet()));
-            }
-        };
-    }
-
-    private Flux<GatewayFrame> handleHandoff(
-            AgentEvent.HandoffStart hs, String requestId, StringBuilder fullResponse, SessionEntity session) {
-
-        EventFrame handoffEvent = new EventFrame(
-                "workflow.handoff",
-                Map.of("fromAgent", hs.fromAgent(),
-                       "toAgent", hs.toAgent(),
-                       "reason", hs.reason(),
-                       "contextSummary", hs.contextSummary(),
-                       "requestId", requestId),
-                seqGenerator.incrementAndGet());
-
-        String handoffMessage = "You are taking over this conversation from agent '" + hs.fromAgent() + "'.\n"
-                + "Reason: " + hs.reason() + "\n"
-                + "Context summary: " + hs.contextSummary() + "\n"
-                + "Continue helping the user with their request.";
-
-        Flux<GatewayFrame> handoffExecution = agentConfigService.resolve(hs.toAgent())
-                .flatMapMany(resolved -> {
-                    String effectiveUserId = session.getContextId() != null && !session.getContextId().isBlank()
-                            ? session.getContextId() : "default";
-                    AgentRunRequest handoffRequest = new AgentRunRequest(
-                            session.getId(),
-                            effectiveUserId,
-                            resolved.agent(),
-                            handoffMessage,
-                            List.of(),
-                            resolved.toolsEnabled(),
-                            resolved.mcpToolsEnabled(),
-                            resolved.skillsEnabled(),
-                            resolved.skillGroupsEnabled(),
-                            null, false, null, null, null,
-                            resolved.bridgeNode());
-                    return agentRuntime.dispatch(handoffRequest)
-                            .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session));
-                });
-
-        return Flux.concat(Flux.just(handoffEvent), handoffExecution);
-    }
 
     /**
      * Called when WebSocket disconnects. Flushes deferred episodic memory for the associated session.
@@ -1038,23 +708,4 @@ public class MessagePipeline {
         return contextId != null && !contextId.isBlank() ? contextId : "default";
     }
 
-    private List<Message> convertToAiMessages(List<TranscriptMessageEntity> history) {
-        List<Message> messages = new ArrayList<>();
-        for (TranscriptMessageEntity msg : history) {
-            switch (msg.getRole()) {
-                case "user" -> messages.add(new UserMessage(msg.getContent()));
-                case "assistant" -> messages.add(new AssistantMessage(msg.getContent()));
-                case "tool" -> {
-                    String toolCallId = msg.getToolCallId() != null ? msg.getToolCallId() : "";
-                    String toolName = msg.getToolName() != null ? msg.getToolName() : "";
-                    String content = msg.getContent() != null ? msg.getContent() : "";
-                    messages.add(new ToolResponseMessage(List.of(
-                            new ToolResponseMessage.ToolResponse(toolCallId, toolName, content)
-                    )));
-                }
-                default -> log.debug("Skipping message with role: {}", msg.getRole());
-            }
-        }
-        return messages;
-    }
 }
