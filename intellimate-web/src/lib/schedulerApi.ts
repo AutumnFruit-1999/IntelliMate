@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:3007`;
+import { apiFetch, apiFetchRaw } from "./httpClient";
 
 export interface ScheduledJobConfig {
   jobName: string;
@@ -75,90 +75,67 @@ export interface CreateJobRequest {
   paramsJson?: string;
 }
 
-export async function createJob(data: CreateJobRequest): Promise<ScheduledJobConfig> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs`, {
+export function fetchScheduledJobs(): Promise<ScheduledJobConfig[]> {
+  return apiFetch<ScheduledJobConfig[]>("/api/scheduled-jobs");
+}
+
+export function fetchJobDetail(jobName: string): Promise<ScheduledJobConfig> {
+  return apiFetch<ScheduledJobConfig>(`/api/scheduled-jobs/${jobName}`);
+}
+
+export function fetchJobLogs(jobName: string, page = 0, size = 20): Promise<ScheduledJobLog[]> {
+  return apiFetch<ScheduledJobLog[]>(`/api/scheduled-jobs/${jobName}/logs?page=${page}&size=${size}`);
+}
+
+export function fetchRecentLogs(limit = 50): Promise<ScheduledJobLog[]> {
+  return apiFetch<ScheduledJobLog[]>(`/api/scheduled-jobs/logs/recent?limit=${limit}`);
+}
+
+export function fetchStatsOverview(): Promise<JobStatsOverview> {
+  return apiFetch<JobStatsOverview>("/api/scheduled-jobs/stats/overview");
+}
+
+export function fetchJobStats(jobName: string, days = 7): Promise<JobStats> {
+  return apiFetch<JobStats>(`/api/scheduled-jobs/stats/${jobName}?days=${days}`);
+}
+
+export function fetchTimeline(hours = 24): Promise<ScheduledJobLog[]> {
+  return apiFetch<ScheduledJobLog[]>(`/api/scheduled-jobs/stats/timeline?hours=${hours}`);
+}
+
+export function createJob(data: CreateJobRequest): Promise<ScheduledJobConfig> {
+  return apiFetch<ScheduledJobConfig>("/api/scheduled-jobs", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Failed to create job: ${res.status}`);
-  }
-  return res.json();
 }
 
 export async function deleteJob(jobName: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/${jobName}`, { method: "DELETE" });
+  const res = await apiFetchRaw(`/api/scheduled-jobs/${jobName}`, { method: "DELETE" });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Failed to delete job: ${res.status}`);
   }
 }
 
-export async function fetchScheduledJobs(): Promise<ScheduledJobConfig[]> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs`);
-  if (!res.ok) throw new Error(`Failed to fetch jobs: ${res.status}`);
-  return res.json();
-}
-
-export async function fetchJobDetail(jobName: string): Promise<ScheduledJobConfig> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/${jobName}`);
-  if (!res.ok) throw new Error(`Failed to fetch job: ${res.status}`);
-  return res.json();
-}
-
-export async function updateJob(jobName: string, updates: Record<string, unknown>): Promise<ScheduledJobConfig> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/${jobName}`, {
+export function updateJob(jobName: string, updates: Record<string, unknown>): Promise<ScheduledJobConfig> {
+  return apiFetch<ScheduledJobConfig>(`/api/scheduled-jobs/${jobName}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
-  if (!res.ok) throw new Error(`Failed to update job: ${res.status}`);
-  return res.json();
 }
 
 export async function triggerJob(jobName: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/${jobName}/trigger`, { method: "POST" });
+  const res = await apiFetchRaw(`/api/scheduled-jobs/${jobName}/trigger`, { method: "POST" });
   if (!res.ok) throw new Error(`Failed to trigger job: ${res.status}`);
 }
 
 export async function pauseJob(jobName: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/${jobName}/pause`, { method: "POST" });
+  const res = await apiFetchRaw(`/api/scheduled-jobs/${jobName}/pause`, { method: "POST" });
   if (!res.ok) throw new Error(`Failed to pause job: ${res.status}`);
 }
 
 export async function resumeJob(jobName: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/${jobName}/resume`, { method: "POST" });
+  const res = await apiFetchRaw(`/api/scheduled-jobs/${jobName}/resume`, { method: "POST" });
   if (!res.ok) throw new Error(`Failed to resume job: ${res.status}`);
-}
-
-export async function fetchJobLogs(jobName: string, page = 0, size = 20): Promise<ScheduledJobLog[]> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/${jobName}/logs?page=${page}&size=${size}`);
-  if (!res.ok) throw new Error(`Failed to fetch logs: ${res.status}`);
-  return res.json();
-}
-
-export async function fetchRecentLogs(limit = 50): Promise<ScheduledJobLog[]> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/logs/recent?limit=${limit}`);
-  if (!res.ok) throw new Error(`Failed to fetch recent logs: ${res.status}`);
-  return res.json();
-}
-
-export async function fetchStatsOverview(): Promise<JobStatsOverview> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/stats/overview`);
-  if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
-  return res.json();
-}
-
-export async function fetchJobStats(jobName: string, days = 7): Promise<JobStats> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/stats/${jobName}?days=${days}`);
-  if (!res.ok) throw new Error(`Failed to fetch job stats: ${res.status}`);
-  return res.json();
-}
-
-export async function fetchTimeline(hours = 24): Promise<ScheduledJobLog[]> {
-  const res = await fetch(`${BASE_URL}/api/scheduled-jobs/stats/timeline?hours=${hours}`);
-  if (!res.ok) throw new Error(`Failed to fetch timeline: ${res.status}`);
-  return res.json();
 }

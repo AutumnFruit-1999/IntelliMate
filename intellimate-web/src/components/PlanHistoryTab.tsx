@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { apiFetch, apiFetchRaw } from "../lib/httpClient";
 import { useAgentStore } from "../stores/agentStore";
 import {
   ChevronDown,
@@ -78,12 +79,9 @@ export default function PlanHistoryTab({ onBack }: { onBack: () => void }) {
       if (agentFilter) params.set("agentName", agentFilter);
       if (statusFilter) params.set("status", statusFilter);
       const qs = params.toString();
-      const res = await fetch(`/api/plans${qs ? `?${qs}` : ""}`);
-      if (res.ok) {
-        const data: PlanSummary[] = await res.json();
-        setPlans(data);
-        setSelectedIds(new Set());
-      }
+      const data = await apiFetch<PlanSummary[]>(`/api/plans${qs ? `?${qs}` : ""}`);
+      setPlans(data);
+      setSelectedIds(new Set());
     } catch (e) {
       console.error("Failed to fetch plans:", e);
     }
@@ -107,11 +105,8 @@ export default function PlanHistoryTab({ onBack }: { onBack: () => void }) {
     setExpandedPlanId(planId);
     if (!stepDetails[planId]) {
       try {
-        const res = await fetch(`/api/plans/${planId}/steps`);
-        if (res.ok) {
-          const steps: PlanStepDetail[] = await res.json();
-          setStepDetails((prev) => ({ ...prev, [planId]: steps }));
-        }
+        const steps = await apiFetch<PlanStepDetail[]>(`/api/plans/${planId}/steps`);
+        setStepDetails((prev) => ({ ...prev, [planId]: steps }));
       } catch (e) {
         console.error("Failed to fetch steps:", e);
       }
@@ -120,22 +115,20 @@ export default function PlanHistoryTab({ onBack }: { onBack: () => void }) {
 
   async function handleDelete(planId: number) {
     try {
-      const res = await fetch(`/api/plans/${planId}`, { method: "DELETE" });
-      if (res.ok) {
-        setPlans((prev) => prev.filter((p) => p.planId !== planId));
-        setStepDetails((prev) => {
-          const next = { ...prev };
-          delete next[planId];
-          return next;
-        });
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(planId);
-          return next;
-        });
-        setExpandedPlanId((prev) => (prev === planId ? null : prev));
-        setConfirmDeleteId(null);
-      }
+      await apiFetchRaw(`/api/plans/${planId}`, { method: "DELETE" });
+      setPlans((prev) => prev.filter((p) => p.planId !== planId));
+      setStepDetails((prev) => {
+        const next = { ...prev };
+        delete next[planId];
+        return next;
+      });
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(planId);
+        return next;
+      });
+      setExpandedPlanId((prev) => (prev === planId ? null : prev));
+      setConfirmDeleteId(null);
     } catch (e) {
       console.error("Failed to delete plan:", e);
     }
@@ -144,24 +137,21 @@ export default function PlanHistoryTab({ onBack }: { onBack: () => void }) {
   async function handleBatchDelete() {
     if (selectedIds.size === 0) return;
     try {
-      const res = await fetch("/api/plans/batch", {
+      await apiFetch("/api/plans/batch", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(Array.from(selectedIds)),
       });
-      if (res.ok) {
-        setPlans((prev) => prev.filter((p) => !selectedIds.has(p.planId)));
-        setStepDetails((prev) => {
-          const next = { ...prev };
-          selectedIds.forEach((id) => delete next[id]);
-          return next;
-        });
-        if (expandedPlanId !== null && selectedIds.has(expandedPlanId)) {
-          setExpandedPlanId(null);
-        }
-        setSelectedIds(new Set());
-        setConfirmBatchDelete(false);
+      setPlans((prev) => prev.filter((p) => !selectedIds.has(p.planId)));
+      setStepDetails((prev) => {
+        const next = { ...prev };
+        selectedIds.forEach((id) => delete next[id]);
+        return next;
+      });
+      if (expandedPlanId !== null && selectedIds.has(expandedPlanId)) {
+        setExpandedPlanId(null);
       }
+      setSelectedIds(new Set());
+      setConfirmBatchDelete(false);
     } catch (e) {
       console.error("Failed to batch delete plans:", e);
     }

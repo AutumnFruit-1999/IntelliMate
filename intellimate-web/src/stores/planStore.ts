@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { fetchPlan } from "../lib/api";
+import { apiFetch } from "../lib/httpClient";
 import { useChatStore } from "./chatStore";
 
 export type PlanStepStatus =
@@ -80,7 +81,7 @@ interface PlanState {
   handlePlanCompleted(payload: Record<string, unknown>): void;
   setAwaitingApproval(planId: number): void;
   syncFromServer(planId: number): Promise<void>;
-  loadHistoryFromServer(sessionId: number): Promise<void>;
+  loadHistoryFromServer(sessionId?: number): Promise<void>;
   clearPlan(): void;
   dismissPlan(): void;
   viewHistoryPlan(direction: "prev" | "next"): void;
@@ -349,17 +350,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     }
   },
 
-  async loadHistoryFromServer(sessionId: number) {
+  async loadHistoryFromServer(sessionId?: number) {
     try {
       const params = new URLSearchParams({
-        sessionId: String(sessionId),
         status: "completed,cancelled,failed",
         includeSteps: "true",
         limit: "5",
       });
-      const response = await fetch(`/api/plans?${params}`);
-      if (!response.ok) return;
-      const plans = await response.json();
+      if (sessionId !== undefined) {
+        params.set("sessionId", String(sessionId));
+      }
+      const plans = await apiFetch<Array<Record<string, unknown>>>(`/api/plans?${params}`);
       const historyPlans: Plan[] = plans.map((p: Record<string, unknown>) => ({
         planId: (p.planId ?? p.id) as number,
         title: p.title as string,

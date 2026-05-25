@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:3007`;
+import { apiFetch, apiFetchRaw } from "./httpClient";
 
 export interface AgentSummary {
   id?: number;
@@ -57,52 +57,39 @@ export interface AgentContextUpdate {
   agentsMd: string | null;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`API ${res.status}: ${text}`);
-  }
-  const text = await res.text();
-  if (!text) return undefined as unknown as T;
-  return JSON.parse(text);
-}
 
 export function fetchAgents(): Promise<AgentSummary[]> {
-  return request<AgentSummary[]>("/api/agents");
+  return apiFetch<AgentSummary[]>("/api/agents");
 }
 
 export function fetchAgentConfig(name: string): Promise<AgentConfig> {
-  return request<AgentConfig>(`/api/agent/${encodeURIComponent(name)}`);
+  return apiFetch<AgentConfig>(`/api/agent/${encodeURIComponent(name)}`);
 }
 
 export function createAgentApi(data: { name: string; model: string }): Promise<AgentSummary> {
-  return request("/api/agent", { method: "POST", body: JSON.stringify(data) });
+  return apiFetch("/api/agent", { method: "POST", body: JSON.stringify(data) });
 }
 
 export function updateAgentApi(name: string, data: Record<string, unknown>): Promise<{ success: boolean }> {
-  return request(`/api/agent/${encodeURIComponent(name)}`, {
+  return apiFetch(`/api/agent/${encodeURIComponent(name)}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
 export function updateAgentContext(name: string, data: AgentContextUpdate): Promise<{ success: boolean }> {
-  return request(`/api/agent/${encodeURIComponent(name)}/context`, {
+  return apiFetch(`/api/agent/${encodeURIComponent(name)}/context`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
 export function deleteAgentApi(name: string): Promise<{ success: boolean }> {
-  return request(`/api/agent/${encodeURIComponent(name)}`, { method: "DELETE" });
+  return apiFetch(`/api/agent/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
 export function fetchToolsMetadata(): Promise<ToolsMetadata> {
-  return request<ToolsMetadata>("/api/tools");
+  return apiFetch<ToolsMetadata>("/api/tools");
 }
 
 // ─── Custom Tool Definitions ───
@@ -144,29 +131,29 @@ export interface ToolTestResult {
 }
 
 export function fetchToolDefinitions(): Promise<ToolDefinition[]> {
-  return request<ToolDefinition[]>("/api/tool-definitions");
+  return apiFetch<ToolDefinition[]>("/api/tool-definitions");
 }
 
 export function createToolDefinition(data: ToolDefinitionCreate): Promise<ToolDefinition> {
-  return request<ToolDefinition>("/api/tool-definitions", {
+  return apiFetch<ToolDefinition>("/api/tool-definitions", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
 export function updateToolDefinition(id: number, data: Partial<ToolDefinitionCreate>): Promise<ToolDefinition> {
-  return request<ToolDefinition>(`/api/tool-definitions/${id}`, {
+  return apiFetch<ToolDefinition>(`/api/tool-definitions/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
 export function deleteToolDefinition(id: number): Promise<{ success: boolean; deletedName: string }> {
-  return request(`/api/tool-definitions/${id}`, { method: "DELETE" });
+  return apiFetch(`/api/tool-definitions/${id}`, { method: "DELETE" });
 }
 
 export function testToolDefinition(id: number, data: ToolTestRequest): Promise<ToolTestResult> {
-  return request<ToolTestResult>(`/api/tool-definitions/${id}/test`, {
+  return apiFetch<ToolTestResult>(`/api/tool-definitions/${id}/test`, {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -209,37 +196,37 @@ export interface McpTestResult {
 }
 
 export function fetchMcpServers(): Promise<McpServer[]> {
-  return request<McpServer[]>("/api/mcp-servers");
+  return apiFetch<McpServer[]>("/api/mcp-servers");
 }
 
 export function createMcpServer(data: McpServerCreate): Promise<McpServer> {
-  return request<McpServer>("/api/mcp-servers", {
+  return apiFetch<McpServer>("/api/mcp-servers", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
 export function updateMcpServer(id: number, data: Partial<McpServerCreate> & { enabled?: number }): Promise<McpServer> {
-  return request<McpServer>(`/api/mcp-servers/${id}`, {
+  return apiFetch<McpServer>(`/api/mcp-servers/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
 export function deleteMcpServer(id: number): Promise<{ success: boolean; deletedName: string }> {
-  return request(`/api/mcp-servers/${id}`, { method: "DELETE" });
+  return apiFetch(`/api/mcp-servers/${id}`, { method: "DELETE" });
 }
 
 export function testMcpServer(id: number): Promise<McpTestResult> {
-  return request<McpTestResult>(`/api/mcp-servers/${id}/test`, { method: "POST" });
+  return apiFetch<McpTestResult>(`/api/mcp-servers/${id}/test`, { method: "POST" });
 }
 
 export function reconnectMcpServers(): Promise<{ success: boolean; connected: number; failed: number; totalTools: number }> {
-  return request("/api/mcp-servers/reconnect", { method: "POST" });
+  return apiFetch("/api/mcp-servers/reconnect", { method: "POST" });
 }
 
 export function testMcpServerConfig(data: McpServerCreate): Promise<McpTestResult> {
-  return request<McpTestResult>("/api/mcp-servers/test-config", {
+  return apiFetch<McpTestResult>("/api/mcp-servers/test-config", {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -261,7 +248,7 @@ export interface PlanDetail {
 }
 
 export function fetchPlan(planId: number): Promise<PlanDetail> {
-  return request<PlanDetail>(`/api/plans/${planId}`);
+  return apiFetch<PlanDetail>(`/api/plans/${planId}`);
 }
 
 // ─── Model Management ───
@@ -281,7 +268,7 @@ export interface ModelGroup {
 }
 
 export function fetchModelGroups(): Promise<ModelGroup[]> {
-  return request<ModelGroup[]>("/api/models");
+  return apiFetch<ModelGroup[]>("/api/models");
 }
 
 export interface ModelProviderDto {
@@ -323,51 +310,51 @@ export interface ModelDefinitionCreate {
 }
 
 export function fetchModelProviders(): Promise<ModelProviderDto[]> {
-  return request<ModelProviderDto[]>("/api/model-providers");
+  return apiFetch<ModelProviderDto[]>("/api/model-providers");
 }
 
 export function createModelProvider(data: ModelProviderCreate): Promise<ModelProviderDto> {
-  return request<ModelProviderDto>("/api/model-providers", {
+  return apiFetch<ModelProviderDto>("/api/model-providers", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
 export function updateModelProvider(id: number, data: Partial<ModelProviderCreate> & { enabled?: number }): Promise<ModelProviderDto> {
-  return request<ModelProviderDto>(`/api/model-providers/${id}`, {
+  return apiFetch<ModelProviderDto>(`/api/model-providers/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
 export function deleteModelProvider(id: number): Promise<{ success: boolean }> {
-  return request(`/api/model-providers/${id}`, { method: "DELETE" });
+  return apiFetch(`/api/model-providers/${id}`, { method: "DELETE" });
 }
 
 export function testModelProvider(id: number): Promise<{ success: boolean; error?: string }> {
-  return request(`/api/model-providers/${id}/test`, { method: "POST" });
+  return apiFetch(`/api/model-providers/${id}/test`, { method: "POST" });
 }
 
 export function fetchModelDefinitions(providerId: number): Promise<ModelDefinitionDto[]> {
-  return request<ModelDefinitionDto[]>(`/api/model-providers/${providerId}/models`);
+  return apiFetch<ModelDefinitionDto[]>(`/api/model-providers/${providerId}/models`);
 }
 
 export function createModelDefinition(data: ModelDefinitionCreate): Promise<ModelDefinitionDto> {
-  return request<ModelDefinitionDto>("/api/model-definitions", {
+  return apiFetch<ModelDefinitionDto>("/api/model-definitions", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
 export function updateModelDefinition(id: number, data: Partial<ModelDefinitionCreate> & { enabled?: number }): Promise<ModelDefinitionDto> {
-  return request<ModelDefinitionDto>(`/api/model-definitions/${id}`, {
+  return apiFetch<ModelDefinitionDto>(`/api/model-definitions/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
 export function deleteModelDefinition(id: number): Promise<{ success: boolean }> {
-  return request(`/api/model-definitions/${id}`, { method: "DELETE" });
+  return apiFetch(`/api/model-definitions/${id}`, { method: "DELETE" });
 }
 
 // ─── Skill Definitions ───
@@ -397,15 +384,15 @@ export interface SkillDefinitionCreate {
 }
 
 export function fetchSkillDefinitions(): Promise<SkillDefinition[]> {
-  return request<SkillDefinition[]>("/api/skills");
+  return apiFetch<SkillDefinition[]>("/api/skills");
 }
 
 export function fetchSkillDefinition(id: number): Promise<SkillDefinition> {
-  return request<SkillDefinition>(`/api/skills/${id}`);
+  return apiFetch<SkillDefinition>(`/api/skills/${id}`);
 }
 
 export function createSkillDefinition(data: SkillDefinitionCreate): Promise<SkillDefinition> {
-  return request<SkillDefinition>("/api/skills", {
+  return apiFetch<SkillDefinition>("/api/skills", {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -415,24 +402,24 @@ export function updateSkillDefinition(
   id: number,
   data: Partial<SkillDefinitionCreate> & { enabled?: number },
 ): Promise<SkillDefinition> {
-  return request<SkillDefinition>(`/api/skills/${id}`, {
+  return apiFetch<SkillDefinition>(`/api/skills/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
 export function deleteSkillDefinition(id: number): Promise<{ success: boolean; deletedName: string }> {
-  return request(`/api/skills/${id}`, { method: "DELETE" });
+  return apiFetch(`/api/skills/${id}`, { method: "DELETE" });
 }
 
 export async function exportSkillMdApi(id: number): Promise<string> {
-  const res = await fetch(`${BASE_URL}/api/skills/${id}/export`);
+  const res = await apiFetchRaw(`/api/skills/${id}/export`);
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   return res.text();
 }
 
 export async function exportSkillZip(id: number, skillName: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/skills/${id}/export/zip`);
+  const res = await apiFetchRaw(`/api/skills/${id}/export/zip`);
   if (!res.ok) throw new Error(`API ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
@@ -450,7 +437,7 @@ export interface SkillFiles {
 }
 
 export function fetchSkillFiles(id: number): Promise<SkillFiles> {
-  return request<SkillFiles>(`/api/skills/${id}/files`);
+  return apiFetch<SkillFiles>(`/api/skills/${id}/files`);
 }
 
 export async function uploadSkillFile(
@@ -460,7 +447,7 @@ export async function uploadSkillFile(
 ): Promise<{ success: boolean; filename: string; type: string }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${BASE_URL}/api/skills/${id}/files/${type}`, {
+  const res = await apiFetchRaw(`/api/skills/${id}/files/${type}`, {
     method: "POST",
     body: form,
   });
@@ -484,15 +471,15 @@ export interface SkillVersion {
 }
 
 export function fetchSkillVersions(id: number): Promise<SkillVersion[]> {
-  return request<SkillVersion[]>(`/api/skills/${id}/versions`);
+  return apiFetch<SkillVersion[]>(`/api/skills/${id}/versions`);
 }
 
 export function fetchSkillVersion(id: number, version: number): Promise<SkillVersion> {
-  return request<SkillVersion>(`/api/skills/${id}/versions/${version}`);
+  return apiFetch<SkillVersion>(`/api/skills/${id}/versions/${version}`);
 }
 
 export function rollbackSkillVersion(id: number, version: number): Promise<SkillDefinition> {
-  return request<SkillDefinition>(`/api/skills/${id}/rollback/${version}`, { method: "POST" });
+  return apiFetch<SkillDefinition>(`/api/skills/${id}/rollback/${version}`, { method: "POST" });
 }
 
 // ─── Skill Stats ───
@@ -504,11 +491,11 @@ export interface SkillUsageStats {
 }
 
 export function fetchSkillStats(): Promise<SkillUsageStats[]> {
-  return request<SkillUsageStats[]>("/api/skills/stats");
+  return apiFetch<SkillUsageStats[]>("/api/skills/stats");
 }
 
 export function fetchSingleSkillStats(id: number): Promise<{ skillName: string; totalActivations: number }> {
-  return request(`/api/skills/${id}/stats`);
+  return apiFetch(`/api/skills/${id}/stats`);
 }
 
 export function deleteSkillFile(
@@ -516,7 +503,7 @@ export function deleteSkillFile(
   type: string,
   filename: string,
 ): Promise<{ success: boolean; deletedFile: string; type: string }> {
-  return request(`/api/skills/${id}/files/${type}/${encodeURIComponent(filename)}`, {
+  return apiFetch(`/api/skills/${id}/files/${type}/${encodeURIComponent(filename)}`, {
     method: "DELETE",
   });
 }
@@ -534,40 +521,40 @@ export interface SkillGroup {
 }
 
 export function fetchSkillGroups(): Promise<SkillGroup[]> {
-  return request<SkillGroup[]>("/api/skill-groups");
+  return apiFetch<SkillGroup[]>("/api/skill-groups");
 }
 
 export function createSkillGroup(data: { name: string; displayName?: string; description?: string }): Promise<SkillGroup> {
-  return request<SkillGroup>("/api/skill-groups", {
+  return apiFetch<SkillGroup>("/api/skill-groups", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
 export function updateSkillGroup(id: number, data: Partial<{ name: string; displayName: string; description: string; enabled: number }>): Promise<SkillGroup> {
-  return request<SkillGroup>(`/api/skill-groups/${id}`, {
+  return apiFetch<SkillGroup>(`/api/skill-groups/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
 }
 
 export function deleteSkillGroup(id: number): Promise<void> {
-  return request(`/api/skill-groups/${id}`, { method: "DELETE" });
+  return apiFetch(`/api/skill-groups/${id}`, { method: "DELETE" });
 }
 
 export function reorderSkillGroups(ids: number[]): Promise<void> {
-  return request("/api/skill-groups/reorder", {
+  return apiFetch("/api/skill-groups/reorder", {
     method: "PUT",
     body: JSON.stringify({ ids }),
   });
 }
 
 export function fetchSkillGroupMembers(id: number): Promise<number[]> {
-  return request<number[]>(`/api/skill-groups/${id}/skills`);
+  return apiFetch<number[]>(`/api/skill-groups/${id}/skills`);
 }
 
 export function setSkillGroupMembers(id: number, skillIds: number[]): Promise<void> {
-  return request(`/api/skill-groups/${id}/skills`, {
+  return apiFetch(`/api/skill-groups/${id}/skills`, {
     method: "PUT",
     body: JSON.stringify({ skillIds }),
   });
@@ -613,37 +600,37 @@ export interface ArchivedMemoryItem extends LongTermMemoryItem {
 }
 
 export function fetchMemoryConfig(): Promise<MemoryConfigResponse> {
-  return request<MemoryConfigResponse>("/api/memory/config");
+  return apiFetch<MemoryConfigResponse>("/api/memory/config");
 }
 
 export function updateMemoryConfig(updates: Record<string, string>): Promise<{ success: string }> {
-  return request("/api/memory/config", {
+  return apiFetch("/api/memory/config", {
     method: "PUT",
     body: JSON.stringify(updates),
   });
 }
 
 export function resetMemoryConfig(): Promise<{ success: string }> {
-  return request("/api/memory/config/reset", { method: "POST" });
+  return apiFetch("/api/memory/config/reset", { method: "POST" });
 }
 
 export function fetchMemoryStats(userId = "default", agentId = "default"): Promise<MemoryStatsResponse> {
   const params = new URLSearchParams({ userId, agentId });
-  return request<MemoryStatsResponse>(`/api/memory/stats?${params}`);
+  return apiFetch<MemoryStatsResponse>(`/api/memory/stats?${params}`);
 }
 
 export function fetchLongTermMemories(userId?: string, type?: string, agentId = "default"): Promise<LongTermMemoryItem[]> {
   const params = new URLSearchParams({ agentId });
   if (userId) params.set("userId", userId);
   if (type) params.set("type", type);
-  return request<LongTermMemoryItem[]>(`/api/memory/long-term?${params}`);
+  return apiFetch<LongTermMemoryItem[]>(`/api/memory/long-term?${params}`);
 }
 
 export function fetchArchivedMemories(userId = "default", agentId = "default"): Promise<ArchivedMemoryItem[]> {
   const params = new URLSearchParams({ userId, agentId });
-  return request<ArchivedMemoryItem[]>(`/api/memory/archive?${params}`);
+  return apiFetch<ArchivedMemoryItem[]>(`/api/memory/archive?${params}`);
 }
 
 export function deleteLongTermMemory(id: number): Promise<{ success: string }> {
-  return request(`/api/memory/long-term/${id}`, { method: "DELETE" });
+  return apiFetch(`/api/memory/long-term/${id}`, { method: "DELETE" });
 }

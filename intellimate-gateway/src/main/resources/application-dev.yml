@@ -1,0 +1,4 @@
+logging:
+  level:
+    com.atm.intellimate: DEBUG
+    org.springframework.data.r2dbc: DEBUG
