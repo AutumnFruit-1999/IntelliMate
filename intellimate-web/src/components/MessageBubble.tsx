@@ -13,6 +13,29 @@ import {
   Loader2, CheckCircle2, XCircle, Circle, MinusCircle,
 } from "lucide-react";
 
+function formatMessageTime(timestamp: number): string {
+  if (!timestamp || timestamp <= 0) return "";
+  const date = new Date(timestamp);
+  const now = new Date();
+  const hours = date.getHours().toString().padStart(2, "0");
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  const time = `${hours}:${minutes}`;
+
+  if (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  ) {
+    return time;
+  }
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${month}-${day} ${time}`;
+  }
+  return `${date.getFullYear()}-${month}-${day} ${time}`;
+}
+
 interface MessageBubbleProps {
   message: ChatMessage;
   isLastAssistantWithTools?: boolean;
@@ -98,6 +121,11 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools }
         {isUser ? <User size={16} /> : <Bot size={16} />}
       </div>
       <div className="max-w-[75%]">
+        {message.timestamp > 0 && (
+          <div className={`text-[10px] text-slate-400 dark:text-slate-500 mb-0.5 ${isUser ? "text-right" : ""}`}>
+            {formatMessageTime(message.timestamp)}
+          </div>
+        )}
         {!isUser && message.streaming && <ActivityStrip />}
 
         {showLiveStepView && (
