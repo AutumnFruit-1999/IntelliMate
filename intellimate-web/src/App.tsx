@@ -10,7 +10,8 @@ import ToolManagerPage from "./components/ToolManagerModal";
 import SkillManagerPage from "./components/SkillManagerModal";
 import ModelManagerPage from "./components/ModelManagerModal";
 import CreateAgentModal from "./components/CreateAgentModal";
-import PlanHistoryTab from "./components/PlanHistoryTab";
+import HistoryPage from "./components/HistoryPage";
+import ArchivedChatView from "./components/ArchivedChatView";
 import MemoryManagerPage from "./components/MemoryManagerPage";
 import SchedulerDashboard from "./components/SchedulerDashboard";
 import { useWebSocket } from "./hooks/useWebSocket";
@@ -125,7 +126,8 @@ export default function App() {
                 <ChatPanel onSend={sendMessage} onCancel={cancelRequest} onSendPlanAction={sendPlanAction} />
               }
             />
-            <Route path="/history" element={<PlanHistoryTab onBack={() => navigate("/chat")} />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/history/chat/:sessionId" element={<ArchivedChatView />} />
             <Route
               path="/agents"
               element={
