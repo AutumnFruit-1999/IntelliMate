@@ -4,6 +4,7 @@ import type { ResponseFrame } from "../lib/protocol";
 import { generateId } from "../lib/protocol";
 import { usePlanStore } from "./planStore";
 import { useAgentStore } from "./agentStore";
+import { toFriendlyError } from "../lib/errorMessages";
 import type { DelegationState } from "../components/workflow/DelegationCard";
 import type { WorkflowEntry, HandoffInfo, ParallelGroupInfo } from "../components/workflow/WorkflowTimeline";
 
@@ -48,6 +49,7 @@ export interface ChatMessage {
   totalTurns?: number;
   stepGroupSnapshot?: StepGroupSnapshot;
   workflowEntries?: WorkflowEntry[];
+  error?: import("../lib/errorMessages").FriendlyError;
 }
 
 interface ChatState {
@@ -61,6 +63,12 @@ interface ChatState {
   messages: ChatMessage[];
 
   setCurrentAgent: (agent: string) => void;
+  reconnectAttempt: number;
+  reconnectCountdown: number;
+  setReconnectMeta: (attempt: number, nextRetryMs: number) => void;
+  tickReconnectCountdown: () => void;
+  clearReconnectMeta: () => void;
+
   setConnectionState: (state: ConnectionState) => void;
   setWsSessionId: (id: string) => void;
   addUserMessage: (text: string, requestId: string) => void;
@@ -122,6 +130,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   connectionState: "disconnected",
   wsSessionId: null,
   isWaiting: false,
+  reconnectAttempt: 0,
+  reconnectCountdown: 0,
   pendingForcePlan: null,
   messages: [],
   proactiveBuffer: [],
@@ -143,6 +153,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: state.messagesByAgent[agent] ?? [],
       isWaiting: false,
     });
+  },
+
+  setReconnectMeta: (attempt, nextRetryMs) => {
+    set({ reconnectAttempt: attempt, reconnectCountdown: Math.ceil(nextRetryMs / 1000) });
+  },
+
+  tickReconnectCountdown: () => {
+    set((state) => ({
+      reconnectCountdown: Math.max(0, state.reconnectCountdown - 1),
+    }));
+  },
+
+  clearReconnectMeta: () => {
+    set({ reconnectAttempt: 0, reconnectCountdown: 0 });
   },
 
   setConnectionState: (connectionState) => set({ connectionState }),
@@ -302,12 +326,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : JSON.stringify(response.error);
 
       if (existing && existing.streaming) {
+        const friendlyError = toFriendlyError(errorText);
         set((state) => ({
           isWaiting: false,
           ...updateAgentMessages(state, (m) =>
             m.map((msg) =>
               msg.id === bubbleId
-                ? { ...msg, content: `Error: ${errorText}`, streaming: false }
+                ? { ...msg, content: "", error: friendlyError, streaming: false }
                 : msg,
             ),
           ),

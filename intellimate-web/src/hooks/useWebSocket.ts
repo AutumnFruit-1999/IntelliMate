@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { WsClient } from "../lib/wsClient";
+import { WsClient, type ReconnectMeta } from "../lib/wsClient";
 import {
   createRequest,
   createConversationCancel,
@@ -35,8 +35,14 @@ export function useWebSocket() {
     const client = new WsClient({
       url: WS_URL,
       token,
-      onStateChange: (state) => {
-        useChatStore.getState().setConnectionState(state);
+      onStateChange: (state, meta?: ReconnectMeta) => {
+        const store = useChatStore.getState();
+        store.setConnectionState(state);
+        if (state === "reconnecting" && meta) {
+          store.setReconnectMeta(meta.attempt, meta.nextRetryMs);
+        } else if (state === "connected") {
+          store.clearReconnectMeta();
+        }
       },
       onEvent: (event: EventFrame) => {
         if (event.event.startsWith("plan.")) {

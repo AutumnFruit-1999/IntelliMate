@@ -85,9 +85,9 @@ export default function ComposeArea({ onSend, onCancel, disabled, isWaiting }: C
             value={text}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            placeholder={isWaiting ? "等待回复中..." : "输入消息... (/ 查看命令)"}
+            placeholder={isWaiting ? "等待回复中..." : disabled ? "连接已断开，输入消息将在重连后发送..." : "输入消息... (/ 查看命令)"}
             rows={1}
-            disabled={disabled || isWaiting}
+            disabled={isWaiting}
             className="flex-1 bg-transparent resize-none outline-none text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 max-h-[150px] disabled:opacity-50"
           />
           {isWaiting ? (

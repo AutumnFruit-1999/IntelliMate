@@ -1,7 +1,8 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Copy, Check } from "lucide-react";
-import { useState, useCallback, memo, lazy, Suspense } from "react";
+import { useState, useCallback, memo, lazy, Suspense, useDeferredValue } from "react";
+import { sanitizePartialMarkdown } from "../lib/markdownSanitizer";
 
 const SyntaxHighlighter = lazy(() =>
   import("react-syntax-highlighter/dist/esm/prism-light").then((mod) => ({ default: mod.default }))
@@ -25,9 +26,9 @@ function CodeBlock({
   const [copied, setCopied] = useState(false);
   const [style, setStyle] = useState<Record<string, React.CSSProperties> | null>(null);
 
-  useState(() => {
+  if (style === null) {
     oneDarkPromise.then(setStyle);
-  });
+  }
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(children);
@@ -100,17 +101,18 @@ const RenderedMarkdown = memo(function RenderedMarkdown({ content }: { content: 
 });
 
 export default function StreamingText({ content, streaming }: StreamingTextProps) {
+  const deferredContent = useDeferredValue(content);
+
   if (!content && streaming) {
     return <div className="h-5" />;
   }
 
   if (streaming) {
+    const sanitized = sanitizePartialMarkdown(deferredContent);
     return (
-      <div className="prose prose-sm dark:prose-invert max-w-none break-words">
-        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed m-0 p-0 bg-transparent text-inherit">
-          {content}
-        </pre>
-        <span className="cursor-blink text-blue-500">█</span>
+      <div className="relative">
+        <RenderedMarkdown content={sanitized} />
+        <span className="cursor-blink text-blue-500 ml-0.5">█</span>
       </div>
     );
   }

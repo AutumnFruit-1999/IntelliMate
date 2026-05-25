@@ -14,12 +14,17 @@ export type ConnectionState =
   | "disconnected"
   | "reconnecting";
 
+export interface ReconnectMeta {
+  attempt: number;
+  nextRetryMs: number;
+}
+
 export interface WsClientOptions {
   url: string;
   token?: string;
   onEvent?: (event: EventFrame) => void;
   onResponse?: (response: ResponseFrame) => void;
-  onStateChange?: (state: ConnectionState) => void;
+  onStateChange?: (state: ConnectionState, meta?: ReconnectMeta) => void;
 }
 
 export class WsClient {
@@ -34,7 +39,7 @@ export class WsClient {
     this.options = {
       onEvent: () => {},
       onResponse: () => {},
-      onStateChange: () => {},
+      onStateChange: (_state, _meta) => {},
       token: "",
       ...opts,
     };
@@ -110,8 +115,8 @@ export class WsClient {
   private scheduleReconnect(): void {
     if (this.intentionalDisconnect) return;
     this.reconnectAttempt++;
-    this.setState("reconnecting");
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt - 1), 30_000);
+    this.setState("reconnecting", { attempt: this.reconnectAttempt, nextRetryMs: delay });
     this.reconnectTimer = setTimeout(() => {
       this.connect();
     }, delay);
@@ -133,8 +138,8 @@ export class WsClient {
     }
   }
 
-  private setState(s: ConnectionState): void {
+  private setState(s: ConnectionState, meta?: ReconnectMeta): void {
     this._state = s;
-    this.options.onStateChange(s);
+    this.options.onStateChange(s, meta);
   }
 }

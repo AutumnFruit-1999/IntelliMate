@@ -5,6 +5,7 @@ import { usePlanStore } from "../stores/planStore";
 import type { StepToolCall } from "../stores/planStore";
 import StreamingText from "./StreamingText";
 import ActivityStrip from "./ActivityStrip";
+import ErrorBubble from "./ErrorBubble";
 import ToolCallGroup from "./ToolCallGroup";
 import WorkflowTimeline from "./workflow/WorkflowTimeline";
 import {
@@ -146,6 +147,8 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools }
         >
           {isUser ? (
             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          ) : message.error ? (
+            <ErrorBubble error={message.error} />
           ) : (
             <StreamingText
               content={message.content}
