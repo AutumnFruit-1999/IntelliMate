@@ -45,6 +45,9 @@ public class SessionManagerImpl implements SessionManager {
         return sessionRepository.findBySessionKey(key.channelId(), key.contextType(), key.contextId())
                 .flatMap(existing -> {
                     existing.setLastActiveAt(LocalDateTime.now());
+                    if (existing.getStatus() == null) {
+                        existing.setStatus("active");
+                    }
                     return sessionRepository.save(existing);
                 })
                 .switchIfEmpty(Mono.defer(() -> {
@@ -53,6 +56,7 @@ public class SessionManagerImpl implements SessionManager {
                     session.setContextType(key.contextType());
                     session.setContextId(key.contextId());
                     session.setAgentName(metadata.agentName());
+                    session.setStatus("active");
                     session.setLastActiveAt(LocalDateTime.now());
                     session.setCreatedAt(LocalDateTime.now());
                     session.setDeleted(0);

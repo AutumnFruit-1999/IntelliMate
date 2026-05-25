@@ -1,7 +1,10 @@
 package com.atm.intellimate.gateway.repository;
 
 import com.atm.intellimate.gateway.entity.SessionEntity;
+import org.springframework.data.r2dbc.repository.Modifying;
+import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 public interface SessionRepository extends ReactiveCrudRepository<SessionEntity, Long> {
@@ -12,4 +15,17 @@ public interface SessionRepository extends ReactiveCrudRepository<SessionEntity,
     default Mono<SessionEntity> findBySessionKey(String channelId, String contextType, String contextId) {
         return findByChannelIdAndContextTypeAndContextIdAndDeleted(channelId, contextType, contextId, 0);
     }
+
+    @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'active' AND deleted = 0 AND channel_id = 'webchat' LIMIT 1")
+    Mono<SessionEntity> findActiveByAgentName(String agentName);
+
+    @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'archived' AND deleted = 0 AND channel_id = 'webchat' ORDER BY last_active_at DESC LIMIT :limit OFFSET :offset")
+    Flux<SessionEntity> findArchivedByAgentName(String agentName, int limit, int offset);
+
+    @Query("SELECT COUNT(*) FROM session WHERE agent_name = :agentName AND status = 'archived' AND deleted = 0 AND channel_id = 'webchat'")
+    Mono<Long> countArchivedByAgentName(String agentName);
+
+    @Modifying
+    @Query("UPDATE session SET status = 'archived', title = :title WHERE id = :id")
+    Mono<Long> archiveSession(Long id, String title);
 }
