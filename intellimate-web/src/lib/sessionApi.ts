@@ -57,3 +57,20 @@ export function fetchSessionMessages(
 ): Promise<MessagesResponse> {
   return apiFetch(`/api/sessions/by-id/${sessionId}/messages?limit=${limit}`);
 }
+
+export interface SearchResult {
+  id: number;
+  role: string;
+  content: string;
+  createdAt: string;
+  toolName?: string;
+}
+
+export function searchMessages(
+  agentName: string,
+  query: string,
+  limit = 20,
+): Promise<{ results: SearchResult[] }> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  return apiFetch(`/api/sessions/${encodeURIComponent(agentName)}/search?${params}`);
+}
