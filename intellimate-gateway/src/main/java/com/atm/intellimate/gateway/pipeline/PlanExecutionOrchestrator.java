@@ -11,6 +11,7 @@ import com.atm.intellimate.gateway.service.PlanService;
 import com.atm.intellimate.memory.config.MemoryConfigProvider;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.ExtractedFact;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,19 +36,26 @@ public class PlanExecutionOrchestrator {
     private final LongTermMemory longTermMemory;
     private final MemoryConfigProvider memoryConfigProvider;
     private final IntelliMateProperties properties;
+    private final MeterRegistry meterRegistry;
     private final AtomicLong seqGenerator = new AtomicLong(0);
 
     public PlanExecutionOrchestrator(PlanService planService,
                                      @Autowired(required = false) LongTermMemory longTermMemory,
                                      @Autowired(required = false) MemoryConfigProvider memoryConfigProvider,
-                                     IntelliMateProperties properties) {
+                                     IntelliMateProperties properties,
+                                     @Autowired(required = false) MeterRegistry meterRegistry) {
         this.planService = planService;
         this.longTermMemory = longTermMemory;
         this.memoryConfigProvider = memoryConfigProvider;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
     }
 
     public Mono<PlanExecutionPayload> buildPlanExecutionPayload(Long planId) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("plan.executions",
+                    "status", "started").increment();
+        }
         return planService.getSteps(planId)
                 .collectList()
                 .map(steps -> {
@@ -183,12 +191,17 @@ public class PlanExecutionOrchestrator {
                             .concatMap(step ->
                                     planService.markStep(planId, step.getStepIndex(), "completed",
                                                     "步骤已由系统自动标记完成")
-                                            .doOnSuccess(v -> syncEvents.add(new EventFrame("plan.step_done",
-                                                    Map.of("planId", planId,
-                                                            "stepIndex", step.getStepIndex(),
-                                                            "status", "completed",
-                                                            "resultSummary", "步骤已由系统自动标记完成"),
-                                                    seqGenerator.incrementAndGet()))))
+                                            .doOnSuccess(v -> {
+                                                if (meterRegistry != null) {
+                                                    meterRegistry.counter("plan.steps.completed").increment();
+                                                }
+                                                syncEvents.add(new EventFrame("plan.step_done",
+                                                        Map.of("planId", planId,
+                                                                "stepIndex", step.getStepIndex(),
+                                                                "status", "completed",
+                                                                "resultSummary", "步骤已由系统自动标记完成"),
+                                                        seqGenerator.incrementAndGet()));
+                                            }))
                             .then(planService.getSteps(planId).collectList())
                             .flatMap(updatedSteps -> checkAndCompletePlan(planId, updatedSteps, syncEvents, sessionId, agentId, userId));
                 });

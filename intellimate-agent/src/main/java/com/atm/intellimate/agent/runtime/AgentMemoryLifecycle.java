@@ -12,6 +12,7 @@ import com.atm.intellimate.memory.model.ExtractedFact;
 import com.atm.intellimate.memory.model.MemoryChunk;
 import com.atm.intellimate.memory.working.TokenEstimator;
 import com.atm.intellimate.memory.working.WorkingMemory;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
@@ -35,6 +36,7 @@ public class AgentMemoryLifecycle {
     private final LongTermMemory longTermMemory;
     private final MemorySystem memorySystem;
     private final ChatModelRegistry chatModelRegistry;
+    private final MeterRegistry meterRegistry;
 
     private record DeferredEpisodicStore(WorkingMemory workingMemory, LongTermMemory ltm,
                                          String userId, String agentId, Long sessionId,
@@ -47,11 +49,34 @@ public class AgentMemoryLifecycle {
     public AgentMemoryLifecycle(@Autowired(required = false) MemoryConfigProvider memoryConfigProvider,
                                 @Autowired(required = false) LongTermMemory longTermMemory,
                                 @Autowired(required = false) MemorySystem memorySystem,
-                                ChatModelRegistry chatModelRegistry) {
+                                ChatModelRegistry chatModelRegistry,
+                                @Autowired(required = false) MeterRegistry meterRegistry) {
         this.memoryConfigProvider = memoryConfigProvider;
         this.longTermMemory = longTermMemory;
         this.memorySystem = memorySystem;
         this.chatModelRegistry = chatModelRegistry;
+        this.meterRegistry = meterRegistry;
+    }
+
+    public void recordMemoryConsolidation(String agentId) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("agent.memory.consolidation",
+                    "agent", agentId).increment();
+        }
+    }
+
+    public void recordMemoryRetrieval(String agentId) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("agent.memory.retrieval",
+                    "agent", agentId).increment();
+        }
+    }
+
+    private void recordEpisodicStored(String agentId) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("agent.memory.episodic.stored",
+                    "agent", agentId).increment();
+        }
     }
 
     /**
@@ -180,6 +205,7 @@ public class AgentMemoryLifecycle {
                         result -> {
                             if (result != null && !result.facts().isEmpty()) {
                                 log.info("Session {} full summarization: {} facts stored", sessionId, result.facts().size());
+                                recordEpisodicStored(agentId);
                             } else {
                                 storeSessionEpisodicSimple(allChunks, ltm, userId, agentId, sessionId);
                             }
@@ -216,7 +242,7 @@ public class AgentMemoryLifecycle {
         ExtractedFact episodic = new ExtractedFact("episodic", summary.toString(), 0.5f);
         ltm.store(episodic, userId, agentId)
                 .subscribe(
-                        unused -> {},
+                        unused -> recordEpisodicStored(agentId),
                         e -> log.warn("Failed to store session episodic memory for session {}: {}", sessionId, e.getMessage()));
     }
 

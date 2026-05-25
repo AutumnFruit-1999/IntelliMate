@@ -57,7 +57,7 @@ class MessagePipelineApproveExecuteTest {
     @BeforeEach
     void setUp() {
         messageConverter = new MessageConverter(sessionManager, properties);
-        planExecutionOrchestrator = new PlanExecutionOrchestrator(planService, null, null, properties);
+        planExecutionOrchestrator = new PlanExecutionOrchestrator(planService, null, null, properties, null);
         agentEventMapper = new AgentEventMapper(agentConfigService, agentRuntime, properties, planExecutionOrchestrator);
         PlanRequestHandler planRequestHandler = new PlanRequestHandler(planService, agentRuntime, sessionRepository);
         pipeline = new MessagePipeline(

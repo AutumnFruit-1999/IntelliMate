@@ -15,7 +15,7 @@ class SessionRegistryTest {
 
     @BeforeEach
     void setUp() {
-        registry = new SessionRegistry();
+        registry = new SessionRegistry(null);
     }
 
     @Test
