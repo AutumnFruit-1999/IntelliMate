@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.tool.ToolCallback;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
@@ -38,17 +40,20 @@ public class ToolExecutionPipeline {
     private final SkillUsageRecorder skillUsageRecorder;
     private final AgentPromptBuilder agentPromptBuilder;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     public ToolExecutionPipeline(ToolsEngine toolsEngine,
                                  AgentSessionContext agentSessionContext,
                                  @Autowired(required = false) SkillUsageRecorder skillUsageRecorder,
                                  AgentPromptBuilder agentPromptBuilder,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 @Autowired(required = false) MeterRegistry meterRegistry) {
         this.toolsEngine = toolsEngine;
         this.agentSessionContext = agentSessionContext;
         this.skillUsageRecorder = skillUsageRecorder;
         this.agentPromptBuilder = agentPromptBuilder;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -75,6 +80,9 @@ public class ToolExecutionPipeline {
         if (loopStatus == ToolCallLoopDetector.LoopStatus.TERMINATE) {
             log.warn("Tool call loop detected (TERMINATE): {}({})", tc.name(),
                     tc.arguments().length() > 100 ? tc.arguments().substring(0, 100) + "..." : tc.arguments());
+            if (meterRegistry != null) {
+                meterRegistry.counter("agent.tool.loop_detected", "tool", tc.name()).increment();
+            }
             String terminateMsg = "检测到循环调用：你已多次使用相同参数调用 " + tc.name() + "，已拦截执行。请利用已有信息或尝试其他方法。";
             return Mono.just(new ToolExecutionResult(tc.id(), tc.name(), terminateMsg, false));
         }
@@ -101,12 +109,17 @@ public class ToolExecutionPipeline {
 
         String cached = cache.get(toolName, arguments);
         if (cached != null) {
+            if (meterRegistry != null) {
+                meterRegistry.counter("agent.tool.cache.hits", "tool", toolName).increment();
+            }
             String result = cached + "\n[缓存结果]";
             if (appendWarning) {
                 result += "\n\n[警告：你已多次使用相同参数调用此工具，请尝试其他方法。]";
             }
             return Mono.just(new ToolExecutionResult(toolCallId, toolName, result, true));
         }
+
+        Timer.Sample sample = meterRegistry != null ? Timer.start(meterRegistry) : null;
 
         Mono<ToolExecutionResult> execution = Mono.fromCallable(() -> {
                     agentSessionContext.set(sessionId);
@@ -150,11 +163,27 @@ public class ToolExecutionPipeline {
                             log.info("Retrying tool {} (attempt {})", toolName, signal.totalRetries() + 1)));
         }
 
-        return execution.onErrorResume(e -> {
-            String errorMsg = "Tool execution failed: " + e.getMessage();
-            log.warn("Tool {} failed: {}", toolName, e.getMessage(), e);
-            return Mono.just(new ToolExecutionResult(toolCallId, toolName, errorMsg, false));
-        });
+        return execution
+                .doOnSuccess(result -> recordToolMetrics(sample, toolName, result.success()))
+                .onErrorResume(e -> {
+                    String errorMsg = "Tool execution failed: " + e.getMessage();
+                    log.warn("Tool {} failed: {}", toolName, e.getMessage(), e);
+                    return Mono.just(new ToolExecutionResult(toolCallId, toolName, errorMsg, false));
+                });
+    }
+
+    private void recordToolMetrics(Timer.Sample sample, String toolName, boolean success) {
+        if (meterRegistry == null) {
+            return;
+        }
+        if (sample != null) {
+            sample.stop(Timer.builder("agent.tool.latency")
+                    .tag("tool", toolName)
+                    .register(meterRegistry));
+        }
+        meterRegistry.counter("agent.tool.requests",
+                "tool", toolName,
+                "status", success ? "success" : "error").increment();
     }
 
     private boolean isRetryableError(Throwable e) {

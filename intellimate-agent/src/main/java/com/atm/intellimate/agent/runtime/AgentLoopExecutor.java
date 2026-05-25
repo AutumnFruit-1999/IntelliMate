@@ -36,6 +36,8 @@ import org.springframework.ai.deepseek.DeepSeekChatOptions;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -71,6 +73,7 @@ public class AgentLoopExecutor {
     private final PlanEventExtractor planEventExtractor;
     private final ToolExecutionPipeline toolExecutionPipeline;
     private final DelegationExecutor delegationExecutor;
+    private final MeterRegistry meterRegistry;
 
     public AgentLoopExecutor(ChatModelRegistry chatModelRegistry,
                              ToolsEngine toolsEngine,
@@ -83,7 +86,8 @@ public class AgentLoopExecutor {
                              AgentMemoryLifecycle agentMemoryLifecycle,
                              PlanEventExtractor planEventExtractor,
                              ToolExecutionPipeline toolExecutionPipeline,
-                             DelegationExecutor delegationExecutor) {
+                             DelegationExecutor delegationExecutor,
+                             @Autowired(required = false) MeterRegistry meterRegistry) {
         this.chatModelRegistry = chatModelRegistry;
         this.toolsEngine = toolsEngine;
         this.objectMapper = objectMapper;
@@ -96,6 +100,7 @@ public class AgentLoopExecutor {
         this.planEventExtractor = planEventExtractor;
         this.toolExecutionPipeline = toolExecutionPipeline;
         this.delegationExecutor = delegationExecutor;
+        this.meterRegistry = meterRegistry;
     }
 
     public Flux<AgentEvent> executeAgentLoop(AgentRunRequest request, AgentLoopCallbacks callbacks) {
@@ -358,6 +363,8 @@ public class AgentLoopExecutor {
 
         Prompt prompt = new Prompt(new ArrayList<>(history), options);
         List<ChatResponse> allChunks = new ArrayList<>();
+        String modelId = extractModelId(options);
+        Timer.Sample llmSample = meterRegistry != null ? Timer.start(meterRegistry) : null;
 
         Flux<AgentEvent> turnStart = Flux.just(new AgentEvent.TurnStart(turn, maxTurns));
 
@@ -374,6 +381,17 @@ public class AgentLoopExecutor {
                 });
 
         Flux<AgentEvent> afterStream = Flux.defer(() -> {
+            if (meterRegistry != null && llmSample != null) {
+                llmSample.stop(Timer.builder("agent.llm.latency")
+                        .tag("model", modelId)
+                        .tag("agent", agentName)
+                        .register(meterRegistry));
+                meterRegistry.counter("agent.llm.requests",
+                        "model", modelId,
+                        "agent", agentName,
+                        "status", "success").increment();
+            }
+
             for (int i = allChunks.size() - 1; i >= 0; i--) {
                 ChatResponse chunk = allChunks.get(i);
                 if (chunk != null && chunk.getMetadata() != null) {
@@ -381,6 +399,20 @@ public class AgentLoopExecutor {
                     if (usage != null && usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
                         workingMemory.setActualTokenUsage(usage.getPromptTokens().intValue());
                         log.debug("Actual prompt tokens from API: {}", usage.getPromptTokens());
+                    }
+                    if (meterRegistry != null && usage != null) {
+                        if (usage.getPromptTokens() != null) {
+                            meterRegistry.counter("agent.llm.tokens.prompt",
+                                    "model", modelId, "agent", agentName)
+                                    .increment(usage.getPromptTokens());
+                        }
+                        if (usage.getCompletionTokens() != null) {
+                            meterRegistry.counter("agent.llm.tokens.completion",
+                                    "model", modelId, "agent", agentName)
+                                    .increment(usage.getCompletionTokens());
+                        }
+                    }
+                    if (usage != null && usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
                         break;
                     }
                 }
@@ -692,6 +724,13 @@ public class AgentLoopExecutor {
         }
 
         return Flux.concat(autoStartFlux, callEvents, withHistory, memorySnapshot, nextTurn);
+    }
+
+    private String extractModelId(ChatOptions options) {
+        if (options != null && options.getModel() != null && !options.getModel().isBlank()) {
+            return options.getModel();
+        }
+        return "unknown";
     }
 
     private String extractTextDelta(ChatResponse chunk) {

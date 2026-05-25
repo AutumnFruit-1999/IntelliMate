@@ -24,7 +24,7 @@ class ToolExecutionPipelineTest {
     @Test
     void executeSingleTool_loopTerminate_returnsErrorResult() {
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
-                toolsEngine, agentSessionContext, null, null, new ObjectMapper());
+                toolsEngine, agentSessionContext, null, null, new ObjectMapper(), null);
 
         ToolCallLoopDetector detector = new ToolCallLoopDetector(5, 3, 5, Set.of());
         for (int i = 0; i < 6; i++) {
@@ -47,7 +47,7 @@ class ToolExecutionPipelineTest {
     @Test
     void executeSingleTool_cacheHit_returnsCachedResult() {
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
-                toolsEngine, agentSessionContext, null, null, new ObjectMapper());
+                toolsEngine, agentSessionContext, null, null, new ObjectMapper(), null);
 
         ToolResultCache cache = new ToolResultCache();
         cache.put("readFile", "{\"path\":\"/tmp/a\"}", "file content");
