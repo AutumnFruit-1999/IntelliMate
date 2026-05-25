@@ -9,6 +9,8 @@ import com.atm.intellimate.gateway.dto.AgentDTO;
 import com.atm.intellimate.gateway.dto.ApiResponse;
 import com.atm.intellimate.gateway.entity.AgentEntity;
 import com.atm.intellimate.gateway.repository.AgentRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+@Tag(name = "Agent", description = "Agent 管理 API")
 @RestController
 @RequestMapping("/api")
 public class AgentController {
@@ -36,6 +39,7 @@ public class AgentController {
         this.chatModelRegistry = chatModelRegistry;
     }
 
+    @Operation(summary = "获取所有 Agent 列表")
     @GetMapping("/agents")
     public Mono<ApiResponse<List<AgentDTO>>> listAgents() {
         return agentRepository.findAllActive()
@@ -84,6 +88,7 @@ public class AgentController {
                 .defaultIfEmpty(ApiResponse.ok(defaultDto(name)));
     }
 
+    @Operation(summary = "创建 Agent")
     @PostMapping("/agent")
     public Mono<ApiResponse<AgentDTO>> createAgent(@RequestBody Map<String, String> body) {
         String name = body.get("name");

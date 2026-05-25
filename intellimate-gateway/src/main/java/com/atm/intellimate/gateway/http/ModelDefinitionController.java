@@ -10,6 +10,8 @@ import com.atm.intellimate.gateway.entity.ModelProviderEntity;
 import com.atm.intellimate.gateway.repository.ModelDefinitionRepository;
 import com.atm.intellimate.gateway.repository.ModelProviderRepository;
 import com.atm.intellimate.gateway.service.ModelRegistryService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Tag(name = "Model", description = "模型定义管理 API")
 @RestController
 @RequestMapping("/api")
 public class ModelDefinitionController {
@@ -35,6 +38,7 @@ public class ModelDefinitionController {
         this.registryService = registryService;
     }
 
+    @Operation(summary = "获取分组模型列表")
     @GetMapping("/models")
     public Mono<ApiResponse<List<ModelGroupDTO>>> listGrouped() {
         return providerRepo.findAllByEnabledOrderBySortOrder(1)
@@ -50,6 +54,7 @@ public class ModelDefinitionController {
                 });
     }
 
+    @Operation(summary = "创建模型定义")
     @PostMapping("/model-definitions")
     public Mono<ApiResponse<ModelDTO>> create(@RequestBody CreateModelRequest body) {
         if (body.providerId == null) {

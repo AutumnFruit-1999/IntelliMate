@@ -80,6 +80,14 @@ intellimate:
     max-concurrent-jobs: 8
     config-reload-debounce-ms: 500
 
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+
 management:
   endpoints:
     web:
