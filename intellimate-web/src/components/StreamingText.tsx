@@ -101,11 +101,7 @@ const RenderedMarkdown = memo(function RenderedMarkdown({ content }: { content: 
 
 export default function StreamingText({ content, streaming }: StreamingTextProps) {
   if (!content && streaming) {
-    return (
-      <span className="text-slate-400 dark:text-slate-500 italic">
-        思考中...
-      </span>
-    );
+    return <div className="h-5" />;
   }
 
   if (streaming) {

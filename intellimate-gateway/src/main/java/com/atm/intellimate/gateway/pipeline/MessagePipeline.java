@@ -94,6 +94,10 @@ public class MessagePipeline {
 
     @SuppressWarnings("unchecked")
     public Flux<GatewayFrame> processRequest(RequestFrame request, String wsSessionId) {
+        if ("conversation.cancel".equals(request.method())) {
+            return processCancelRequest(request, wsSessionId);
+        }
+
         if ("conversation.approve_tool".equals(request.method())) {
             return processApprovalResponse(request);
         }
@@ -203,7 +207,9 @@ public class MessagePipeline {
                                 StringBuilder fullResponse = new StringBuilder();
 
                                 Flux<GatewayFrame> events = agentRuntime.dispatch(runRequest)
-                                        .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session));
+                                        .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session))
+                                        .doOnSubscribe(sub -> agentRuntime.registerWsRun(wsSessionId, sub))
+                                        .doFinally(sig -> agentRuntime.unregisterWsRun(wsSessionId));
 
                                 Flux<GatewayFrame> tail = Flux.defer(() -> {
                                     String completeText = fullResponse.toString();
@@ -649,6 +655,22 @@ public class MessagePipeline {
         } catch (Exception e) {
             log.error("Failed to process plan request {}: {}", request.method(), e.getMessage(), e);
             return Flux.just(ResponseFrame.failure(request.id(), "Invalid plan request: " + e.getMessage()));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Flux<GatewayFrame> processCancelRequest(RequestFrame request, String wsSessionId) {
+        try {
+            Map<String, Object> params = (Map<String, Object>) request.params();
+            String requestId = (String) params.get("requestId");
+            log.info("Cancelling request {} for wsSession {}", requestId, wsSessionId);
+
+            agentRuntime.cancelByWsSession(wsSessionId);
+
+            return Flux.just(ResponseFrame.success(request.id(), Map.of("cancelled", true)));
+        } catch (Exception e) {
+            log.warn("Cancel request failed: {}", e.getMessage());
+            return Flux.just(ResponseFrame.failure(request.id(), "Cancel failed: " + e.getMessage()));
         }
     }
 

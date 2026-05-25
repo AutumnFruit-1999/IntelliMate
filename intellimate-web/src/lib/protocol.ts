@@ -62,6 +62,10 @@ export function isResponseFrame(frame: GatewayFrame): frame is ResponseFrame {
   return frame.type === "response";
 }
 
+export function createConversationCancel(requestId: string): RequestFrame {
+  return createRequest("conversation.cancel", { requestId });
+}
+
 export function createPlanApprove(
   planId: number,
   approved: boolean,

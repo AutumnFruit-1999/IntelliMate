@@ -35,7 +35,7 @@ export default function App() {
   const [planPanelOpen, setPlanPanelOpen] = useState(true);
   const [planPanelCollapsed, setPlanPanelCollapsed] = useState(false);
 
-  const { sendMessage, sendPlanAction, sendPlanActionAndWait } = useWebSocket();
+  const { sendMessage, sendPlanAction, sendPlanActionAndWait, cancelRequest } = useWebSocket();
   const activeAgent = useAgentStore((s) => s.activeAgent);
   const fetchAgentList = useAgentStore((s) => s.fetchAgentList);
   const setActiveAgent = useAgentStore((s) => s.setActiveAgent);
@@ -128,7 +128,7 @@ export default function App() {
         />
         <div className="flex flex-1 min-h-0">
           {viewMode === "chat" ? (
-            <ChatPanel onSend={sendMessage} onSendPlanAction={sendPlanAction} />
+            <ChatPanel onSend={sendMessage} onCancel={cancelRequest} onSendPlanAction={sendPlanAction} />
           ) : viewMode === "planHistory" ? (
             <PlanHistoryTab onBack={() => setViewMode("chat")} />
           ) : viewMode === "toolManager" ? (

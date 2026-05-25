@@ -1,14 +1,15 @@
 import { useState, useRef, useCallback } from "react";
-import { Send, Loader2 } from "lucide-react";
+import { Send, Square } from "lucide-react";
 import CommandPopup from "./CommandPopup";
 
 interface ComposeAreaProps {
   onSend: (text: string) => void;
+  onCancel?: () => void;
   disabled?: boolean;
   isWaiting?: boolean;
 }
 
-export default function ComposeArea({ onSend, disabled, isWaiting }: ComposeAreaProps) {
+export default function ComposeArea({ onSend, onCancel, disabled, isWaiting }: ComposeAreaProps) {
   const [text, setText] = useState("");
   const [showCommands, setShowCommands] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -89,17 +90,24 @@ export default function ComposeArea({ onSend, disabled, isWaiting }: ComposeArea
             disabled={disabled || isWaiting}
             className="flex-1 bg-transparent resize-none outline-none text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 max-h-[150px] disabled:opacity-50"
           />
-          <button
-            onClick={handleSubmit}
-            disabled={!canSend}
-            className="flex-shrink-0 p-1.5 rounded-full bg-blue-500 text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-600 transition-colors"
-          >
-            {isWaiting ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
+          {isWaiting ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-shrink-0 p-1.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-500 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
+              title="取消"
+            >
+              <Square size={16} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={!canSend}
+              className="flex-shrink-0 p-1.5 rounded-full bg-blue-500 text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-600 transition-colors"
+            >
               <Send size={16} />
-            )}
-          </button>
+            </button>
+          )}
         </div>
       </div>
     </div>

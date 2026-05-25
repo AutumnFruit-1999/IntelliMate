@@ -5,10 +5,11 @@ import type { RequestFrame } from "../lib/protocol";
 
 interface ChatPanelProps {
   onSend: (text: string) => void;
+  onCancel?: () => void;
   onSendPlanAction?: (request: RequestFrame) => void;
 }
 
-export default function ChatPanel({ onSend }: ChatPanelProps) {
+export default function ChatPanel({ onSend, onCancel }: ChatPanelProps) {
   const connectionState = useChatStore((s) => s.connectionState);
   const isWaiting = useChatStore((s) => s.isWaiting);
   const disabled = connectionState !== "connected";
@@ -16,7 +17,7 @@ export default function ChatPanel({ onSend }: ChatPanelProps) {
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">
       <MessageList />
-      <ComposeArea onSend={onSend} disabled={disabled} isWaiting={isWaiting} />
+      <ComposeArea onSend={onSend} onCancel={onCancel} disabled={disabled} isWaiting={isWaiting} />
     </div>
   );
 }

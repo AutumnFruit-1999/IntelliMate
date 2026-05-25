@@ -128,6 +128,7 @@ public class AgentRuntime {
     private static final Set<String> SKILL_GROUPS_UNRESTRICTED = Set.of("__ALL__");
     private final ConcurrentMap<Long, Set<String>> sessionSkillGroups = new ConcurrentHashMap<>();
     private final Set<Long> pausedPlanIds = ConcurrentHashMap.newKeySet();
+    private final ConcurrentMap<String, org.reactivestreams.Subscription> activeWsRuns = new ConcurrentHashMap<>();
 
     private static final ConcurrentMap<Long, AgentEvent.MemorySnapshot> latestSnapshots = new ConcurrentHashMap<>();
 
@@ -149,6 +150,22 @@ public class AgentRuntime {
         if (deferred == null) return;
         storeSessionEpisodicMemory(deferred.workingMemory(), deferred.ltm(),
                 deferred.userId(), deferred.agentId(), deferred.sessionId(), deferred.minChunksForEpisodic());
+    }
+
+    public void registerWsRun(String wsSessionId, org.reactivestreams.Subscription subscription) {
+        activeWsRuns.put(wsSessionId, subscription);
+    }
+
+    public void unregisterWsRun(String wsSessionId) {
+        activeWsRuns.remove(wsSessionId);
+    }
+
+    public void cancelByWsSession(String wsSessionId) {
+        org.reactivestreams.Subscription sub = activeWsRuns.remove(wsSessionId);
+        if (sub != null) {
+            log.info("Cancelling agent run for wsSession: {}", wsSessionId);
+            sub.cancel();
+        }
     }
 
     public void signalPlanPaused(Long planId) {

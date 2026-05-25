@@ -4,6 +4,7 @@ import type { ChatMessage, ToolCallInfo } from "../stores/chatStore";
 import { usePlanStore } from "../stores/planStore";
 import type { StepToolCall } from "../stores/planStore";
 import StreamingText from "./StreamingText";
+import ActivityStrip from "./ActivityStrip";
 import ToolCallGroup from "./ToolCallGroup";
 import WorkflowTimeline from "./workflow/WorkflowTimeline";
 import {
@@ -40,8 +41,6 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools }
   }
 
   const hasToolCalls = !isUser && message.toolCalls && message.toolCalls.length > 0;
-  const showTurnIndicator =
-    !isUser && message.streaming && message.currentTurn != null && message.currentTurn > 1;
 
   const { plan, stepToolCalls, currentStepIndex } = usePlanStore(
     useShallow((s) => ({
@@ -98,12 +97,7 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools }
         {isUser ? <User size={16} /> : <Bot size={16} />}
       </div>
       <div className="max-w-[75%]">
-        {showTurnIndicator && (
-          <TurnIndicator
-            turn={message.currentTurn!}
-            maxTurns={message.maxTurns ?? 0}
-          />
-        )}
+        {!isUser && message.streaming && <ActivityStrip />}
 
         {showLiveStepView && (
           <div className="mb-2">

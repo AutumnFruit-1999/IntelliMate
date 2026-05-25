@@ -3,8 +3,21 @@ import type { ConnectionState } from "../lib/wsClient";
 import type { ResponseFrame } from "../lib/protocol";
 import { generateId } from "../lib/protocol";
 import { usePlanStore } from "./planStore";
+import { useAgentStore } from "./agentStore";
 import type { DelegationState } from "../components/workflow/DelegationCard";
 import type { WorkflowEntry, HandoffInfo, ParallelGroupInfo } from "../components/workflow/WorkflowTimeline";
+
+export type ActivityPhase = "idle" | "waiting" | "thinking" | "streaming" | "tool_calling" | "cancelled";
+
+export interface ActivityState {
+  phase: ActivityPhase;
+  modelName: string | null;
+  currentTool: string | null;
+  currentToolDescription: string | null;
+  turn: number;
+  maxTurns: number;
+  startedAt: number | null;
+}
 
 export interface ToolCallInfo {
   toolCallId: string;
@@ -80,6 +93,12 @@ interface ChatState {
   addProactiveMessage: (agentName: string, text: string, requestId: string, source: string) => void;
   bufferProactiveMessage: (agentName: string, text: string, requestId: string, source: string) => void;
   flushProactiveBuffer: () => void;
+
+  activity: ActivityState;
+  setActivityPhase: (phase: ActivityPhase) => void;
+  setActivityTool: (name: string, description: string | null) => void;
+  clearActivityTool: () => void;
+  resetActivity: () => void;
 }
 
 function getAgentMessages(state: ChatState): ChatMessage[] {
@@ -106,6 +125,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   pendingForcePlan: null,
   messages: [],
   proactiveBuffer: [],
+  activity: {
+    phase: "idle",
+    modelName: null,
+    currentTool: null,
+    currentToolDescription: null,
+    turn: 0,
+    maxTurns: 0,
+    startedAt: null,
+  },
 
   setCurrentAgent: (agent) => {
     const state = get();
@@ -122,8 +150,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setWsSessionId: (wsSessionId) => set({ wsSessionId }),
 
   addUserMessage: (text, requestId) => {
+    const agentState = useAgentStore.getState();
+    const activeAgent = agentState.activeAgent;
+    const agentInfo = agentState.agents.find((a) => a.name === activeAgent);
+    const modelName = agentInfo?.modelDisplayName || agentInfo?.model || null;
+
     set((state) => ({
       isWaiting: true,
+      activity: {
+        phase: "waiting",
+        modelName,
+        currentTool: null,
+        currentToolDescription: null,
+        turn: 0,
+        maxTurns: 0,
+        startedAt: Date.now(),
+      },
       ...updateAgentMessages(state, (msgs) => [
         ...msgs,
         {
@@ -147,18 +189,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   appendChunk: (requestId, chunk) => {
-    set((state) => updateAgentMessages(state, (msgs) =>
-      msgs.map((msg) =>
-        msg.id === `assistant-${requestId}` && msg.streaming
-          ? { ...msg, content: msg.content + chunk }
-          : msg,
-      ),
-    ));
+    set((state) => {
+      const newActivity = state.activity.phase === "thinking" || state.activity.phase === "waiting" || state.activity.phase === "tool_calling"
+        ? { ...state.activity, phase: "streaming" as ActivityPhase, currentTool: null, currentToolDescription: null }
+        : state.activity;
+      return {
+        activity: newActivity,
+        ...updateAgentMessages(state, (msgs) =>
+          msgs.map((msg) =>
+            msg.id === `assistant-${requestId}` && msg.streaming
+              ? { ...msg, content: msg.content + chunk }
+              : msg,
+          ),
+        ),
+      };
+    });
   },
 
   finishStreaming: (requestId, fullText, totalTurns) => {
     set((state) => ({
       isWaiting: false,
+      activity: {
+        phase: "idle",
+        modelName: null,
+        currentTool: null,
+        currentToolDescription: null,
+        turn: 0,
+        maxTurns: 0,
+        startedAt: null,
+      },
       ...updateAgentMessages(state, (msgs) =>
         msgs.map((msg) =>
           msg.id === `assistant-${requestId}`
@@ -295,13 +354,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setTurnStart: (requestId, turn, maxTurns) => {
-    set((state) => updateAgentMessages(state, (msgs) =>
-      msgs.map((msg) =>
-        msg.id === `assistant-${requestId}`
-          ? { ...msg, currentTurn: turn, maxTurns }
-          : msg,
+    set((state) => ({
+      activity: {
+        ...state.activity,
+        phase: "thinking",
+        turn,
+        maxTurns,
+      },
+      ...updateAgentMessages(state, (msgs) =>
+        msgs.map((msg) =>
+          msg.id === `assistant-${requestId}`
+            ? { ...msg, currentTurn: turn, maxTurns }
+            : msg,
+        ),
       ),
-    ));
+    }));
   },
 
   addToolCall: (requestId, info) => {
@@ -551,5 +618,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().addProactiveMessage(msg.agentName, msg.text, msg.requestId, msg.source);
     }
     set({ proactiveBuffer: [] });
+  },
+
+  setActivityPhase: (phase) => {
+    set((state) => ({
+      activity: {
+        ...state.activity,
+        phase,
+        ...(phase === "waiting" ? { startedAt: Date.now(), turn: 0, maxTurns: 0, currentTool: null, currentToolDescription: null } : {}),
+      },
+    }));
+  },
+
+  setActivityTool: (name, description) => {
+    set((state) => ({
+      activity: {
+        ...state.activity,
+        phase: "tool_calling",
+        currentTool: name,
+        currentToolDescription: description,
+      },
+    }));
+  },
+
+  clearActivityTool: () => {
+    set((state) => ({
+      activity: {
+        ...state.activity,
+        phase: state.activity.phase === "tool_calling" ? "thinking" : state.activity.phase,
+        currentTool: null,
+        currentToolDescription: null,
+      },
+    }));
+  },
+
+  resetActivity: () => {
+    set({
+      activity: {
+        phase: "idle",
+        modelName: null,
+        currentTool: null,
+        currentToolDescription: null,
+        turn: 0,
+        maxTurns: 0,
+        startedAt: null,
+      },
+    });
   },
 }));

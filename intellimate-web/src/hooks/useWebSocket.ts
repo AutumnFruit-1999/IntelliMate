@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { WsClient } from "../lib/wsClient";
 import {
   createRequest,
+  createConversationCancel,
   type EventFrame,
   type RequestFrame,
   type ResponseFrame,
@@ -160,6 +161,7 @@ export function useWebSocket() {
                 });
               }
             }
+            store.setActivityTool(tcName, tcDesc || null);
             break;
           }
           case "agent.tool_result": {
@@ -175,6 +177,7 @@ export function useWebSocket() {
               trSuccess,
             );
             usePlanStore.getState().updateStepToolResult(trId, trResult, trSuccess);
+            store.clearActivityTool();
             break;
           }
           case "plan.created": {
@@ -449,5 +452,26 @@ export function useWebSocket() {
     });
   }, []);
 
-  return { sendMessage, sendPlanAction, sendPlanActionAndWait };
+  const cancelRequest = useCallback(() => {
+    const client = clientRef.current;
+    if (!client) return;
+
+    const store = useChatStore.getState();
+    const agentName = useAgentStore.getState().activeAgent ?? "";
+    const msgs = store.messagesByAgent[agentName] ?? [];
+    const waitingMsg = msgs.find((m) => m.streaming);
+    if (!waitingMsg) return;
+
+    const requestId = waitingMsg.id.replace("assistant-", "");
+    const req = createConversationCancel(requestId);
+    client.send(req);
+
+    store.setActivityPhase("cancelled");
+    setTimeout(() => {
+      store.resetActivity();
+      store.finishStreaming(requestId, waitingMsg.content + "\n\n[已取消]", undefined);
+    }, 500);
+  }, []);
+
+  return { sendMessage, sendPlanAction, sendPlanActionAndWait, cancelRequest };
 }
