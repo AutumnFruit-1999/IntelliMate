@@ -12,6 +12,7 @@ import { useAgentStore } from "../stores/agentStore";
 import { usePlanStore } from "../stores/planStore";
 import { useMemoryStore } from "../stores/memoryStore";
 import { useSchedulerStore } from "../stores/schedulerStore";
+import { useNotification } from "./useNotification";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/ws`;
@@ -21,6 +22,7 @@ const PLAN_STALE_CHECK_INTERVAL_MS = 15_000;
 const PLAN_STALE_THRESHOLD_MS = 60_000;
 
 export function useWebSocket() {
+  const { requestPermission, notify } = useNotification();
   const clientRef = useRef<WsClient | null>(null);
   const sendMessageRef = useRef<(text: string, forcePlan?: boolean, regenerate?: boolean) => void>(() => {});
   const timeoutTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
@@ -124,6 +126,24 @@ export function useWebSocket() {
               store.snapshotStepGroup();
               usePlanStore.getState().syncFromServer(planState.plan.planId);
             }
+            requestPermission();
+
+            if (document.hidden) {
+              const msgs = useChatStore.getState().messages;
+              let lastAssistantContent = "";
+              for (let i = msgs.length - 1; i >= 0; i--) {
+                if (msgs[i].role === "assistant") {
+                  lastAssistantContent = msgs[i].content;
+                  break;
+                }
+              }
+              const agentName = useAgentStore.getState().activeAgent ?? "Agent";
+              notify(
+                `${agentName} 回复了你`,
+                lastAssistantContent?.slice(0, 50) || "新回复",
+              );
+            }
+
             const queued = useChatStore.getState().queuedMessage;
             if (queued) {
               useChatStore.getState().setQueuedMessage(null);
