@@ -14,6 +14,9 @@ public interface TranscriptMessageRepository extends ReactiveCrudRepository<Tran
     @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId ORDER BY created_at DESC LIMIT :limit")
     Flux<TranscriptMessageEntity> findRecentBySessionId(Long sessionId, int limit);
 
+    @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND id < :beforeId ORDER BY created_at DESC LIMIT :limit")
+    Flux<TranscriptMessageEntity> findRecentBySessionIdBeforeId(Long sessionId, Long beforeId, int limit);
+
     @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND plan_id = :planId ORDER BY created_at DESC LIMIT :limit")
     Flux<TranscriptMessageEntity> findRecentBySessionIdAndPlanId(Long sessionId, Long planId, int limit);
 
