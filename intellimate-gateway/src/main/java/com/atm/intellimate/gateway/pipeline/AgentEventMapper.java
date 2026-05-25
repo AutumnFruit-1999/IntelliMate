@@ -19,30 +19,27 @@ import java.util.concurrent.atomic.AtomicLong;
 @Component
 public class AgentEventMapper {
 
-    @FunctionalInterface
-    public interface PlanCompletionCallback {
-        void onPlanCompleted(Long sessionId, Long planId, String agentId, String userId);
-    }
-
     private final AgentConfigService agentConfigService;
     private final AgentRuntime agentRuntime;
     private final IntelliMateProperties properties;
+    private final PlanExecutionOrchestrator planExecutionOrchestrator;
     private final AtomicLong seqGenerator = new AtomicLong(0);
 
     public AgentEventMapper(AgentConfigService agentConfigService,
                             AgentRuntime agentRuntime,
-                            IntelliMateProperties properties) {
+                            IntelliMateProperties properties,
+                            PlanExecutionOrchestrator planExecutionOrchestrator) {
         this.agentConfigService = agentConfigService;
         this.agentRuntime = agentRuntime;
         this.properties = properties;
+        this.planExecutionOrchestrator = planExecutionOrchestrator;
     }
 
     public Flux<GatewayFrame> mapAgentEvent(
             AgentEvent event,
             String requestId,
             StringBuilder fullResponse,
-            SessionEntity session,
-            PlanCompletionCallback onPlanCompleted) {
+            SessionEntity session) {
 
         return switch (event) {
             case AgentEvent.TurnStart ts -> Flux.just(new EventFrame(
@@ -163,13 +160,11 @@ public class AgentEventMapper {
             ));
 
             case AgentEvent.PlanCompleted pcomp -> {
-                if (onPlanCompleted != null) {
-                    onPlanCompleted.onPlanCompleted(
-                            session.getId(),
-                            pcomp.planId(),
-                            resolveAgentId(session),
-                            resolveUserId(session));
-                }
+                planExecutionOrchestrator.schedulePlanCompletionMemoryExtraction(
+                        session.getId(),
+                        pcomp.planId(),
+                        resolveAgentId(session),
+                        resolveUserId(session));
                 yield Flux.just(new EventFrame(
                         "plan.completed",
                         Map.of("planId", pcomp.planId(), "status", pcomp.status(), "requestId", requestId),
@@ -243,7 +238,7 @@ public class AgentEventMapper {
             ));
 
             case AgentEvent.HandoffStart hs ->
-                    handleHandoff(hs, requestId, fullResponse, session, onPlanCompleted);
+                    handleHandoff(hs, requestId, fullResponse, session);
 
             case AgentEvent.ParallelStart ps -> Flux.just(new EventFrame(
                     "workflow.parallel_start",
@@ -330,8 +325,7 @@ public class AgentEventMapper {
             AgentEvent.HandoffStart hs,
             String requestId,
             StringBuilder fullResponse,
-            SessionEntity session,
-            PlanCompletionCallback onPlanCompleted) {
+            SessionEntity session) {
 
         EventFrame handoffEvent = new EventFrame(
                 "workflow.handoff",
@@ -364,7 +358,7 @@ public class AgentEventMapper {
                             null, false, null, null, null,
                             resolved.bridgeNode());
                     return agentRuntime.dispatch(handoffRequest)
-                            .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session, onPlanCompleted));
+                            .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session));
                 });
 
         return Flux.concat(Flux.just(handoffEvent), handoffExecution);

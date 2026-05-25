@@ -52,16 +52,18 @@ class MessagePipelineApproveExecuteTest {
     private MessagePipeline pipeline;
     private MessageConverter messageConverter;
     private AgentEventMapper agentEventMapper;
+    private PlanExecutionOrchestrator planExecutionOrchestrator;
 
     @BeforeEach
     void setUp() {
         messageConverter = new MessageConverter(sessionManager, properties);
-        agentEventMapper = new AgentEventMapper(agentConfigService, agentRuntime, properties);
+        planExecutionOrchestrator = new PlanExecutionOrchestrator(planService, null, null, properties);
+        agentEventMapper = new AgentEventMapper(agentConfigService, agentRuntime, properties, planExecutionOrchestrator);
         PlanRequestHandler planRequestHandler = new PlanRequestHandler(planService, agentRuntime, sessionRepository);
         pipeline = new MessagePipeline(
                 sessionManager, messageConverter, agentEventMapper, agentRuntime, properties,
                 agentConfigService, commandHandler, auditService, planRequestHandler,
-                planService, sessionRegistry, sessionRepository, null, null);
+                planService, planExecutionOrchestrator, sessionRegistry, sessionRepository);
     }
 
     private PlanEntity makePlan(Long id, Long sessionId, String status) {
