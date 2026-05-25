@@ -50,11 +50,15 @@ class MessagePipelineApproveExecuteTest {
     @Mock private SessionRepository sessionRepository;
 
     private MessagePipeline pipeline;
+    private MessageConverter messageConverter;
+    private AgentEventMapper agentEventMapper;
 
     @BeforeEach
     void setUp() {
+        messageConverter = new MessageConverter(sessionManager, properties);
+        agentEventMapper = new AgentEventMapper(agentConfigService, agentRuntime, properties);
         pipeline = new MessagePipeline(
-                sessionManager, agentRuntime, properties,
+                sessionManager, messageConverter, agentEventMapper, agentRuntime, properties,
                 agentConfigService, commandHandler, auditService,
                 planService, sessionRegistry, sessionRepository, null, null);
     }
