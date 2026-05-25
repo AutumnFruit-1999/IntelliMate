@@ -105,7 +105,9 @@ public class MessagePipeline {
 
         if (request.method() != null && request.method().startsWith("plan.")) {
             return planRequestHandler.processPlanRequest(
-                    request, wsSessionId, this::processMessageStreaming, wsSessionToDbSession::put);
+                    request, wsSessionId,
+                    (s, text, rid, wss, fp) -> processMessageStreaming(s, text, rid, wss, fp, false),
+                    wsSessionToDbSession::put);
         }
 
         if (!"conversation.message".equals(request.method())) {
@@ -118,6 +120,7 @@ public class MessagePipeline {
         String contextType = (String) params.getOrDefault("contextType", "dm");
         String baseContextId = (String) params.getOrDefault("contextId", wsSessionId);
         boolean forcePlan = Boolean.TRUE.equals(params.get("forcePlan"));
+        boolean isRegenerate = Boolean.TRUE.equals(params.get("regenerate"));
 
         String agentName = (String) params.getOrDefault("agentName", "");
         if (agentName.isBlank()) {
@@ -140,7 +143,7 @@ public class MessagePipeline {
                         return auditService.log("command", wsSessionId, session.getId(), userText)
                                 .thenMany(commandHandler.handle(userText, session, request.id()));
                     }
-                    return processMessageStreaming(session, userText, request.id(), wsSessionId, forcePlan);
+                    return processMessageStreaming(session, userText, request.id(), wsSessionId, forcePlan, isRegenerate);
                 })
                 .onErrorResume(e -> {
                     log.error("Error processing request id={}: {}", request.id(), e.getMessage(), e);
@@ -150,7 +153,7 @@ public class MessagePipeline {
 
     private Flux<GatewayFrame> processMessageStreaming(
             SessionEntity session, String userText, String requestId, String wsSessionId,
-            boolean forcePlan) {
+            boolean forcePlan, boolean isRegenerate) {
 
         return planService.getActivePlan(session.getId())
                 .defaultIfEmpty(new PlanEntity())
@@ -160,20 +163,25 @@ public class MessagePipeline {
                     boolean planExecuting = planId != null
                             && ("executing".equals(planStatus) || "approved".equals(planStatus));
 
-                    TranscriptMessageEntity userMsg = new TranscriptMessageEntity();
-                    userMsg.setRole("user");
-                    userMsg.setContent(userText);
-                    userMsg.setCreatedAt(LocalDateTime.now());
-                    if (planExecuting) {
-                        userMsg.setPlanId(planId);
-                    }
-
                     final Long effectivePlanId = planExecuting ? planId : null;
 
-                    return sessionManager.appendMessage(session.getId(), userMsg)
-                            .then(auditService.log("user_message", wsSessionId, session.getId(),
-                                    userText.length() > 200 ? userText.substring(0, 200) + "..." : userText))
-                            .then(Mono.zip(
+                    Mono<Void> saveUserMono;
+                    if (isRegenerate) {
+                        saveUserMono = Mono.empty();
+                    } else {
+                        TranscriptMessageEntity userMsg = new TranscriptMessageEntity();
+                        userMsg.setRole("user");
+                        userMsg.setContent(userText);
+                        userMsg.setCreatedAt(LocalDateTime.now());
+                        if (planExecuting) {
+                            userMsg.setPlanId(planId);
+                        }
+                        saveUserMono = sessionManager.appendMessage(session.getId(), userMsg)
+                                .then(auditService.log("user_message", wsSessionId, session.getId(),
+                                        userText.length() > 200 ? userText.substring(0, 200) + "..." : userText));
+                    }
+
+                    return saveUserMono.then(Mono.zip(
                                     messageConverter.loadHistory(session.getId(), effectivePlanId).collectList(),
                                     agentConfigService.resolve(session.getAgentName()),
                                     planExecuting
