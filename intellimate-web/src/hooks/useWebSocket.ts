@@ -411,6 +411,23 @@ export function useWebSocket() {
   }
 
   const sendMessage = useCallback((text: string, forcePlan?: boolean) => {
+    if (text.trim() === "/clear") {
+      const agentName = useAgentStore.getState().activeAgent;
+      if (!agentName) return;
+      import("../lib/sessionApi").then(({ clearSession }) => {
+        clearSession(agentName)
+          .then(() => {
+            const store = useChatStore.getState();
+            store.clearMessages();
+            store.setHistoryLoaded(true);
+          })
+          .catch((err) => {
+            console.error("[/clear] Failed:", err);
+          });
+      });
+      return;
+    }
+
     const client = clientRef.current;
     if (!client) return;
 

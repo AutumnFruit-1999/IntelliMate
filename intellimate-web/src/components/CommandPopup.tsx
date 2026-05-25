@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 const COMMANDS = [
-  { name: "/clear", description: "清除当前对话记录" },
+  { name: "/clear", description: "归档当前对话，开始新话题" },
   { name: "/reset", description: "重置会话（清除后端上下文）" },
   { name: "/status", description: "查看当前会话状态" },
   { name: "/model", description: "切换 LLM 模型" },
