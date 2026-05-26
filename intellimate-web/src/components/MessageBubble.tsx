@@ -1,15 +1,15 @@
 import { useMemo, useState, useEffect, memo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { ChatMessage, ToolCallInfo } from "../stores/chatStore";
+import type { ChatMessage } from "../stores/chatStore";
 import { usePlanStore } from "../stores/planStore";
 import type { StepToolCall } from "../stores/planStore";
 import StreamingText from "./StreamingText";
 import ActivityStrip from "./ActivityStrip";
 import ErrorBubble from "./ErrorBubble";
-import ToolCallGroup from "./ToolCallGroup";
+import ToolCallBar from "./ToolCallBar";
 import WorkflowTimeline from "./workflow/WorkflowTimeline";
 import {
-  Bot, User, Wrench, ChevronDown, ChevronRight,
+  Bot, User, ChevronDown, ChevronRight,
   Loader2, CheckCircle2, XCircle, Circle, MinusCircle,
 } from "lucide-react";
 
@@ -96,14 +96,13 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools, 
   const showSnapshotStepView = hasToolCalls && !showLiveStepView && hasSnapshot;
   const showStepView = showLiveStepView || showSnapshotStepView;
 
-  const toolCallGroups = useMemo(() => {
+  const filteredToolCalls = useMemo(() => {
     if (!hasToolCalls) return [];
     if (showStepView) return [];
     const calls = hasPlanTools
       ? message.toolCalls!.filter(tc => tc.name !== "writePlan" && tc.name !== "updatePlan")
       : message.toolCalls!;
-    if (calls.length === 0) return [];
-    return groupByTurn(calls);
+    return calls;
   }, [
     hasToolCalls,
     showStepView,
@@ -112,19 +111,17 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools, 
   ]);
 
   return (
-    <div className={`flex gap-3 my-4 ${isUser ? "flex-row-reverse" : ""}`}>
-      <div
-        className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-          isUser
-            ? "bg-blue-500 text-white"
-            : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-        }`}
-      >
-        {isUser ? <User size={16} /> : <Bot size={16} />}
+    <div className={`flex gap-2.5 my-3 ${isUser ? "flex-row-reverse" : ""}`}>
+      <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center shadow-sm mt-5 ${
+        isUser
+          ? "bg-gradient-to-br from-slate-600 to-slate-800"
+          : "bg-gradient-to-br from-blue-500 to-indigo-600"
+      }`}>
+        {isUser ? <User size={14} className="text-white" /> : <Bot size={14} className="text-white" />}
       </div>
-      <div className="max-w-[75%]">
+      <div className={`max-w-[75%] ${isUser ? "" : "min-w-0"}`}>
         {message.timestamp > 0 && (
-          <div className={`text-[10px] text-slate-400 dark:text-slate-500 mb-0.5 ${isUser ? "text-right" : ""}`}>
+          <div className={`text-[10px] text-slate-400 dark:text-slate-500 mb-0.5 ${isUser ? "text-right mr-1" : "ml-1"}`}>
             {formatMessageTime(message.timestamp)}
           </div>
         )}
@@ -150,15 +147,9 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools, 
           </div>
         )}
 
-        {toolCallGroups.length > 0 && (
+        {filteredToolCalls.length > 0 && (
           <div className="mb-2">
-            {toolCallGroups.map((group) => (
-              <ToolCallGroup
-                key={group.key}
-                calls={group.calls}
-                turn={group.turn}
-              />
-            ))}
+            <ToolCallBar toolCalls={filteredToolCalls} />
           </div>
         )}
 
@@ -168,83 +159,51 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools, 
           </div>
         )}
 
-        <div
-          className={`rounded-2xl px-4 py-2.5 ${
-            isUser
-              ? "bg-blue-500 text-white"
-              : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100"
-          }`}
-        >
-          {isUser ? (
-            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-          ) : message.error ? (
-            <ErrorBubble error={message.error} />
-          ) : (
-            <StreamingText
-              content={message.content}
-              streaming={message.streaming}
-            />
-          )}
-        </div>
-
-        {!isUser && isLastAssistant && !message.streaming && message.content && (
-          <button
-            type="button"
-            onClick={onRegenerate}
-            className="mt-1 text-[11px] text-slate-400 hover:text-blue-500 transition-colors flex items-center gap-1"
+        {(isUser || message.content || message.error || !message.streaming) && (
+          <div
+            className={`rounded-2xl px-4 py-2.5 ${
+              isUser
+                ? "bg-blue-100 dark:bg-blue-900/40 text-slate-800 dark:text-slate-100 border border-blue-200/60 dark:border-blue-800/40 rounded-br-md"
+                : "bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100 border border-slate-100 dark:border-slate-700/50 rounded-bl-md"
+            }`}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="1 4 1 10 7 10" />
-              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-            </svg>
-            重新生成
-          </button>
+            {isUser ? (
+              <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+            ) : message.error ? (
+              <ErrorBubble error={message.error} />
+            ) : (
+              <StreamingText
+                content={message.content}
+                streaming={message.streaming}
+              />
+            )}
+          </div>
         )}
 
-        {!isUser && message.totalTurns != null && message.totalTurns > 1 && !message.streaming && (
-          <div className="mt-1 text-xs text-gray-400">
-            共 {message.totalTurns} 轮推理
+        {!isUser && isLastAssistant && !message.streaming && message.content && (
+          <div className="flex items-center gap-3 mt-1.5 ml-1">
+            <button
+              type="button"
+              onClick={onRegenerate}
+              className="text-[11px] text-slate-400 hover:text-blue-500 transition-colors flex items-center gap-1"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              重新生成
+            </button>
+            {message.totalTurns != null && message.totalTurns > 1 && (
+              <span className="text-[11px] text-slate-300 dark:text-slate-600">
+                共 {message.totalTurns} 轮推理
+              </span>
+            )}
           </div>
         )}
       </div>
     </div>
   );
 });
-
-interface ToolCallGroupData {
-  key: string;
-  turn?: number;
-  calls: ToolCallInfo[];
-}
-
-function groupByTurn(toolCalls: ToolCallInfo[]): ToolCallGroupData[] {
-  const groups: ToolCallGroupData[] = [];
-  let currentTurn: number | undefined;
-  let currentCalls: ToolCallInfo[] = [];
-
-  for (const tc of toolCalls) {
-    if (tc.turn !== currentTurn && currentCalls.length > 0) {
-      groups.push({
-        key: `turn-${currentTurn ?? "none"}-${groups.length}`,
-        turn: currentTurn,
-        calls: currentCalls,
-      });
-      currentCalls = [];
-    }
-    currentTurn = tc.turn;
-    currentCalls.push(tc);
-  }
-
-  if (currentCalls.length > 0) {
-    groups.push({
-      key: `turn-${currentTurn ?? "none"}-${groups.length}`,
-      turn: currentTurn,
-      calls: currentCalls,
-    });
-  }
-
-  return groups;
-}
 
 function StepStatusBadge({ status }: { status: string }) {
   switch (status) {
