@@ -113,14 +113,23 @@ export default function ToolCallTimelineModal({ toolCalls, open, onClose }: Tool
   const doneCount = toolCalls.filter((tc) => tc.status === "done").length;
   const errorCount = toolCalls.filter((tc) => tc.status === "error").length;
   const callingCount = toolCalls.filter((tc) => tc.status === "calling").length;
-  const totalDuration = toolCalls.reduce((sum, tc) => sum + (tc.duration ?? 0), 0);
+  let earliest = Infinity;
+  let latest = 0;
+  for (const tc of toolCalls) {
+    if (tc.startTime != null) {
+      earliest = Math.min(earliest, tc.startTime);
+      const end = tc.startTime + (tc.duration ?? 0);
+      latest = Math.max(latest, end);
+    }
+  }
+  const wallClockDuration = earliest < Infinity && latest > 0 ? latest - earliest : 0;
 
-  let summaryParts: string[] = [];
+  const summaryParts: string[] = [];
   summaryParts.push(`共 ${toolCalls.length} 次调用`);
   if (doneCount > 0) summaryParts.push(`${doneCount} 成功`);
   if (errorCount > 0) summaryParts.push(`${errorCount} 失败`);
   if (callingCount > 0) summaryParts.push(`${callingCount} 进行中`);
-  if (totalDuration > 0) summaryParts.push(formatDuration(totalDuration));
+  if (wallClockDuration > 0) summaryParts.push(formatDuration(wallClockDuration));
 
   return (
     <div

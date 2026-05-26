@@ -10,11 +10,25 @@ interface ToolCallBarProps {
   toolCalls: ToolCallInfo[];
 }
 
-function formatTotalDuration(toolCalls: ToolCallInfo[]): string {
-  const total = toolCalls.reduce((sum, tc) => sum + (tc.duration ?? 0), 0);
-  if (total === 0) return "";
-  if (total < 1000) return `${total}ms`;
-  return `${(total / 1000).toFixed(1)}s`;
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function getWallClockDuration(toolCalls: ToolCallInfo[]): string {
+  let earliest = Infinity;
+  let latest = 0;
+  for (const tc of toolCalls) {
+    if (tc.startTime != null) {
+      earliest = Math.min(earliest, tc.startTime);
+      const end = tc.startTime + (tc.duration ?? 0);
+      latest = Math.max(latest, end);
+    }
+  }
+  if (earliest === Infinity || latest === 0) return "";
+  const elapsed = latest - earliest;
+  if (elapsed <= 0) return "";
+  return formatDuration(elapsed);
 }
 
 export default function ToolCallBar({ toolCalls }: ToolCallBarProps) {
@@ -49,13 +63,15 @@ export default function ToolCallBar({ toolCalls }: ToolCallBarProps) {
         ? "border-l-amber-500"
         : "border-l-emerald-500";
 
-  const durationText = allDone ? formatTotalDuration(toolCalls) : "";
+  const durationText = allDone ? getWallClockDuration(toolCalls) : "";
 
   let label: string;
   let icon: React.ReactNode;
 
   if (isRunning) {
-    label = `正在调用 ${currentToolName}...`;
+    label = callingCount > 1
+      ? `正在并行调用 ${callingCount} 个工具...`
+      : `正在调用 ${currentToolName}...`;
     icon = <Loader2 size={14} className="animate-spin text-blue-500 flex-shrink-0" />;
   } else if (allFailed) {
     label = `${toolCalls.length} 个调用全部失败`;
