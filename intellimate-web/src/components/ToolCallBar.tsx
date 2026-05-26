@@ -94,17 +94,19 @@ export default function ToolCallBar({ toolCalls }: ToolCallBarProps) {
         onClick={() => setModalOpen(true)}
       >
         {icon}
-        <span className="text-[13px] font-medium text-slate-700 dark:text-slate-200 flex-1 truncate">
-          {label}
-        </span>
-        {isRunning && completedCount > 0 && (
-          <span className="text-[11px] text-slate-400 dark:text-slate-500">
-            {completedCount} 已完成
+        <span className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">
+            {label}
           </span>
-        )}
-        {durationText && (
-          <span className="text-[11px] text-slate-400 dark:text-slate-500">{durationText}</span>
-        )}
+          {isRunning && completedCount > 0 && (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500 flex-shrink-0">
+              {completedCount} 已完成
+            </span>
+          )}
+          {durationText && (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500 flex-shrink-0">{durationText}</span>
+          )}
+        </span>
         <ChevronRight size={12} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
       </button>
       <ToolCallTimelineModal
