@@ -29,6 +29,8 @@ export interface ToolCallInfo {
   success?: boolean;
   status: "calling" | "done" | "error";
   turn?: number;
+  startTime?: number;
+  duration?: number;
 }
 
 export interface StepGroupSnapshot {
@@ -444,7 +446,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ...msg,
               toolCalls: [
                 ...(msg.toolCalls ?? []),
-                { ...info, status: "calling" as const },
+                { ...info, status: "calling" as const, startTime: Date.now() },
               ],
             }
           : msg,
@@ -453,6 +455,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   updateToolResult: (requestId, toolCallId, result, success) => {
+    const now = Date.now();
     set((state) => updateAgentMessages(state, (msgs) =>
       msgs.map((msg) =>
         msg.id === `assistant-${requestId}`
@@ -465,6 +468,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                       result,
                       success,
                       status: (success ? "done" : "error") as ToolCallInfo["status"],
+                      duration: tc.startTime ? now - tc.startTime : undefined,
                     }
                   : tc,
               ),
