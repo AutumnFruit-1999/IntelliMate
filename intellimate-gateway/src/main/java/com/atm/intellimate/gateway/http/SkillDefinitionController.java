@@ -10,6 +10,7 @@ import com.atm.intellimate.gateway.repository.SkillDefinitionRepository;
 import com.atm.intellimate.gateway.repository.SkillUsageLogRepository;
 import com.atm.intellimate.gateway.repository.SkillVersionRepository;
 import com.atm.intellimate.gateway.service.SkillFileService;
+import com.atm.intellimate.gateway.service.SkillGitService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,15 +38,18 @@ public class SkillDefinitionController {
     private final SkillVersionRepository versionRepository;
     private final SkillUsageLogRepository usageLogRepository;
     private final SkillFileService fileService;
+    private final SkillGitService gitService;
 
     public SkillDefinitionController(SkillDefinitionRepository repository,
                                      SkillVersionRepository versionRepository,
                                      SkillUsageLogRepository usageLogRepository,
-                                     SkillFileService fileService) {
+                                     SkillFileService fileService,
+                                     SkillGitService gitService) {
         this.repository = repository;
         this.versionRepository = versionRepository;
         this.usageLogRepository = usageLogRepository;
         this.fileService = fileService;
+        this.gitService = gitService;
     }
 
     @GetMapping
@@ -191,6 +195,73 @@ public class SkillDefinitionController {
                         "deletedName", deleted.getName())));
     }
 
+    // ─── Git Import / Sync ───
+
+    @PostMapping("/import/git")
+    public Mono<ApiResponse<SkillDTO>> importFromGit(@RequestBody Map<String, String> body) {
+        return Mono.fromCallable(() -> {
+            String gitUrl = body.get("gitUrl");
+            if (gitUrl == null || gitUrl.isBlank()) {
+                throw new IntelliMateException(ErrorCode.VALIDATION_FAILED, "gitUrl is required");
+            }
+            String branch = body.get("branch");
+            String subPath = body.get("subPath");
+            String nameOverride = body.get("name");
+            String descOverride = body.get("description");
+
+            return gitService.importFromGit(gitUrl, branch, subPath, nameOverride, descOverride);
+        }).subscribeOn(Schedulers.boundedElastic())
+          .flatMap(result -> {
+              return repository.findByName(result.name())
+                      .flatMap(existing -> Mono.<SkillDefinitionEntity>error(
+                              new IntelliMateException(ErrorCode.VALIDATION_FAILED,
+                                      "Skill name already exists: " + result.name())))
+                      .switchIfEmpty(Mono.defer(() -> {
+                          SkillDefinitionEntity entity = new SkillDefinitionEntity();
+                          entity.setName(result.name());
+                          entity.setDisplayName(result.displayName());
+                          entity.setDescription(result.description());
+                          entity.setContent(result.content());
+                          entity.setTags(result.tags());
+                          entity.setHasScripts(fileService.hasSubdir(result.name(), "scripts") ? 1 : 0);
+                          entity.setHasReferences(fileService.hasSubdir(result.name(), "references") ? 1 : 0);
+                          entity.setEnabled(1);
+                          entity.setGitUrl(body.get("gitUrl"));
+                          entity.setGitSubPath(body.get("subPath"));
+                          entity.setCreatedAt(LocalDateTime.now());
+                          entity.setUpdatedAt(LocalDateTime.now());
+                          return repository.save(entity);
+                      }));
+          })
+          .map(SkillDTO::fromEntity)
+          .map(ApiResponse::ok);
+    }
+
+    @PostMapping("/{id}/git/sync")
+    public Mono<ApiResponse<SkillDTO>> syncFromGit(@PathVariable Long id) {
+        return repository.findById(id)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
+                .flatMap(entity -> {
+                    if (entity.getGitUrl() == null || entity.getGitUrl().isBlank()) {
+                        return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED,
+                                "This skill was not imported from Git"));
+                    }
+                    return Mono.fromCallable(() ->
+                            gitService.syncFromGit(entity.getName(), entity.getGitUrl(), entity.getGitSubPath())
+                    ).subscribeOn(Schedulers.boundedElastic())
+                     .flatMap(meta -> {
+                         if (meta != null) {
+                             if (meta.description() != null) entity.setDescription(meta.description());
+                             if (meta.content() != null) entity.setContent(meta.content());
+                         }
+                         entity.setUpdatedAt(LocalDateTime.now());
+                         return repository.save(entity);
+                     });
+                })
+                .map(SkillDTO::fromEntity)
+                .map(ApiResponse::ok);
+    }
+
     // ─── Export ───
 
     @GetMapping("/{id}/export")
@@ -301,6 +372,30 @@ public class SkillDefinitionController {
         entity.setHasReferences(hasRefs ? 1 : 0);
         entity.setUpdatedAt(LocalDateTime.now());
         return repository.save(entity);
+    }
+
+    // ─── File Tree ───
+
+    @GetMapping("/{id}/tree")
+    public Mono<ApiResponse<SkillFileService.FileNode>> getFileTree(@PathVariable Long id) {
+        return repository.findById(id)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
+                .map(entity -> ApiResponse.ok(fileService.listAllFiles(entity.getName())));
+    }
+
+    @GetMapping("/{id}/files/read")
+    public Mono<ResponseEntity<String>> readFile(@PathVariable Long id, @RequestParam String path) {
+        return repository.findById(id)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.SKILL_NOT_FOUND)))
+                .map(entity -> {
+                    String content = fileService.readFileByPath(entity.getName(), path);
+                    if (content == null) {
+                        return ResponseEntity.notFound().<String>build();
+                    }
+                    return ResponseEntity.ok()
+                            .contentType(MediaType.TEXT_PLAIN)
+                            .body(content);
+                });
     }
 
     // ─── Version Management ───
