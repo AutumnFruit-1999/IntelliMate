@@ -98,23 +98,20 @@ public class SessionManagerImpl implements SessionManager {
 
     @Override
     public Mono<Long> findOrCreateProactiveSession(String agentName) {
-        String channelId = "webchat";
-        String contextType = "dm";
-        String contextId = "proactive::" + agentName;
-
-        return sessionRepository.findBySessionKey(channelId, contextType, contextId)
+        return findActiveSession(agentName)
                 .map(SessionEntity::getId)
                 .switchIfEmpty(Mono.defer(() -> {
                     SessionEntity newSession = new SessionEntity();
-                    newSession.setChannelId(channelId);
-                    newSession.setContextType(contextType);
-                    newSession.setContextId(contextId);
+                    newSession.setChannelId("webchat");
+                    newSession.setContextType("dm");
+                    newSession.setContextId(agentName);
                     newSession.setAgentName(agentName);
+                    newSession.setStatus("active");
                     newSession.setLastActiveAt(LocalDateTime.now());
                     newSession.setCreatedAt(LocalDateTime.now());
                     newSession.setDeleted(0);
                     return sessionRepository.save(newSession)
-                            .doOnSuccess(s -> log.info("Created proactive session: id={}, agent={}",
+                            .doOnSuccess(s -> log.info("Created active session for proactive message: id={}, agent={}",
                                     s.getId(), agentName))
                             .map(SessionEntity::getId);
                 }));
@@ -144,13 +141,21 @@ public class SessionManagerImpl implements SessionManager {
                     )
                     .filter(m -> "user".equals(m.getRole()))
                     .next()
-                    .map(firstMsg -> {
+                    .flatMap(firstMsg -> {
                         String content = firstMsg.getContent();
-                        return content.length() > 30 ? content.substring(0, 30) : content;
+                        String title = content.length() > 30 ? content.substring(0, 30) : content;
+                        return sessionRepository.archiveSession(activeSession.getId(), title)
+                                .then(Mono.defer(() -> createNewActiveSession(agentName)));
                     })
-                    .defaultIfEmpty("空对话")
-                    .flatMap(title -> sessionRepository.archiveSession(activeSession.getId(), title))
-                    .then(Mono.defer(() -> createNewActiveSession(agentName)))
+                    .switchIfEmpty(Mono.defer(() -> {
+                        // No user messages — reset session instead of archiving
+                        return transcriptRepository.deleteBySessionId(activeSession.getId())
+                                .then(Mono.defer(() -> {
+                                    activeSession.setCreatedAt(LocalDateTime.now());
+                                    activeSession.setLastActiveAt(LocalDateTime.now());
+                                    return sessionRepository.save(activeSession);
+                                }));
+                    }))
                 )
                 .switchIfEmpty(Mono.defer(() -> createNewActiveSession(agentName)));
     }
@@ -163,6 +168,17 @@ public class SessionManagerImpl implements SessionManager {
     @Override
     public Mono<Long> countArchivedSessions(String agentName) {
         return sessionRepository.countArchivedByAgentName(agentName);
+    }
+
+    @Override
+    public Mono<Void> deleteArchivedSession(Long sessionId) {
+        return sessionRepository.findById(sessionId)
+                .flatMap(session -> {
+                    session.setDeleted(1);
+                    return sessionRepository.save(session);
+                })
+                .then(transcriptRepository.deleteBySessionId(sessionId))
+                .doOnSuccess(v -> log.info("Deleted archived session: id={}", sessionId));
     }
 
     private Mono<SessionEntity> createNewActiveSession(String agentName) {

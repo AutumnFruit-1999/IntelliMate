@@ -19,13 +19,13 @@ public interface ScheduledJobLogRepository extends ReactiveCrudRepository<Schedu
     @Query("SELECT COUNT(*) FROM scheduled_job_log WHERE job_name = :jobName")
     Mono<Long> countByJobName(String jobName);
 
-    @Query("SELECT * FROM scheduled_job_log ORDER BY created_at DESC LIMIT :limit")
+    @Query("SELECT * FROM scheduled_job_log WHERE job_name != 'heartbeat-tick' ORDER BY created_at DESC LIMIT :limit")
     Flux<ScheduledJobLogEntity> findRecentLogs(int limit);
 
-    @Query("SELECT COUNT(*) FROM scheduled_job_log WHERE created_at >= :since AND status = :status")
+    @Query("SELECT COUNT(*) FROM scheduled_job_log WHERE created_at >= :since AND status = :status AND job_name != 'heartbeat-tick'")
     Mono<Long> countByStatusSince(String status, LocalDateTime since);
 
-    @Query("SELECT COUNT(*) FROM scheduled_job_log WHERE created_at >= :since")
+    @Query("SELECT COUNT(*) FROM scheduled_job_log WHERE created_at >= :since AND job_name != 'heartbeat-tick'")
     Mono<Long> countSince(LocalDateTime since);
 
     @Query("SELECT * FROM scheduled_job_log WHERE job_name = :jobName AND status = 'RUNNING'")
@@ -49,6 +49,6 @@ public interface ScheduledJobLogRepository extends ReactiveCrudRepository<Schedu
     @Query("SELECT job_name, COUNT(*) as cnt, SUM(CASE WHEN status='SUCCESS' THEN 1 ELSE 0 END) as success_cnt, AVG(duration_ms) as avg_duration, MAX(duration_ms) as max_duration FROM scheduled_job_log WHERE job_name = :jobName AND created_at >= :since GROUP BY job_name")
     Mono<java.util.Map<String, Object>> getJobStats(String jobName, LocalDateTime since);
 
-    @Query("SELECT * FROM scheduled_job_log WHERE start_time >= :since AND end_time IS NOT NULL ORDER BY start_time")
+    @Query("SELECT * FROM scheduled_job_log WHERE start_time >= :since AND end_time IS NOT NULL AND job_name != 'heartbeat-tick' ORDER BY start_time")
     Flux<ScheduledJobLogEntity> findTimelineSince(LocalDateTime since);
 }

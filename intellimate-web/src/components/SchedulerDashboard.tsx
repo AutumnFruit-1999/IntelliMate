@@ -12,7 +12,7 @@ import StatsCharts from "./scheduler/StatsCharts";
 type Tab = "overview" | "history" | "stats";
 
 export default function SchedulerDashboard() {
-  const { jobs, loading, error, loadJobs, trigger, pause, resume } = useSchedulerStore();
+  const { jobs, loading, error, loadJobs, trigger, pause, resume, remove } = useSchedulerStore();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [editingJob, setEditingJob] = useState<ScheduledJobConfig | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -43,6 +43,10 @@ export default function SchedulerDashboard() {
     setConfirmAction({ type: "resume", jobName });
   }, []);
 
+  const handleDelete = useCallback((jobName: string) => {
+    setConfirmAction({ type: "delete", jobName });
+  }, []);
+
   const executeAction = async () => {
     if (!confirmAction) return;
     const { type, jobName } = confirmAction;
@@ -50,6 +54,7 @@ export default function SchedulerDashboard() {
     if (type === "trigger") await trigger(jobName);
     else if (type === "pause") await pause(jobName);
     else if (type === "resume") await resume(jobName);
+    else if (type === "delete") await remove(jobName);
   };
 
   const groupedJobs = jobs.reduce<Record<string, ScheduledJobConfig[]>>((acc, job) => {
@@ -115,6 +120,7 @@ export default function SchedulerDashboard() {
                       onTrigger={handleTrigger}
                       onPause={handlePause}
                       onResume={handleResume}
+                      onDelete={handleDelete}
                       onEdit={setEditingJob}
                     />
                   ))}
@@ -125,7 +131,7 @@ export default function SchedulerDashboard() {
         )}
 
         {activeTab === "history" && <ExecutionHistory logs={recentLogs} />}
-        {activeTab === "stats" && <StatsCharts />}
+        {activeTab === "stats" && <StatsCharts onViewHistory={() => setActiveTab("history")} />}
       </div>
 
       <JobConfigModal
@@ -149,8 +155,12 @@ export default function SchedulerDashboard() {
               {confirmAction.type === "trigger" && "立即触发"}
               {confirmAction.type === "pause" && "暂停"}
               {confirmAction.type === "resume" && "恢复"}
+              {confirmAction.type === "delete" && "删除"}
               {" "}
               <span className="font-semibold">{confirmAction.jobName}</span> 吗？
+              {confirmAction.type === "delete" && (
+                <span className="block mt-1 text-red-500 text-xs">此操作不可恢复</span>
+              )}
             </p>
             <div className="flex justify-end gap-2 mt-4">
               <button

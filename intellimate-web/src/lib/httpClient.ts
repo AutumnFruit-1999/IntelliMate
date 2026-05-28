@@ -34,7 +34,14 @@ export async function apiFetch<T>(
   }
   const text = await res.text();
   if (!text) return undefined as unknown as T;
-  return JSON.parse(text);
+  const json = JSON.parse(text);
+  if (json && typeof json === "object" && "success" in json && "data" in json) {
+    if (!json.success) {
+      throw new Error(json.message || "API request failed");
+    }
+    return json.data as T;
+  }
+  return json;
 }
 
 export async function apiFetchRaw(

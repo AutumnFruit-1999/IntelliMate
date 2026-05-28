@@ -17,6 +17,7 @@ public class McpServerEntity {
     private Integer enabled;
     private LocalDateTime lastConnectedAt;
     private String toolsDiscovered;
+    private Integer requestTimeoutSeconds;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -36,6 +37,8 @@ public class McpServerEntity {
     public void setLastConnectedAt(LocalDateTime lastConnectedAt) { this.lastConnectedAt = lastConnectedAt; }
     public String getToolsDiscovered() { return toolsDiscovered; }
     public void setToolsDiscovered(String toolsDiscovered) { this.toolsDiscovered = toolsDiscovered; }
+    public Integer getRequestTimeoutSeconds() { return requestTimeoutSeconds; }
+    public void setRequestTimeoutSeconds(Integer requestTimeoutSeconds) { this.requestTimeoutSeconds = requestTimeoutSeconds; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

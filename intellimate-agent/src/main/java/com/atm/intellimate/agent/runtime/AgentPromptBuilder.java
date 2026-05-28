@@ -40,6 +40,12 @@ public class AgentPromptBuilder {
                                     String skillGroupsEnabled) {
         StringBuilder sb = new StringBuilder();
 
+        String tz = agentConfig.getTimezone() != null ? agentConfig.getTimezone() : "Asia/Shanghai";
+        java.time.ZoneId zoneId = java.time.ZoneId.of(tz);
+        java.time.ZonedDateTime now = java.time.ZonedDateTime.now(zoneId);
+        String currentTime = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss (EEEE)", java.util.Locale.CHINESE));
+        sb.append("<current_time>").append(currentTime).append(" (").append(zoneId.getId()).append(")</current_time>\n\n");
+
         appendSection(sb, "soul", agentConfig.getSoulMd());
         appendSection(sb, "agents", agentConfig.getAgentsMd());
 

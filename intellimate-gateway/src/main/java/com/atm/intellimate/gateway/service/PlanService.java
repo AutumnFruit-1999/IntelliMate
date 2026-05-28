@@ -4,8 +4,10 @@ import com.atm.intellimate.gateway.entity.PlanEntity;
 import com.atm.intellimate.gateway.entity.PlanStepEntity;
 import com.atm.intellimate.gateway.repository.PlanRepository;
 import com.atm.intellimate.gateway.repository.PlanStepRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -23,10 +25,13 @@ public class PlanService {
 
     private final PlanRepository planRepository;
     private final PlanStepRepository planStepRepository;
+    private final MeterRegistry meterRegistry;
 
-    public PlanService(PlanRepository planRepository, PlanStepRepository planStepRepository) {
+    public PlanService(PlanRepository planRepository, PlanStepRepository planStepRepository,
+                       @Autowired(required = false) MeterRegistry meterRegistry) {
         this.planRepository = planRepository;
         this.planStepRepository = planStepRepository;
+        this.meterRegistry = meterRegistry;
     }
 
     // ===== WritePlanTool 回调 =====
@@ -42,6 +47,11 @@ public class PlanService {
         plan.setUpdatedAt(LocalDateTime.now());
 
         return planRepository.save(plan)
+                .doOnNext(saved -> {
+                    if (meterRegistry != null) {
+                        meterRegistry.counter("plan.created", "agent", "default").increment();
+                    }
+                })
                 .flatMap(savedPlan -> {
                     Long planId = savedPlan.getId();
                     log.info("createPlan: plan saved with id={}, sessionId={}", planId, sessionId);

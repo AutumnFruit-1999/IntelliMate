@@ -245,9 +245,12 @@ public class AgentLoopExecutor {
                                 cue = cue + " " + request.planExecutionAssessment().currentStepDescription();
                             }
 
+                            long retrievalStart = System.currentTimeMillis();
                             retrievalMono = retrieval.retrieve(cue, sessionUserId, agentId, maxInjectionTokens, lambda)
                                     .timeout(Duration.ofSeconds(3))
                                     .doOnNext(recalledChunks -> {
+                                        agentMemoryLifecycle.recordLongTermRetrievalLatency(
+                                                agentId, System.currentTimeMillis() - retrievalStart);
                                         if (!recalledChunks.isEmpty()) {
                                             for (MemoryChunk chunk : recalledChunks) {
                                                 String prefixed = "[历史记忆] " + chunk.content();
@@ -695,11 +698,16 @@ public class AgentLoopExecutor {
                 .flatMapMany(optionalCr -> {
                     List<AgentEvent> events = new ArrayList<>();
                     optionalCr.ifPresent(cr -> {
+                        agentMemoryLifecycle.recordMemoryConsolidation(agentName);
+                        if (cr.factsStoredToLongTerm()) {
+                            agentMemoryLifecycle.recordLongTermStore("consolidation");
+                        }
                         events.add(AgentMemoryLifecycle.toConsolidationTriggeredEvent(cr, workingMemory));
                         history.clear();
                         history.addAll(workingMemory.buildLLMInputSync());
                     });
                     WorkingMemory.MemorySnapshot snap = workingMemory.getSnapshot();
+                    agentMemoryLifecycle.recordWorkingMemoryUsage(agentName, snap.usageRatio());
                     List<AgentEvent.ChunkInfo> chunkInfos = snap.chunks().stream()
                             .map(c -> new AgentEvent.ChunkInfo(c.id(), c.type(), c.category(),
                                     c.importance(), c.tokens(), c.contentPreview(), c.createdAt()))

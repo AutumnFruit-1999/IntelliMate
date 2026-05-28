@@ -60,22 +60,37 @@ public class AgentMemoryLifecycle {
 
     public void recordMemoryConsolidation(String agentId) {
         if (meterRegistry != null) {
-            meterRegistry.counter("agent.memory.consolidation",
+            meterRegistry.counter("memory.consolidation.triggered",
                     "agent", agentId).increment();
         }
     }
 
-    public void recordMemoryRetrieval(String agentId) {
+    public void recordWorkingMemoryUsage(String agentId, float usageRatio) {
         if (meterRegistry != null) {
-            meterRegistry.counter("agent.memory.retrieval",
-                    "agent", agentId).increment();
+            io.micrometer.core.instrument.Gauge.builder("memory.working.usage_ratio",
+                            () -> (double) usageRatio)
+                    .tag("agent", agentId)
+                    .register(meterRegistry);
+        }
+    }
+
+    public void recordLongTermRetrievalLatency(String agentId, long durationMs) {
+        if (meterRegistry != null) {
+            meterRegistry.timer("memory.longterm.retrieval.latency", "agent", agentId)
+                    .record(java.time.Duration.ofMillis(durationMs));
+        }
+    }
+
+    public void recordLongTermStore(String type) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("memory.longterm.store.count", "type", type).increment();
         }
     }
 
     private void recordEpisodicStored(String agentId) {
         if (meterRegistry != null) {
-            meterRegistry.counter("agent.memory.episodic.stored",
-                    "agent", agentId).increment();
+            meterRegistry.counter("memory.longterm.store.count",
+                    "type", "episodic").increment();
         }
     }
 

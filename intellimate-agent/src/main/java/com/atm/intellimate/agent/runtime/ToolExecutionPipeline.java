@@ -159,8 +159,12 @@ public class ToolExecutionPipeline {
         if (!nonRetryableTools.contains(toolName)) {
             execution = execution.retryWhen(Retry.backoff(MAX_RETRIES, RETRY_DELAY)
                     .filter(this::isRetryableError)
-                    .doBeforeRetry(signal ->
-                            log.info("Retrying tool {} (attempt {})", toolName, signal.totalRetries() + 1)));
+                    .doBeforeRetry(signal -> {
+                        log.info("Retrying tool {} (attempt {})", toolName, signal.totalRetries() + 1);
+                        if (meterRegistry != null) {
+                            meterRegistry.counter("agent.tool.retries", "tool", toolName).increment();
+                        }
+                    }));
         }
 
         return execution

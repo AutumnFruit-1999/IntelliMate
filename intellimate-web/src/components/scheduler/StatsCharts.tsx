@@ -17,7 +17,7 @@ interface DurationPoint {
   jobName: string;
 }
 
-export default function StatsCharts() {
+export default function StatsCharts({ onViewHistory }: { onViewHistory?: () => void }) {
   const [overview, setOverview] = useState<JobStatsOverview | null>(null);
   const [logs, setLogs] = useState<ScheduledJobLog[]>([]);
 
@@ -28,10 +28,10 @@ export default function StatsCharts() {
 
   const durationData: DurationPoint[] = logs
     .filter((l) => l.durationMs != null && l.status === "SUCCESS")
-    .slice(0, 50)
+    .slice(0, 30)
     .map((l) => ({
-      time: new Date(l.fireTime).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      duration: l.durationMs!,
+      time: new Date(l.startTime).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+      duration: Math.round(l.durationMs! / 100) / 10,
       jobName: l.jobName,
     }))
     .reverse();
@@ -49,7 +49,7 @@ export default function StatsCharts() {
       {overview && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <StatCard label="总任务" value={overview.totalJobs} />
-          <StatCard label="今日执行" value={overview.todayExecutions} />
+          <StatCard label="今日执行" value={overview.todayExecutions} onClick={onViewHistory} />
           <StatCard label="成功率" value={`${(overview.todaySuccessRate * 100).toFixed(1)}%`} />
           <StatCard label="今日失败" value={overview.todayFailures} highlight={overview.todayFailures > 0} />
           <StatCard label="今日超时" value={overview.todayTimeouts ?? 0} highlight={(overview.todayTimeouts ?? 0) > 0} />
@@ -62,10 +62,10 @@ export default function StatsCharts() {
           {durationData.length > 0 ? (
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={durationData}>
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} unit="ms" />
-                <Tooltip contentStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="duration" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10 }} unit="s" />
+                <Tooltip contentStyle={{ fontSize: 12 }} formatter={(value) => [`${value}s`, "耗时"]} />
+                <Line type="monotone" dataKey="duration" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -95,9 +95,15 @@ export default function StatsCharts() {
   );
 }
 
-function StatCard({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
+function StatCard({ label, value, highlight, onClick }: { label: string; value: string | number; highlight?: boolean; onClick?: () => void }) {
   return (
-    <div className="border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3">
+    <div
+      className={`border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 ${onClick ? "cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors" : ""}`}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => e.key === "Enter" && onClick() : undefined}
+    >
       <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
       <p className={`text-xl font-bold mt-1 ${highlight ? "text-red-500" : "text-slate-800 dark:text-slate-100"}`}>
         {value}

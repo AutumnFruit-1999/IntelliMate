@@ -1,4 +1,4 @@
-import { Play, Pause, Settings, Zap } from "lucide-react";
+import { Play, Pause, Settings, Zap, Trash2 } from "lucide-react";
 import type { ScheduledJobConfig } from "../../lib/schedulerApi";
 
 interface JobCardProps {
@@ -6,6 +6,7 @@ interface JobCardProps {
   onTrigger: (jobName: string) => void;
   onPause: (jobName: string) => void;
   onResume: (jobName: string) => void;
+  onDelete: (jobName: string) => void;
   onEdit: (job: ScheduledJobConfig) => void;
 }
 
@@ -26,7 +27,7 @@ function formatCountdown(nextFireTime: string | null): string {
   return `${Math.round(diff / 3600_000)}h`;
 }
 
-export default function JobCard({ job, onTrigger, onPause, onResume, onEdit }: JobCardProps) {
+export default function JobCard({ job, onTrigger, onPause, onResume, onDelete, onEdit }: JobCardProps) {
   return (
     <div className={`relative rounded-xl border border-slate-200 dark:border-slate-700 p-4 transition-all hover:shadow-md ${job.running ? "ring-2 ring-yellow-300 dark:ring-yellow-600" : ""}`}>
       {job.consecutiveFailures >= 3 && (
@@ -94,6 +95,15 @@ export default function JobCard({ job, onTrigger, onPause, onResume, onEdit }: J
         >
           <Zap size={14} />
         </button>
+        {!job.builtIn && (
+          <button
+            onClick={() => onDelete(job.jobName)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+            title="删除任务"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
         <button
           onClick={() => onEdit(job)}
           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-auto"

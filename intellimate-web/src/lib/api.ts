@@ -171,6 +171,7 @@ export interface McpServer {
   enabled: number;
   lastConnectedAt: string | null;
   toolsDiscovered: string | null;
+  requestTimeoutSeconds: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -181,6 +182,7 @@ export interface McpServerCreate {
   transportType: "SSE" | "STDIO" | "STREAMABLE_HTTP";
   authConfig?: object | null;
   agentName?: string | null;
+  requestTimeoutSeconds?: number | null;
 }
 
 export interface McpDiscoveredTool {

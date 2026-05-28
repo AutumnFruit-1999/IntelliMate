@@ -194,6 +194,13 @@ public class PlanExecutionOrchestrator {
                                             .doOnSuccess(v -> {
                                                 if (meterRegistry != null) {
                                                     meterRegistry.counter("plan.steps.completed").increment();
+                                                    if (step.getStartedAt() != null && step.getCompletedAt() != null) {
+                                                        long durationMs = java.time.Duration.between(
+                                                                step.getStartedAt(), step.getCompletedAt()).toMillis();
+                                                        meterRegistry.timer("plan.step.duration",
+                                                                "agent", agentId != null ? agentId : "default")
+                                                                .record(java.time.Duration.ofMillis(durationMs));
+                                                    }
                                                 }
                                                 syncEvents.add(new EventFrame("plan.step_done",
                                                         Map.of("planId", planId,
@@ -218,6 +225,11 @@ public class PlanExecutionOrchestrator {
             log.info("Post-exec sync: all steps terminal, auto-completing plan {}", planId);
             return planService.completePlan(planId, null)
                     .map(plan -> {
+                        if (meterRegistry != null) {
+                            meterRegistry.counter("plan.completed",
+                                    "agent", agentId != null ? agentId : "default",
+                                    "status", "completed").increment();
+                        }
                         syncEvents.add(new EventFrame("plan.completed",
                                 Map.of("planId", planId, "status", "completed"),
                                 seqGenerator.incrementAndGet()));

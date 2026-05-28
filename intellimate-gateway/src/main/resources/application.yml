@@ -50,7 +50,8 @@ intellimate:
     timeout-seconds: 300
     max-tool-result-chars: 16000
     max-context-tokens: 128000
-    tool-execution-timeout-seconds: 60
+    tool-execution-timeout-seconds: ${TOOL_EXECUTION_TIMEOUT_SECONDS:20}
+    mcp-request-timeout-seconds: ${MCP_REQUEST_TIMEOUT_SECONDS:30}
     max-parallel-tool-calls: 8
     history-limit: 50
     loop-detector-window-size: 8

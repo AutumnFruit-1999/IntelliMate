@@ -33,4 +33,6 @@ public interface SessionManager {
     Flux<SessionEntity> getArchivedSessions(String agentName, int limit, int offset);
 
     Mono<Long> countArchivedSessions(String agentName);
+
+    Mono<Void> deleteArchivedSession(Long sessionId);
 }

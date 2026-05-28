@@ -13,6 +13,7 @@ public record McpServerDTO(
         Integer enabled,
         LocalDateTime lastConnectedAt,
         String toolsDiscovered,
+        Integer requestTimeoutSeconds,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
@@ -26,6 +27,7 @@ public record McpServerDTO(
                 entity.getEnabled(),
                 entity.getLastConnectedAt(),
                 entity.getToolsDiscovered(),
+                entity.getRequestTimeoutSeconds(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );

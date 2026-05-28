@@ -20,33 +20,44 @@ export default function ActivityStrip() {
   if (activity.phase === "idle") return null;
 
   const phaseConfig = {
-    waiting: { icon: <Loader2 size={14} className="animate-spin" />, label: "准备中" },
-    thinking: { icon: <Brain size={14} className="animate-pulse" />, label: "思考中" },
-    streaming: { icon: <Sparkles size={14} className="animate-pulse" />, label: "回复中" },
-    tool_calling: { icon: <Wrench size={14} className="animate-spin" />, label: "调用工具" },
-    cancelled: { icon: <Loader2 size={14} />, label: "已取消" },
+    waiting: { icon: <Loader2 size={12} className="animate-spin" />, label: "准备中" },
+    thinking: { icon: <Brain size={12} className="animate-pulse" />, label: "思考中" },
+    streaming: { icon: <Sparkles size={12} className="animate-pulse" />, label: "回复中" },
+    tool_calling: { icon: <Wrench size={12} className="animate-spin" />, label: "调用工具" },
+    cancelled: { icon: <Loader2 size={12} />, label: "已取消" },
   };
 
   const config = phaseConfig[activity.phase as keyof typeof phaseConfig];
   if (!config) return null;
 
-  const parts: string[] = [];
-  if (activity.modelName) parts.push(activity.modelName);
-  parts.push(config.label);
-  if (activity.phase === "tool_calling" && activity.currentTool) {
-    parts.push(activity.currentTool);
-  }
-  if (activity.turn > 0 && activity.maxTurns > 0) {
-    parts.push(`Turn ${activity.turn}/${activity.maxTurns}`);
-  }
-
   return (
-    <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 py-1">
-      {config.icon}
-      <span>{parts.join(" · ")}</span>
-      {elapsed > 0 && (
-        <span className="text-slate-300 dark:text-slate-600">{elapsed}s</span>
-      )}
+    <div className="relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-1 overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-r from-blue-50 via-slate-50 to-blue-50 dark:from-blue-950/30 dark:via-slate-800/40 dark:to-blue-950/30 border border-blue-100/60 dark:border-blue-800/30 rounded-full" />
+      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-100/50 to-transparent dark:via-blue-500/10 rounded-full animate-[shimmer_2s_ease-in-out_infinite]" />
+      <div className="relative text-blue-500 dark:text-blue-400">
+        {config.icon}
+      </div>
+      <div className="relative flex items-center gap-1.5 text-[11px]">
+        {activity.modelName && (
+          <span className="font-medium text-slate-600 dark:text-slate-300">
+            {activity.modelName}
+          </span>
+        )}
+        <span className="text-blue-500/70 dark:text-blue-400/70">{config.label}</span>
+        {activity.phase === "tool_calling" && activity.currentTool && (
+          <span className="text-slate-500 dark:text-slate-400 font-mono text-[10px]">
+            {activity.currentTool}
+          </span>
+        )}
+        {activity.turn > 0 && activity.maxTurns > 0 && (
+          <span className="text-slate-400 dark:text-slate-500">
+            Turn {activity.turn}/{activity.maxTurns}
+          </span>
+        )}
+        {elapsed > 0 && (
+          <span className="text-slate-400 dark:text-slate-500">{elapsed}s</span>
+        )}
+      </div>
     </div>
   );
 }
