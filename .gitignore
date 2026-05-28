@@ -67,6 +67,9 @@ build/
 ### Cursor IDE ###
 .cursor/skills/gstack*/
 
+### Skills (runtime data, created via UI upload) ###
+skills/
+
 ### Node ###
 node_modules/
 
