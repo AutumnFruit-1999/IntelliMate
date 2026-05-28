@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
-import { ArrowLeft, Sparkles, Plus, Pencil, Trash2, Loader2, FileText, Terminal, BookOpen, Download, Upload, FolderOpen } from "lucide-react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { ArrowLeft, Sparkles, Plus, Pencil, Trash2, Loader2, FileText, Terminal, BookOpen, Download, Upload, FolderOpen, GitBranch } from "lucide-react";
 import {
   fetchSkillDefinitions,
   createSkillDefinition,
@@ -7,8 +7,10 @@ import {
   deleteSkillDefinition,
   exportSkillZip,
   fetchSkillStats,
+  importSkillFromGit,
   type SkillDefinition,
   type SkillDefinitionCreate,
+  type GitImportParams,
 } from "../lib/api";
 import { parseSkillMd, parsedToCreate, downloadSkillMd } from "../lib/skillImporter";
 import SkillEditor from "./SkillEditor";
@@ -29,6 +31,12 @@ export default function SkillManagerPage({ onBack }: SkillManagerPageProps) {
   const [deleting, setDeleting] = useState<number | null>(null);
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
+  const [importMode, setImportMode] = useState<"paste" | "upload" | "git">("paste");
+  const [gitUrl, setGitUrl] = useState("");
+  const [gitBranch, setGitBranch] = useState("");
+  const [gitSubPath, setGitSubPath] = useState("");
+  const [gitImporting, setGitImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<number | null>(null);
   const [statsMap, setStatsMap] = useState<Record<string, number>>({});
@@ -130,6 +138,9 @@ export default function SkillManagerPage({ onBack }: SkillManagerPageProps) {
       return;
     }
     const parsed = parseSkillMd(importText);
+    if (parsed.warnings && parsed.warnings.length > 0) {
+      setImportError(`提示: ${parsed.warnings.join("; ")}`);
+    }
     const prefill = parsedToCreate(parsed);
     setEditingSkill({
       id: 0,
@@ -142,12 +153,51 @@ export default function SkillManagerPage({ onBack }: SkillManagerPageProps) {
       hasScripts: 0,
       hasReferences: 0,
       enabled: 1,
+      gitUrl: null,
+      gitSubPath: null,
       createdAt: "",
       updatedAt: "",
     } as SkillDefinition);
     setView("create");
     setImportText("");
   }, [importText]);
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      setImportText(text);
+      setImportMode("paste");
+    };
+    reader.readAsText(file);
+  }, []);
+
+  const handleGitImport = useCallback(async () => {
+    setImportError(null);
+    if (!gitUrl.trim()) {
+      setImportError("请输入 Git URL");
+      return;
+    }
+    setGitImporting(true);
+    try {
+      const params: GitImportParams = { gitUrl: gitUrl.trim() };
+      if (gitBranch.trim()) params.branch = gitBranch.trim();
+      if (gitSubPath.trim()) params.subPath = gitSubPath.trim();
+      await importSkillFromGit(params);
+      setGitUrl("");
+      setGitBranch("");
+      setGitSubPath("");
+      setView("list");
+      loadSkills();
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGitImporting(false);
+    }
+  }, [gitUrl, gitBranch, gitSubPath, loadSkills]);
 
   const handleExportMd = useCallback((skill: SkillDefinition) => {
     downloadSkillMd(skill);
@@ -400,39 +450,139 @@ export default function SkillManagerPage({ onBack }: SkillManagerPageProps) {
         {view === "import" && (
           <div className="space-y-4">
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-              导入 SKILL.md
+              导入 Skill
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              粘贴标准 SKILL.md 内容（含 YAML frontmatter），系统将自动解析并预填充表单。
-            </p>
+
+            {/* 3 Tab Bar */}
+            <div className="flex border-b border-slate-200 dark:border-slate-700">
+              {([
+                { key: "paste" as const, label: "粘贴文本", icon: <FileText size={14} /> },
+                { key: "upload" as const, label: "上传文件", icon: <Upload size={14} /> },
+                { key: "git" as const, label: "Git URL", icon: <GitBranch size={14} /> },
+              ]).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => { setImportMode(tab.key); setImportError(null); }}
+                  className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                    importMode === tab.key
+                      ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                      : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+                  }`}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
             {importError && (
-              <div className="px-3 py-2 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400 rounded-lg">
+              <div className={`px-3 py-2 text-sm rounded-lg ${
+                importError.startsWith("提示:")
+                  ? "text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400"
+                  : "text-red-600 bg-red-50 dark:bg-red-900/20 dark:text-red-400"
+              }`}>
                 {importError}
               </div>
             )}
-            <textarea
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              placeholder={"---\nname: my-skill\ndescription: Does something useful...\n---\n\n# My Skill\n\n## Step 1\n..."}
-              rows={16}
-              className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-            />
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setView("list")}
-                className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleImportParse}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                解析并预填充
-              </button>
-            </div>
+
+            {/* Paste Mode */}
+            {importMode === "paste" && (
+              <>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  粘贴标准 SKILL.md 内容（含 YAML frontmatter），系统将自动解析并预填充表单。
+                </p>
+                <textarea
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  placeholder={"---\nname: my-skill\ndescription: Does something useful...\n---\n\n# My Skill\n\n## Step 1\n..."}
+                  rows={16}
+                  className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <button type="button" onClick={() => setView("list")}
+                    className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    取消
+                  </button>
+                  <button type="button" onClick={handleImportParse}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">
+                    解析并预填充
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Upload Mode */}
+            {importMode === "upload" && (
+              <>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  选择本地 SKILL.md 文件，系统将读取内容并自动切换到粘贴模式进行解析。
+                </p>
+                <input ref={fileInputRef} type="file" accept=".md,.txt,.markdown" onChange={handleFileUpload} className="hidden" />
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-colors"
+                >
+                  <Upload size={32} className="text-slate-400 mb-3" />
+                  <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">点击选择文件</p>
+                  <p className="text-xs text-slate-400 mt-1">支持 .md, .txt, .markdown</p>
+                </div>
+                <div className="flex items-center justify-end">
+                  <button type="button" onClick={() => setView("list")}
+                    className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    取消
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Git Mode */}
+            {importMode === "git" && (
+              <>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  输入包含 SKILL.md 的 Git 仓库 URL（仅支持 HTTPS），系统将自动克隆并导入。
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                      Git URL <span className="text-red-500">*</span>
+                    </label>
+                    <input type="text" value={gitUrl} onChange={(e) => setGitUrl(e.target.value)}
+                      placeholder="https://github.com/user/skill-repo.git"
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        分支（可选）
+                      </label>
+                      <input type="text" value={gitBranch} onChange={(e) => setGitBranch(e.target.value)}
+                        placeholder="main"
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        子路径（可选，monorepo 用）
+                      </label>
+                      <input type="text" value={gitSubPath} onChange={(e) => setGitSubPath(e.target.value)}
+                        placeholder="packages/my-skill"
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button type="button" onClick={() => setView("list")}
+                    className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    取消
+                  </button>
+                  <button type="button" onClick={handleGitImport} disabled={gitImporting}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                    {gitImporting ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
+                    {gitImporting ? "克隆中..." : "克隆并导入"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
