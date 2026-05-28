@@ -2,6 +2,7 @@ package com.atm.intellimate.gateway.http;
 
 import com.atm.intellimate.agent.tools.ToolProfile;
 import com.atm.intellimate.agent.tools.ToolsEngine;
+import com.atm.intellimate.gateway.dto.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,7 +24,7 @@ public class ToolController {
     }
 
     @GetMapping("/tools")
-    public Mono<Map<String, Object>> getToolsMetadata() {
+    public Mono<ApiResponse<Map<String, Object>>> getToolsMetadata() {
         Map<String, Object> result = new LinkedHashMap<>();
 
         result.put("tools", toolsEngine.getToolMetadata());
@@ -38,6 +39,6 @@ public class ToolController {
 
         result.put("groups", toolsEngine.getAllGroups());
 
-        return Mono.just(result);
+        return Mono.just(ApiResponse.ok(result));
     }
 }

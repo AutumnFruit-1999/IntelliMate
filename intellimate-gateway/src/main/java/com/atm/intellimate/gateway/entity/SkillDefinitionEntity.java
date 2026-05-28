@@ -19,6 +19,8 @@ public class SkillDefinitionEntity {
     private Integer hasScripts;
     private Integer hasReferences;
     private Integer enabled;
+    private String gitUrl;
+    private String gitSubPath;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -42,6 +44,10 @@ public class SkillDefinitionEntity {
     public void setHasReferences(Integer hasReferences) { this.hasReferences = hasReferences; }
     public Integer getEnabled() { return enabled; }
     public void setEnabled(Integer enabled) { this.enabled = enabled; }
+    public String getGitUrl() { return gitUrl; }
+    public void setGitUrl(String gitUrl) { this.gitUrl = gitUrl; }
+    public String getGitSubPath() { return gitSubPath; }
+    public void setGitSubPath(String gitSubPath) { this.gitSubPath = gitSubPath; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

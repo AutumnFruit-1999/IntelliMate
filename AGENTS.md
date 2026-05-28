@@ -1,3 +1,5 @@
+main分支提交代码必须经过批准
+
 主干由两个插件组成：
 - superpowers —— 思考与流程层（plan/brainstorm/debug/TDD/review/verify）
 - gstack —— 执行与外部世界层（browser/QA/ship/deploy/canary/护栏）

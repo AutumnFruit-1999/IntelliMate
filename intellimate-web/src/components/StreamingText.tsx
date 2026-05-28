@@ -109,10 +109,26 @@ export default function StreamingText({ content, streaming }: StreamingTextProps
 
   if (streaming) {
     const sanitized = sanitizePartialMarkdown(deferredContent);
+    const lastDoubleNewline = sanitized.lastIndexOf("\n\n");
+
+    if (lastDoubleNewline > 0) {
+      const completedPart = sanitized.slice(0, lastDoubleNewline);
+      const lastPart = sanitized.slice(lastDoubleNewline + 2);
+      return (
+        <div>
+          <RenderedMarkdown content={completedPart} />
+          <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+            <RenderedMarkdown content={lastPart} />
+          </div>
+          <span className="cursor-blink text-blue-500 ml-0.5 inline">█</span>
+        </div>
+      );
+    }
+
     return (
-      <div className="relative">
+      <div>
         <RenderedMarkdown content={sanitized} />
-        <span className="cursor-blink text-blue-500 ml-0.5">█</span>
+        <span className="cursor-blink text-blue-500 ml-0.5 inline">█</span>
       </div>
     );
   }

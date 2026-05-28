@@ -1,13 +1,18 @@
 package com.atm.intellimate.gateway.http;
 
+import com.atm.intellimate.core.exception.ErrorCode;
+import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.dto.ApiResponse;
+import com.atm.intellimate.gateway.dto.ModelDTO;
+import com.atm.intellimate.gateway.dto.ModelGroupDTO;
 import com.atm.intellimate.gateway.entity.ModelDefinitionEntity;
 import com.atm.intellimate.gateway.entity.ModelProviderEntity;
 import com.atm.intellimate.gateway.repository.ModelDefinitionRepository;
 import com.atm.intellimate.gateway.repository.ModelProviderRepository;
 import com.atm.intellimate.gateway.service.ModelRegistryService;
-import org.springframework.http.HttpStatus;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
@@ -16,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Tag(name = "Model", description = "模型定义管理 API")
 @RestController
 @RequestMapping("/api")
 public class ModelDefinitionController {
@@ -32,8 +38,9 @@ public class ModelDefinitionController {
         this.registryService = registryService;
     }
 
+    @Operation(summary = "获取分组模型列表")
     @GetMapping("/models")
-    public Mono<List<ModelGroupDto>> listGrouped() {
+    public Mono<ApiResponse<List<ModelGroupDTO>>> listGrouped() {
         return providerRepo.findAllByEnabledOrderBySortOrder(1)
                 .collectList()
                 .flatMap(providers -> {
@@ -43,24 +50,25 @@ public class ModelDefinitionController {
                     }
                     return definitionRepo.findAllByEnabledOrderBySortOrder(1)
                             .collectList()
-                            .map(definitions -> buildGroups(providerMap, definitions));
+                            .map(definitions -> ApiResponse.ok(buildGroups(providerMap, definitions)));
                 });
     }
 
+    @Operation(summary = "创建模型定义")
     @PostMapping("/model-definitions")
-    public Mono<ModelItemDto> create(@RequestBody CreateModelRequest body) {
+    public Mono<ApiResponse<ModelDTO>> create(@RequestBody CreateModelRequest body) {
         if (body.providerId == null) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "providerId is required"));
+            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "providerId is required"));
         }
         if (body.modelId == null || body.modelId.isBlank()) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "modelId is required"));
+            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "modelId is required"));
         }
         if (body.displayName == null || body.displayName.isBlank()) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "displayName is required"));
+            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "displayName is required"));
         }
 
         return providerRepo.findById(body.providerId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Provider not found")))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.MODEL_NOT_FOUND, "Provider not found")))
                 .flatMap(provider -> {
                     ModelDefinitionEntity entity = new ModelDefinitionEntity();
                     entity.setProviderId(body.providerId);
@@ -73,13 +81,14 @@ public class ModelDefinitionController {
                     return definitionRepo.save(entity);
                 })
                 .flatMap(saved -> registryService.reload().thenReturn(saved))
-                .map(this::toItemDto);
+                .map(ModelDTO::fromEntity)
+                .map(ApiResponse::ok);
     }
 
     @PutMapping("/model-definitions/{id}")
-    public Mono<ModelItemDto> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<ModelDTO>> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         return definitionRepo.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Model not found")))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.MODEL_NOT_FOUND)))
                 .flatMap(entity -> {
                     if (body.containsKey("modelId")) entity.setModelId((String) body.get("modelId"));
                     if (body.containsKey("displayName")) entity.setDisplayName((String) body.get("displayName"));
@@ -93,24 +102,25 @@ public class ModelDefinitionController {
                     return definitionRepo.save(entity);
                 })
                 .flatMap(saved -> registryService.reload().thenReturn(saved))
-                .map(this::toItemDto);
+                .map(ModelDTO::fromEntity)
+                .map(ApiResponse::ok);
     }
 
     @DeleteMapping("/model-definitions/{id}")
-    public Mono<Map<String, Object>> delete(@PathVariable Long id) {
+    public Mono<ApiResponse<Map<String, Object>>> delete(@PathVariable Long id) {
         return definitionRepo.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Model not found")))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.MODEL_NOT_FOUND)))
                 .flatMap(entity -> definitionRepo.delete(entity)
                         .then(registryService.reload())
-                        .thenReturn(Map.<String, Object>of("success", true, "deletedModelId", entity.getModelId()))
-                );
+                        .thenReturn(ApiResponse.ok(Map.<String, Object>of(
+                                "success", true, "deletedModelId", entity.getModelId()))));
     }
 
-    private List<ModelGroupDto> buildGroups(Map<Long, ModelProviderEntity> providerMap,
+    private List<ModelGroupDTO> buildGroups(Map<Long, ModelProviderEntity> providerMap,
                                             List<ModelDefinitionEntity> definitions) {
-        Map<Long, ModelGroupDto> groupMap = new LinkedHashMap<>();
+        Map<Long, ModelGroupDTO> groupMap = new LinkedHashMap<>();
         for (var provider : providerMap.values()) {
-            groupMap.put(provider.getId(), new ModelGroupDto(
+            groupMap.put(provider.getId(), new ModelGroupDTO(
                     provider.getId(),
                     provider.getName(),
                     provider.getType(),
@@ -119,33 +129,15 @@ public class ModelDefinitionController {
         }
 
         for (var def : definitions) {
-            ModelGroupDto group = groupMap.get(def.getProviderId());
+            ModelGroupDTO group = groupMap.get(def.getProviderId());
             if (group == null) continue;
-            group.models().add(toItemDto(def));
+            group.models().add(ModelDTO.fromEntity(def));
         }
 
         return groupMap.values().stream()
                 .filter(g -> !g.models().isEmpty())
                 .collect(Collectors.toCollection(ArrayList::new));
     }
-
-    private ModelItemDto toItemDto(ModelDefinitionEntity e) {
-        return new ModelItemDto(e.getId(), e.getModelId(), e.getDisplayName(), e.getDescription());
-    }
-
-    public record ModelGroupDto(
-            Long providerId,
-            String providerName,
-            String providerType,
-            List<ModelItemDto> models
-    ) {}
-
-    public record ModelItemDto(
-            Long id,
-            String modelId,
-            String displayName,
-            String description
-    ) {}
 
     public record CreateModelRequest(Long providerId, String modelId, String displayName,
                                      String description, Integer maxTokens, Integer sortOrder) {}

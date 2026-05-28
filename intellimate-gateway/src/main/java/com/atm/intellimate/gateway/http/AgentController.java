@@ -3,20 +3,25 @@ package com.atm.intellimate.gateway.http;
 import com.atm.intellimate.agent.model.ChatModelRegistry;
 import com.atm.intellimate.agent.model.ModelConfig;
 import com.atm.intellimate.core.config.IntelliMateProperties;
+import com.atm.intellimate.core.exception.ErrorCode;
+import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.dto.AgentDTO;
+import com.atm.intellimate.gateway.dto.ApiResponse;
 import com.atm.intellimate.gateway.entity.AgentEntity;
 import com.atm.intellimate.gateway.repository.AgentRepository;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+@Tag(name = "Agent", description = "Agent 管理 API")
 @RestController
 @RequestMapping("/api")
 public class AgentController {
@@ -34,48 +39,68 @@ public class AgentController {
         this.chatModelRegistry = chatModelRegistry;
     }
 
+    @Operation(summary = "获取所有 Agent 列表")
     @GetMapping("/agents")
-    public Mono<List<Map<String, Object>>> listAgents() {
-        Mono<List<Map<String, Object>>> dbAgents = agentRepository.findAllActive()
-                .map(this::entityToSummaryDto)
-                .collectList();
-
-        return dbAgents.map(list -> {
-            IntelliMateProperties.Agent defaults = properties.getAgent();
-            boolean hasDefault = list.stream().anyMatch(a -> defaults.getName().equals(a.get("name")));
-            if (!hasDefault) {
-                Map<String, Object> defaultAgent = new LinkedHashMap<>();
-                defaultAgent.put("name", defaults.getName());
-                defaultAgent.put("model", defaults.getModel());
-                defaultAgent.put("modelDisplayName", resolveModelDisplayName(defaults.getModel()));
-                defaultAgent.put("hasSoul", defaults.getSoulMd() != null && !defaults.getSoulMd().isBlank());
-                defaultAgent.put("hasAgents", defaults.getAgentsMd() != null && !defaults.getAgentsMd().isBlank());
-                defaultAgent.put("isDefault", true);
-                list.addFirst(defaultAgent);
-            }
-            return list;
-        });
+    public Mono<ApiResponse<List<AgentDTO>>> listAgents() {
+        return agentRepository.findAllActive()
+                .map(entity -> AgentDTO.fromEntitySummary(entity, resolveModelDisplayName(entity.getModel())))
+                .collectList()
+                .map(list -> {
+                    IntelliMateProperties.Agent defaults = properties.getAgent();
+                    boolean hasDefault = list.stream().anyMatch(a -> defaults.getName().equals(a.name()));
+                    List<AgentDTO> result = new ArrayList<>(list);
+                    if (!hasDefault) {
+                        AgentDTO defaultAgent = new AgentDTO(
+                                null,
+                                defaults.getName(),
+                                defaults.getModel(),
+                                resolveModelDisplayName(defaults.getModel()),
+                                null,
+                                null,
+                                defaults.getMaxTurns(),
+                                defaults.getTimeoutSeconds(),
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                defaults.getSoulMd() != null && !defaults.getSoulMd().isBlank(),
+                                defaults.getAgentsMd() != null && !defaults.getAgentsMd().isBlank(),
+                                true,
+                                null,
+                                null
+                        );
+                        result.addFirst(defaultAgent);
+                    }
+                    return ApiResponse.ok(result);
+                });
     }
 
     @GetMapping("/agent/{name}")
-    public Mono<Map<String, Object>> getAgent(@PathVariable String name) {
+    public Mono<ApiResponse<AgentDTO>> getAgent(@PathVariable String name) {
         return agentRepository.findByName(name)
-                .map(this::entityToDto)
-                .defaultIfEmpty(defaultDto(name));
+                .map(entity -> AgentDTO.fromEntity(entity)
+                        .withModelDisplayName(resolveModelDisplayName(entity.getModel())))
+                .map(ApiResponse::ok)
+                .defaultIfEmpty(ApiResponse.ok(defaultDto(name)));
     }
 
+    @Operation(summary = "创建 Agent")
     @PostMapping("/agent")
-    public Mono<Map<String, Object>> createAgent(@RequestBody Map<String, String> body) {
+    public Mono<ApiResponse<AgentDTO>> createAgent(@RequestBody Map<String, String> body) {
         String name = body.get("name");
         String model = body.getOrDefault("model", properties.getAgent().getModel());
 
         if (name == null || name.isBlank()) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required"));
+            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "name is required"));
         }
 
         return agentRepository.findByName(name)
-                .flatMap(existing -> Mono.<Map<String, Object>>error(
-                        new ResponseStatusException(HttpStatus.CONFLICT, "Agent already exists: " + name)))
+                .flatMap(existing -> Mono.<AgentEntity>error(
+                        new IntelliMateException(ErrorCode.AGENT_NAME_CONFLICT, "Agent already exists: " + name)))
                 .switchIfEmpty(Mono.defer(() -> {
                     AgentEntity entity = new AgentEntity();
                     entity.setName(name);
@@ -87,13 +112,14 @@ public class AgentController {
                     entity.setUpdatedAt(LocalDateTime.now());
 
                     return agentRepository.save(entity)
-                            .doOnNext(saved -> log.info("Created agent: name={}, id={}", saved.getName(), saved.getId()))
-                            .map(this::entityToSummaryDto);
-                }));
+                            .doOnNext(saved -> log.info("Created agent: name={}, id={}", saved.getName(), saved.getId()));
+                }))
+                .map(entity -> AgentDTO.fromEntitySummary(entity, resolveModelDisplayName(entity.getModel())))
+                .map(ApiResponse::ok);
     }
 
     @PutMapping("/agent/{name}")
-    public Mono<Map<String, Object>> updateAgent(@PathVariable String name,
+    public Mono<ApiResponse<Map<String, Object>>> updateAgent(@PathVariable String name,
                                                   @RequestBody Map<String, Object> body) {
         return agentRepository.findByName(name)
                 .switchIfEmpty(Mono.defer(() -> createDefaultEntity(name)))
@@ -140,7 +166,7 @@ public class AgentController {
                     entity.setUpdatedAt(LocalDateTime.now());
                     return agentRepository.save(entity);
                 })
-                .map(saved -> Map.<String, Object>of("success", true));
+                .map(saved -> ApiResponse.ok(Map.<String, Object>of("success", true)));
     }
 
     private Mono<AgentEntity> createDefaultEntity(String name) {
@@ -158,7 +184,7 @@ public class AgentController {
     }
 
     @PutMapping("/agent/{name}/context")
-    public Mono<Map<String, Object>> updateContext(@PathVariable String name,
+    public Mono<ApiResponse<Map<String, Object>>> updateContext(@PathVariable String name,
                                                     @RequestBody Map<String, String> body) {
         String soulMd = body.get("soulMd");
         String agentsMd = body.get("agentsMd");
@@ -171,29 +197,29 @@ public class AgentController {
         return agentRepository.updateContextByName(name, soulMd, agentsMd)
                 .flatMap(rows -> {
                     if (rows > 0) {
-                        return Mono.just(Map.<String, Object>of("success", true));
+                        return Mono.just(ApiResponse.ok(Map.<String, Object>of("success", true)));
                     }
                     return createAndUpdateContext(name, soulMd, agentsMd);
                 });
     }
 
     @DeleteMapping("/agent/{name}")
-    public Mono<Map<String, Object>> deleteAgent(@PathVariable String name) {
+    public Mono<ApiResponse<Map<String, Object>>> deleteAgent(@PathVariable String name) {
         String defaultName = properties.getAgent().getName();
         if (defaultName.equals(name)) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot delete default agent"));
+            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "Cannot delete default agent"));
         }
         return agentRepository.softDeleteByName(name)
                 .flatMap(rows -> {
                     if (rows == 0) {
-                        return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent not found: " + name));
+                        return Mono.error(new IntelliMateException(ErrorCode.AGENT_NOT_FOUND, "Agent not found: " + name));
                     }
                     log.info("Deleted agent: name={}", name);
-                    return Mono.just(Map.<String, Object>of("success", true));
+                    return Mono.just(ApiResponse.ok(Map.<String, Object>of("success", true)));
                 });
     }
 
-    private Mono<Map<String, Object>> createAndUpdateContext(String name, String soulMd, String agentsMd) {
+    private Mono<ApiResponse<Map<String, Object>>> createAndUpdateContext(String name, String soulMd, String agentsMd) {
         IntelliMateProperties.Agent defaults = properties.getAgent();
         AgentEntity entity = new AgentEntity();
         entity.setName(name);
@@ -208,7 +234,7 @@ public class AgentController {
 
         return agentRepository.save(entity)
                 .doOnNext(saved -> log.info("Auto-created agent record: name={}, id={}", saved.getName(), saved.getId()))
-                .thenReturn(Map.<String, Object>of("success", true));
+                .thenReturn(ApiResponse.ok(Map.<String, Object>of("success", true)));
     }
 
     private String resolveModelDisplayName(String modelRef) {
@@ -222,49 +248,30 @@ public class AgentController {
         }
     }
 
-    private Map<String, Object> entityToSummaryDto(AgentEntity entity) {
-        Map<String, Object> dto = new LinkedHashMap<>();
-        dto.put("id", entity.getId());
-        dto.put("name", entity.getName());
-        dto.put("model", entity.getModel());
-        dto.put("modelDisplayName", resolveModelDisplayName(entity.getModel()));
-        dto.put("hasSoul", entity.getSoulMd() != null && !entity.getSoulMd().isBlank());
-        dto.put("hasAgents", entity.getAgentsMd() != null && !entity.getAgentsMd().isBlank());
-        dto.put("toolsEnabled", entity.getToolsEnabled());
-        dto.put("canDelegate", entity.getCanDelegate() != null && entity.getCanDelegate() == 1);
-        dto.put("goal", entity.getGoal());
-        dto.put("isDefault", false);
-        return dto;
-    }
-
-    private Map<String, Object> entityToDto(AgentEntity entity) {
-        Map<String, Object> dto = new LinkedHashMap<>();
-        dto.put("name", entity.getName());
-        dto.put("model", entity.getModel());
-        dto.put("soulMd", entity.getSoulMd());
-        dto.put("agentsMd", entity.getAgentsMd());
-        dto.put("toolsEnabled", entity.getToolsEnabled());
-        dto.put("mcpToolsEnabled", entity.getMcpToolsEnabled());
-        dto.put("skillsEnabled", entity.getSkillsEnabled());
-        dto.put("skillGroupsEnabled", entity.getSkillGroupsEnabled());
-        dto.put("canDelegate", entity.getCanDelegate() != null && entity.getCanDelegate() == 1);
-        dto.put("delegateAgents", entity.getDelegateAgents());
-        dto.put("goal", entity.getGoal());
-        dto.put("bridgeNode", entity.getBridgeNode());
-        return dto;
-    }
-
-    private Map<String, Object> defaultDto(String name) {
+    private AgentDTO defaultDto(String name) {
         IntelliMateProperties.Agent defaults = properties.getAgent();
-        Map<String, Object> dto = new LinkedHashMap<>();
-        dto.put("name", name);
-        dto.put("model", defaults.getModel());
-        dto.put("soulMd", defaults.getSoulMd());
-        dto.put("agentsMd", defaults.getAgentsMd());
-        dto.put("toolsEnabled", (String) null);
-        dto.put("mcpToolsEnabled", (String) null);
-        dto.put("skillsEnabled", (String) null);
-        dto.put("skillGroupsEnabled", (String) null);
-        return dto;
+        return new AgentDTO(
+                null,
+                name,
+                defaults.getModel(),
+                null,
+                defaults.getSoulMd(),
+                defaults.getAgentsMd(),
+                defaults.getMaxTurns(),
+                defaults.getTimeoutSeconds(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                defaults.getSoulMd() != null && !defaults.getSoulMd().isBlank(),
+                defaults.getAgentsMd() != null && !defaults.getAgentsMd().isBlank(),
+                false,
+                null,
+                null
+        );
     }
 }

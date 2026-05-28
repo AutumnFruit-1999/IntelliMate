@@ -4,15 +4,17 @@ import com.atm.intellimate.agent.tools.ToolsEngine;
 import com.atm.intellimate.agent.tools.dynamic.DynamicToolProvider;
 import com.atm.intellimate.agent.tools.dynamic.DynamicToolDefinition;
 import com.atm.intellimate.agent.tools.dynamic.HttpToolCallback;
+import com.atm.intellimate.core.exception.ErrorCode;
+import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.dto.ApiResponse;
+import com.atm.intellimate.gateway.dto.ToolDTO;
 import com.atm.intellimate.gateway.entity.ToolDefinitionEntity;
 import com.atm.intellimate.gateway.repository.ToolDefinitionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
@@ -46,28 +48,33 @@ public class ToolDefinitionController {
     }
 
     @GetMapping
-    public Mono<List<ToolDefinitionEntity>> listAll() {
-        return repository.findAll().collectList();
+    public Mono<ApiResponse<List<ToolDTO>>> listAll() {
+        return repository.findAll()
+                .map(ToolDTO::fromEntity)
+                .collectList()
+                .map(ApiResponse::ok);
     }
 
     @GetMapping("/{id}")
-    public Mono<ToolDefinitionEntity> getById(@PathVariable Long id) {
+    public Mono<ApiResponse<ToolDTO>> getById(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+                .map(ToolDTO::fromEntity)
+                .map(ApiResponse::ok)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.TOOL_NOT_FOUND)));
     }
 
     @PostMapping
-    public Mono<ToolDefinitionEntity> create(@RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<ToolDTO>> create(@RequestBody Map<String, Object> body) {
         return Mono.defer(() -> {
             String name = (String) body.get("name");
             if (name == null || !TOOL_NAME_PATTERN.matcher(name).matches()) {
-                return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED,
                         "工具名称必须以字母开头，只能包含字母、数字、下划线和短横线，长度 2~64 个字符"));
             }
 
             return repository.findByName(name)
                     .flatMap(existing -> Mono.<ToolDefinitionEntity>error(
-                            new ResponseStatusException(HttpStatus.CONFLICT, "工具名称已存在: " + name)))
+                            new IntelliMateException(ErrorCode.VALIDATION_FAILED, "工具名称已存在: " + name)))
                     .switchIfEmpty(Mono.defer(() -> {
                         ToolDefinitionEntity entity = new ToolDefinitionEntity();
                         entity.setName(name);
@@ -84,19 +91,21 @@ public class ToolDefinitionController {
                         entity.setUpdatedAt(LocalDateTime.now());
                         return repository.save(entity);
                     }))
-                    .flatMap(saved -> reloadAndReturn(saved));
+                    .flatMap(saved -> reloadAndReturn(saved))
+                    .map(ToolDTO::fromEntity)
+                    .map(ApiResponse::ok);
         });
     }
 
     @PutMapping("/{id}")
-    public Mono<ToolDefinitionEntity> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<ToolDTO>> update(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.TOOL_NOT_FOUND)))
                 .flatMap(entity -> {
                     if (body.containsKey("name")) {
                         String name = (String) body.get("name");
                         if (!TOOL_NAME_PATTERN.matcher(name).matches()) {
-                            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED,
                                     "工具名称必须以字母开头，只能包含字母、数字、下划线和短横线，长度 2~64 个字符"));
                         }
                         entity.setName(name);
@@ -115,23 +124,26 @@ public class ToolDefinitionController {
                     entity.setUpdatedAt(LocalDateTime.now());
                     return repository.save(entity);
                 })
-                .flatMap(saved -> reloadAndReturn(saved));
+                .flatMap(saved -> reloadAndReturn(saved))
+                .map(ToolDTO::fromEntity)
+                .map(ApiResponse::ok);
     }
 
     @DeleteMapping("/{id}")
-    public Mono<Map<String, Object>> delete(@PathVariable Long id) {
+    public Mono<ApiResponse<Map<String, Object>>> delete(@PathVariable Long id) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.TOOL_NOT_FOUND)))
                 .flatMap(entity -> repository.delete(entity).thenReturn(entity))
                 .flatMap(deleted -> dynamicToolProvider.reload()
                         .doOnSuccess(v -> toolsEngine.refresh())
-                        .thenReturn(Map.<String, Object>of("success", true, "deletedName", deleted.getName())));
+                        .thenReturn(ApiResponse.ok(Map.<String, Object>of(
+                                "success", true, "deletedName", deleted.getName()))));
     }
 
     @PostMapping("/{id}/test")
-    public Mono<Map<String, Object>> test(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<Map<String, Object>>> test(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         return repository.findById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.TOOL_NOT_FOUND)))
                 .flatMap(entity -> {
                     long startMs = System.currentTimeMillis();
                     try {
@@ -155,14 +167,14 @@ public class ToolDefinitionController {
                         resp.put("success", true);
                         resp.put("result", result);
                         resp.put("durationMs", durationMs);
-                        return Mono.just(resp);
+                        return Mono.just(ApiResponse.ok(resp));
                     } catch (Exception e) {
                         long durationMs = System.currentTimeMillis() - startMs;
                         Map<String, Object> resp = new LinkedHashMap<>();
                         resp.put("success", false);
                         resp.put("error", e.getMessage());
                         resp.put("durationMs", durationMs);
-                        return Mono.just(resp);
+                        return Mono.just(ApiResponse.ok(resp));
                     }
                 });
     }

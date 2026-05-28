@@ -18,8 +18,10 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.util.concurrent.Queues;
+import reactor.util.context.Context;
 
 import java.time.Duration;
+import java.util.UUID;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -134,8 +136,10 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
     }
 
     private Flux<GatewayFrame> handleRequest(RequestFrame request, WebSocketSession session) {
-        log.debug("Handling request: method={}, id={}", request.method(), request.id());
-        return messagePipeline.processRequest(request, session.getId());
+        String traceId = UUID.randomUUID().toString().substring(0, 8);
+        log.debug("Handling request: method={}, id={}, traceId={}", request.method(), request.id(), traceId);
+        return messagePipeline.processRequest(request, session.getId())
+                .contextWrite(Context.of("traceId", traceId));
     }
 
     private Flux<GatewayFrame> handleEvent(EventFrame event, WebSocketSession session) {

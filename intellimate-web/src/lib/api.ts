@@ -370,6 +370,8 @@ export interface SkillDefinition {
   hasScripts: number;
   hasReferences: number;
   enabled: number;
+  gitUrl: string | null;
+  gitSubPath: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -506,6 +508,48 @@ export function deleteSkillFile(
   return apiFetch(`/api/skills/${id}/files/${type}/${encodeURIComponent(filename)}`, {
     method: "DELETE",
   });
+}
+
+// ─── Skill Git Import ───
+
+export interface GitImportParams {
+  gitUrl: string;
+  branch?: string;
+  subPath?: string;
+  name?: string;
+  description?: string;
+}
+
+export function importSkillFromGit(params: GitImportParams): Promise<SkillDefinition> {
+  return apiFetch<SkillDefinition>("/api/skills/import/git", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+}
+
+export function syncSkillFromGit(id: number): Promise<SkillDefinition> {
+  return apiFetch<SkillDefinition>(`/api/skills/${id}/git/sync`, { method: "POST" });
+}
+
+// ─── Skill File Tree ───
+
+export interface FileNode {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  children: FileNode[];
+}
+
+export function fetchSkillTree(id: number): Promise<FileNode> {
+  return apiFetch<FileNode>(`/api/skills/${id}/tree`);
+}
+
+export async function readSkillFile(id: number, path: string): Promise<string> {
+  const res = await apiFetchRaw(`/api/skills/${id}/files/read?path=${encodeURIComponent(path)}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.text();
 }
 
 // ─── Skill Groups ───

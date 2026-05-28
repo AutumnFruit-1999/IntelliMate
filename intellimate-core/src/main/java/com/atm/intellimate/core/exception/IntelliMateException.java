@@ -17,6 +17,16 @@ public class IntelliMateException extends RuntimeException {
         this.errorCode = errorCode;
     }
 
+    public IntelliMateException(ErrorCode errorCode) {
+        super(errorCode.getDefaultMessage());
+        this.errorCode = errorCode.getCode();
+    }
+
+    public IntelliMateException(ErrorCode errorCode, String message) {
+        super(message);
+        this.errorCode = errorCode.getCode();
+    }
+
     public String getErrorCode() {
         return errorCode;
     }

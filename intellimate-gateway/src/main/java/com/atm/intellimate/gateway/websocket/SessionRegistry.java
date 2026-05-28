@@ -2,8 +2,10 @@ package com.atm.intellimate.gateway.websocket;
 
 import com.atm.intellimate.core.protocol.EventFrame;
 import com.atm.intellimate.core.protocol.GatewayFrame;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Sinks;
 
@@ -11,6 +13,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Component
@@ -21,9 +24,20 @@ public class SessionRegistry {
     private final AtomicLong seqGenerator = new AtomicLong(0);
     private final ConcurrentHashMap<String, Sinks.Many<GatewayFrame>> sessionSinks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Set<String>> agentSessions = new ConcurrentHashMap<>();
+    private final MeterRegistry meterRegistry;
+
+    public SessionRegistry(@Autowired(required = false) MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+        if (meterRegistry != null) {
+            meterRegistry.gauge("ws.connections.active", sessionSinks, ConcurrentMap::size);
+        }
+    }
 
     public void register(String wsSessionId, Sinks.Many<GatewayFrame> sink) {
         sessionSinks.put(wsSessionId, sink);
+        if (meterRegistry != null) {
+            meterRegistry.counter("ws.connections.opened").increment();
+        }
         log.debug("Session registered: {}", wsSessionId);
     }
 
@@ -38,6 +52,9 @@ public class SessionRegistry {
         sessionSinks.remove(wsSessionId);
         agentSessions.values().forEach(set -> set.remove(wsSessionId));
         agentSessions.entrySet().removeIf(e -> e.getValue().isEmpty());
+        if (meterRegistry != null) {
+            meterRegistry.counter("ws.connections.closed").increment();
+        }
         log.debug("Session unregistered: {}", wsSessionId);
     }
 

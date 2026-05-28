@@ -64,6 +64,9 @@ build/
 ### VS Code ###
 .vscode/
 
+### Cursor IDE ###
+.cursor/skills/gstack*/
+
 ### Node ###
 node_modules/
 

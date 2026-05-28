@@ -80,14 +80,29 @@ intellimate:
     max-concurrent-jobs: 8
     config-reload-debounce-ms: 500
 
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health, info, prometheus, metrics
   endpoint:
     health:
       show-details: always
+  metrics:
+    tags:
+      application: intellimate
+    distribution:
+      percentiles-histogram:
+        agent.llm.latency: true
+        agent.tool.latency: true
 
 logging:
   level:
@@ -95,4 +110,4 @@ logging:
     org.springframework.data.r2dbc: ${LOG_LEVEL_R2DBC:WARN}
     org.springframework.web.reactive: INFO
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [traceId=%X{traceId}] %-5level %logger{36} - %msg%n"

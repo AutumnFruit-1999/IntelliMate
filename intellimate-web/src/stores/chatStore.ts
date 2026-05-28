@@ -29,6 +29,8 @@ export interface ToolCallInfo {
   success?: boolean;
   status: "calling" | "done" | "error";
   turn?: number;
+  startTime?: number;
+  duration?: number;
 }
 
 export interface StepGroupSnapshot {
@@ -58,9 +60,14 @@ interface ChatState {
   connectionState: ConnectionState;
   wsSessionId: string | null;
   isWaiting: boolean;
+  queuedMessage: string | null;
   pendingForcePlan: { text: string } | null;
 
   messages: ChatMessage[];
+
+  historyLoaded: boolean;
+  historyHasMore: boolean;
+  loadingHistory: boolean;
 
   setCurrentAgent: (agent: string) => void;
   reconnectAttempt: number;
@@ -71,7 +78,9 @@ interface ChatState {
 
   setConnectionState: (state: ConnectionState) => void;
   setWsSessionId: (id: string) => void;
-  addUserMessage: (text: string, requestId: string) => void;
+  setQueuedMessage: (msg: string | null) => void;
+  addUserMessage: (text: string, requestId: string, regenerate?: boolean) => void;
+  removeLastAssistantMessage: () => void;
   appendChunk: (requestId: string, chunk: string) => void;
   finishStreaming: (requestId: string, fullText: string, totalTurns?: number) => void;
   addResponse: (response: ResponseFrame) => void;
@@ -107,6 +116,11 @@ interface ChatState {
   setActivityTool: (name: string, description: string | null) => void;
   clearActivityTool: () => void;
   resetActivity: () => void;
+
+  loadHistoryFromServer: (agentName: string) => Promise<void>;
+  prependHistory: (messages: ChatMessage[]) => void;
+  loadMoreHistory: (agentName: string) => Promise<void>;
+  setHistoryLoaded: (loaded: boolean) => void;
 }
 
 function getAgentMessages(state: ChatState): ChatMessage[] {
@@ -130,10 +144,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   connectionState: "disconnected",
   wsSessionId: null,
   isWaiting: false,
+  queuedMessage: null,
   reconnectAttempt: 0,
   reconnectCountdown: 0,
   pendingForcePlan: null,
   messages: [],
+  historyLoaded: false,
+  historyHasMore: false,
+  loadingHistory: false,
   proactiveBuffer: [],
   activity: {
     phase: "idle",
@@ -152,6 +170,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentAgent: agent,
       messages: state.messagesByAgent[agent] ?? [],
       isWaiting: false,
+      historyLoaded: false,
     });
   },
 
@@ -173,7 +192,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setWsSessionId: (wsSessionId) => set({ wsSessionId }),
 
-  addUserMessage: (text, requestId) => {
+  setQueuedMessage: (msg) => set({ queuedMessage: msg }),
+
+  addUserMessage: (text, requestId, regenerate) => {
     const agentState = useAgentStore.getState();
     const activeAgent = agentState.activeAgent;
     const agentInfo = agentState.agents.find((a) => a.name === activeAgent);
@@ -190,26 +211,47 @@ export const useChatStore = create<ChatState>((set, get) => ({
         maxTurns: 0,
         startedAt: Date.now(),
       },
-      ...updateAgentMessages(state, (msgs) => [
-        ...msgs,
-        {
-          id: generateId(),
-          role: "user",
-          content: text,
-          streaming: false,
-          timestamp: Date.now(),
-          requestId,
-        },
-        {
+      ...updateAgentMessages(state, (msgs) => {
+        const next: ChatMessage[] = [...msgs];
+        if (!regenerate) {
+          next.push({
+            id: generateId(),
+            role: "user",
+            content: text,
+            streaming: false,
+            timestamp: Date.now(),
+            requestId,
+          });
+        }
+        next.push({
           id: `assistant-${requestId}`,
           role: "assistant",
           content: "",
           streaming: true,
           timestamp: Date.now(),
           requestId,
-        },
-      ]),
+        });
+        return next;
+      }),
     }));
+  },
+
+  removeLastAssistantMessage: () => {
+    const agent = get().currentAgent;
+    const msgs = [...(get().messagesByAgent[agent] ?? [])];
+    let lastIdx = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "assistant") {
+        lastIdx = i;
+        break;
+      }
+    }
+    if (lastIdx >= 0) msgs.splice(lastIdx, 1);
+    set({
+      messagesByAgent: { ...get().messagesByAgent, [agent]: msgs },
+      messages: msgs,
+      isWaiting: false,
+    });
   },
 
   appendChunk: (requestId, chunk) => {
@@ -404,7 +446,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ...msg,
               toolCalls: [
                 ...(msg.toolCalls ?? []),
-                { ...info, status: "calling" as const },
+                { ...info, status: "calling" as const, startTime: Date.now() },
               ],
             }
           : msg,
@@ -413,6 +455,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   updateToolResult: (requestId, toolCallId, result, success) => {
+    const now = Date.now();
     set((state) => updateAgentMessages(state, (msgs) =>
       msgs.map((msg) =>
         msg.id === `assistant-${requestId}`
@@ -425,6 +468,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                       result,
                       success,
                       status: (success ? "done" : "error") as ToolCallInfo["status"],
+                      duration: tc.startTime ? now - tc.startTime : undefined,
                     }
                   : tc,
               ),
@@ -690,4 +734,80 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     });
   },
+
+  loadHistoryFromServer: async (agentName: string) => {
+    const { fetchActiveMessages } = await import("../lib/sessionApi");
+    set({ loadingHistory: true });
+    try {
+      const resp = await fetchActiveMessages(agentName, 50);
+      const messages: ChatMessage[] = resp.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          id: `hist-${m.id}`,
+          role: m.role as "user" | "assistant",
+          content: m.content ?? "",
+          streaming: false,
+          timestamp: new Date(m.createdAt).getTime(),
+        }));
+      const current = get().currentAgent;
+      if (current === agentName) {
+        const existing = get().messagesByAgent[agentName] ?? [];
+        if (existing.length === 0) {
+          set({
+            messagesByAgent: { ...get().messagesByAgent, [agentName]: messages },
+            messages: messages,
+            historyLoaded: true,
+            historyHasMore: resp.hasMore,
+            loadingHistory: false,
+          });
+        } else {
+          set({ historyLoaded: true, historyHasMore: resp.hasMore, loadingHistory: false });
+        }
+      }
+    } catch (e) {
+      console.error("[chatStore] Failed to load history:", e);
+      set({ loadingHistory: false });
+    }
+  },
+
+  prependHistory: (messages: ChatMessage[]) => {
+    const agent = get().currentAgent;
+    const existing = get().messagesByAgent[agent] ?? [];
+    const merged = [...messages, ...existing];
+    set({
+      messagesByAgent: { ...get().messagesByAgent, [agent]: merged },
+      messages: merged,
+    });
+  },
+
+  loadMoreHistory: async (agentName: string) => {
+    const { fetchActiveMessages } = await import("../lib/sessionApi");
+    const currentMessages = get().messagesByAgent[agentName] ?? [];
+    if (currentMessages.length === 0) return;
+    const firstMsg = currentMessages[0];
+    const beforeId = firstMsg.id.startsWith("hist-")
+      ? parseInt(firstMsg.id.replace("hist-", ""), 10)
+      : undefined;
+    if (!beforeId) return;
+    set({ loadingHistory: true });
+    try {
+      const resp = await fetchActiveMessages(agentName, 50, beforeId);
+      const messages: ChatMessage[] = resp.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          id: `hist-${m.id}`,
+          role: m.role as "user" | "assistant",
+          content: m.content ?? "",
+          streaming: false,
+          timestamp: new Date(m.createdAt).getTime(),
+        }));
+      get().prependHistory(messages);
+      set({ historyHasMore: resp.hasMore, loadingHistory: false });
+    } catch (e) {
+      console.error("[chatStore] Failed to load more history:", e);
+      set({ loadingHistory: false });
+    }
+  },
+
+  setHistoryLoaded: (loaded: boolean) => set({ historyLoaded: loaded }),
 }));

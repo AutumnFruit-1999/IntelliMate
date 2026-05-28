@@ -287,9 +287,9 @@ proactive 消息通过 session 的 `context_id LIKE 'proactive::%'` 来识别，
 ### WebSocket 事件
 
 
-| 事件名             | 方向        | 说明                   |
-| --------------- | --------- | -------------------- |
-| agent.proactive | 服务端 → 客户端 | 推送 Agent 主动消息        |
+| 事件名             | 方向        | 说明                            |
+| --------------- | --------- | ----------------------------- |
+| agent.proactive | 服务端 → 客户端 | 推送 Agent 主动消息                 |
 | agent.bind      | 客户端 → 服务端 | 绑定到指定 Agent，开始接收该 Agent 的主动消息 |
 
 

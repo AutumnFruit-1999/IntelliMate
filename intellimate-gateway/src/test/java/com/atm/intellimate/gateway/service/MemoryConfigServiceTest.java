@@ -108,9 +108,9 @@ class MemoryConfigServiceTest {
     }
 
     @Test
-    @DisplayName("getDefaults() returns all 14 config keys")
+    @DisplayName("getDefaults() returns all 15 config keys")
     void getDefaults_returnsExpectedSize() {
-        assertThat(MemoryConfigService.getDefaults()).hasSize(14);
+        assertThat(MemoryConfigService.getDefaults()).hasSize(15);
         assertThat(MemoryConfigService.getDefaults()).containsKey("working.token_budget");
         assertThat(MemoryConfigService.getDefaults()).containsKey("long_term.enabled");
     }

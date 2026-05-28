@@ -1,5 +1,9 @@
 package com.atm.intellimate.gateway.http;
 
+import com.atm.intellimate.core.exception.ErrorCode;
+import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.dto.ApiResponse;
+import com.atm.intellimate.gateway.dto.ScheduledJobDTO;
 import com.atm.intellimate.gateway.entity.ScheduledJobConfigEntity;
 import com.atm.intellimate.gateway.entity.ScheduledJobLogEntity;
 import com.atm.intellimate.gateway.repository.ScheduledJobConfigRepository;
@@ -8,9 +12,7 @@ import com.atm.intellimate.gateway.scheduler.CronCalculator;
 import com.atm.intellimate.gateway.scheduler.ReactiveScheduleEngine;
 import com.atm.intellimate.gateway.scheduler.TaskRegistry;
 import com.atm.intellimate.gateway.scheduler.model.ConfigChangeEvent;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -43,29 +45,31 @@ public class ScheduledJobController {
     }
 
     @GetMapping
-    public Flux<Map<String, Object>> listJobs() {
+    public Flux<ScheduledJobDTO> listJobs() {
         List<ScheduledJobConfigEntity> cached = registry.getAllConfigs();
         if (!cached.isEmpty()) {
-            return Flux.fromIterable(cached).map(this::toJobSummary);
+            return Flux.fromIterable(cached)
+                    .map(config -> ScheduledJobDTO.fromEntity(config, engine.isJobCurrentlyRunning(config.getJobName())));
         }
-        return configRepo.findAll().map(this::toJobSummary);
+        return configRepo.findAll()
+                .map(config -> ScheduledJobDTO.fromEntity(config, engine.isJobCurrentlyRunning(config.getJobName())));
     }
 
     @PostMapping
-    public Mono<Map<String, Object>> createJob(@RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<ScheduledJobDTO>> createJob(@RequestBody Map<String, Object> body) {
         String jobName = (String) body.get("jobName");
         if (jobName == null || jobName.isBlank()) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "jobName is required"));
+            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "jobName is required"));
         }
 
         String jobClass = (String) body.getOrDefault("jobClass", "agent-prompt");
         if (registry.getJobBean(jobClass) == null && registry.getJobBean(jobName) == null) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported jobClass: " + jobClass));
+            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "Unsupported jobClass: " + jobClass));
         }
 
         return configRepo.findByJobName(jobName)
-                .flatMap(existing -> Mono.<Map<String, Object>>error(
-                        new ResponseStatusException(HttpStatus.CONFLICT, "Job already exists: " + jobName)))
+                .flatMap(existing -> Mono.<ScheduledJobConfigEntity>error(
+                        new IntelliMateException(ErrorCode.VALIDATION_FAILED, "Job already exists: " + jobName)))
                 .switchIfEmpty(Mono.defer(() -> {
                     ScheduledJobConfigEntity config = new ScheduledJobConfigEntity();
                     config.setJobName(jobName);
@@ -95,9 +99,10 @@ public class ScheduledJobController {
                             .doOnNext(saved -> {
                                 registry.registerJobBean(saved.getJobName(), registry.getJobBean(jobClass));
                                 engine.emitConfigChange(new ConfigChangeEvent(jobName, ConfigChangeEvent.ChangeType.UPDATED));
-                            })
-                            .map(this::toJobSummary);
-                }));
+                            });
+                }))
+                .map(config -> ApiResponse.ok(ScheduledJobDTO.fromEntity(
+                        config, engine.isJobCurrentlyRunning(config.getJobName()))));
     }
 
     private static final java.util.Set<String> BUILT_IN_JOBS = java.util.Set.of(
@@ -105,29 +110,29 @@ public class ScheduledJobController {
     );
 
     @DeleteMapping("/{jobName}")
-    public Mono<Map<String, Object>> deleteJob(@PathVariable String jobName) {
+    public Mono<ApiResponse<Map<String, Object>>> deleteJob(@PathVariable String jobName) {
         if (BUILT_IN_JOBS.contains(jobName)) {
-            return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot delete built-in job: " + jobName));
+            return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "Cannot delete built-in job: " + jobName));
         }
         return configRepo.findByJobName(jobName)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found: " + jobName)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.PLAN_NOT_FOUND, "Job not found: " + jobName)))
                 .flatMap(config -> configRepo.deleteById(config.getId())
-                        .thenReturn(Map.<String, Object>of("status", "deleted", "jobName", jobName)));
+                        .thenReturn(ApiResponse.ok(Map.<String, Object>of("status", "deleted", "jobName", jobName))));
     }
 
     @GetMapping("/{jobName}")
-    public Mono<Map<String, Object>> getJob(@PathVariable String jobName) {
+    public Mono<ApiResponse<Map<String, Object>>> getJob(@PathVariable String jobName) {
         return configRepo.findByJobName(jobName)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found: " + jobName)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.PLAN_NOT_FOUND, "Job not found: " + jobName)))
                 .flatMap(config -> logRepo.findByJobNamePaged(jobName, 5, 0)
                         .collectList()
-                        .map(logs -> toJobDetail(config, logs)));
+                        .map(logs -> ApiResponse.ok(toJobDetail(config, logs))));
     }
 
     @PutMapping("/{jobName}")
-    public Mono<Map<String, Object>> updateJob(@PathVariable String jobName, @RequestBody Map<String, Object> body) {
+    public Mono<ApiResponse<ScheduledJobDTO>> updateJob(@PathVariable String jobName, @RequestBody Map<String, Object> body) {
         return configRepo.findByJobName(jobName)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found: " + jobName)))
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.PLAN_NOT_FOUND, "Job not found: " + jobName)))
                 .flatMap(config -> {
                     if (body.containsKey("displayName")) config.setDisplayName((String) body.get("displayName"));
                     if (body.containsKey("description")) config.setDescription((String) body.get("description"));
@@ -150,25 +155,26 @@ public class ScheduledJobController {
                 })
                 .doOnNext(saved -> engine.emitConfigChange(
                         new ConfigChangeEvent(jobName, ConfigChangeEvent.ChangeType.UPDATED)))
-                .map(this::toJobSummary);
+                .map(config -> ApiResponse.ok(ScheduledJobDTO.fromEntity(
+                        config, engine.isJobCurrentlyRunning(config.getJobName()))));
     }
 
     @PostMapping("/{jobName}/trigger")
-    public Mono<Map<String, Object>> triggerJob(@PathVariable String jobName) {
+    public Mono<ApiResponse<Map<String, Object>>> triggerJob(@PathVariable String jobName) {
         return engine.triggerManually(jobName)
-                .thenReturn(Map.<String, Object>of("status", "triggered", "jobName", jobName));
+                .thenReturn(ApiResponse.ok(Map.<String, Object>of("status", "triggered", "jobName", jobName)));
     }
 
     @PostMapping("/{jobName}/pause")
-    public Mono<Map<String, Object>> pauseJob(@PathVariable String jobName) {
+    public Mono<ApiResponse<Map<String, Object>>> pauseJob(@PathVariable String jobName) {
         return configRepo.updateEnabledStatus(jobName, 0, null)
                 .doOnSuccess(v -> engine.emitConfigChange(
                         new ConfigChangeEvent(jobName, ConfigChangeEvent.ChangeType.PAUSED)))
-                .thenReturn(Map.<String, Object>of("status", "paused", "jobName", jobName));
+                .thenReturn(ApiResponse.ok(Map.<String, Object>of("status", "paused", "jobName", jobName)));
     }
 
     @PostMapping("/{jobName}/resume")
-    public Mono<Map<String, Object>> resumeJob(@PathVariable String jobName) {
+    public Mono<ApiResponse<Map<String, Object>>> resumeJob(@PathVariable String jobName) {
         return configRepo.findByJobName(jobName)
                 .flatMap(config -> {
                     LocalDateTime next = cronCalculator.nextFireTime(
@@ -179,7 +185,7 @@ public class ScheduledJobController {
                 })
                 .doOnSuccess(v -> engine.emitConfigChange(
                         new ConfigChangeEvent(jobName, ConfigChangeEvent.ChangeType.RESUMED)))
-                .thenReturn(Map.<String, Object>of("status", "resumed", "jobName", jobName));
+                .thenReturn(ApiResponse.ok(Map.<String, Object>of("status", "resumed", "jobName", jobName)));
     }
 
     @GetMapping("/{jobName}/logs")
@@ -191,10 +197,12 @@ public class ScheduledJobController {
     }
 
     @GetMapping("/{jobName}/logs/{logId}")
-    public Mono<ScheduledJobLogEntity> getLogDetail(@PathVariable String jobName, @PathVariable Long logId) {
+    public Mono<ApiResponse<ScheduledJobLogEntity>> getLogDetail(@PathVariable String jobName, @PathVariable Long logId) {
         return logRepo.findById(logId)
                 .filter(log -> jobName.equals(log.getJobName()))
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Log not found for job: " + jobName)));
+                .map(ApiResponse::ok)
+                .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.PLAN_NOT_FOUND,
+                        "Log not found for job: " + jobName)));
     }
 
     @GetMapping("/logs/recent")
@@ -203,7 +211,7 @@ public class ScheduledJobController {
     }
 
     @GetMapping("/stats/overview")
-    public Mono<Map<String, Object>> getOverview() {
+    public Mono<ApiResponse<Map<String, Object>>> getOverview() {
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         return Mono.zip(
                 configRepo.count(),
@@ -230,12 +238,12 @@ public class ScheduledJobController {
             result.put("todayTimeouts", todayTimeout);
             result.put("currentlyRunning", registry.getAllConfigs().stream()
                     .filter(c -> engine.isJobCurrentlyRunning(c.getJobName())).count());
-            return result;
+            return ApiResponse.ok(result);
         });
     }
 
     @GetMapping("/stats/{jobName}")
-    public Mono<Map<String, Object>> getJobStats(
+    public Mono<ApiResponse<Map<String, Object>>> getJobStats(
             @PathVariable String jobName,
             @RequestParam(defaultValue = "7") int days) {
         LocalDateTime since = LocalDateTime.now().minusDays(days);
@@ -261,7 +269,7 @@ public class ScheduledJobController {
                     result.put("successRate", total > 0 ? (double) success / total : 1.0);
                     result.put("avgDurationMs", Math.round(avgDuration));
                     result.put("maxDurationMs", maxDuration);
-                    return result;
+                    return ApiResponse.ok(result);
                 });
     }
 
@@ -271,35 +279,29 @@ public class ScheduledJobController {
         return logRepo.findTimelineSince(since);
     }
 
-    private Map<String, Object> toJobSummary(ScheduledJobConfigEntity config) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("jobName", config.getJobName());
-        map.put("jobGroup", config.getJobGroup());
-        map.put("displayName", config.getDisplayName());
-        map.put("description", config.getDescription());
-        map.put("triggerType", config.getTriggerType());
-        map.put("triggerValue", config.getTriggerValue());
-        map.put("enabled", config.getEnabled() != null && config.getEnabled() == 1);
-        map.put("nextFireTime", config.getNextFireTime());
-        map.put("lastFireTime", config.getLastFireTime());
-        map.put("lastStatus", config.getLastStatus());
-        map.put("consecutiveFailures", config.getConsecutiveFailures());
-        map.put("running", engine.isJobCurrentlyRunning(config.getJobName()));
-        map.put("timeoutMs", config.getTimeoutMs());
-        map.put("maxRetryCount", config.getMaxRetryCount());
-        map.put("retryBackoffMs", config.getRetryBackoffMs());
-        map.put("jobClass", config.getJobClass());
-        map.put("paramsJson", config.getParamsJson());
-        return map;
-    }
-
     private Map<String, Object> toJobDetail(ScheduledJobConfigEntity config, List<ScheduledJobLogEntity> recentLogs) {
-        Map<String, Object> map = toJobSummary(config);
-        map.put("description", config.getDescription());
-        map.put("jobClass", config.getJobClass());
-        map.put("timezone", config.getTimezone());
-        map.put("paramsJson", config.getParamsJson());
-        map.put("concurrentAllowed", config.getConcurrentAllowed() != null && config.getConcurrentAllowed() == 1);
+        ScheduledJobDTO summary = ScheduledJobDTO.fromEntity(config, engine.isJobCurrentlyRunning(config.getJobName()));
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", summary.id());
+        map.put("jobName", summary.jobName());
+        map.put("jobGroup", summary.jobGroup());
+        map.put("displayName", summary.displayName());
+        map.put("description", summary.description());
+        map.put("jobClass", summary.jobClass());
+        map.put("triggerType", summary.triggerType());
+        map.put("triggerValue", summary.triggerValue());
+        map.put("timezone", summary.timezone());
+        map.put("enabled", summary.enabled());
+        map.put("nextFireTime", summary.nextFireTime());
+        map.put("lastFireTime", summary.lastFireTime());
+        map.put("lastStatus", summary.lastStatus());
+        map.put("consecutiveFailures", summary.consecutiveFailures());
+        map.put("running", summary.running());
+        map.put("timeoutMs", summary.timeoutMs());
+        map.put("maxRetryCount", summary.maxRetryCount());
+        map.put("retryBackoffMs", summary.retryBackoffMs());
+        map.put("paramsJson", summary.paramsJson());
+        map.put("concurrentAllowed", summary.concurrentAllowed());
         map.put("recentLogs", recentLogs);
         return map;
     }

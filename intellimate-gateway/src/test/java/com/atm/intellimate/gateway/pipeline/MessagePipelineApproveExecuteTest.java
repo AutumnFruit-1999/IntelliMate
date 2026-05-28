@@ -50,13 +50,20 @@ class MessagePipelineApproveExecuteTest {
     @Mock private SessionRepository sessionRepository;
 
     private MessagePipeline pipeline;
+    private MessageConverter messageConverter;
+    private AgentEventMapper agentEventMapper;
+    private PlanExecutionOrchestrator planExecutionOrchestrator;
 
     @BeforeEach
     void setUp() {
+        messageConverter = new MessageConverter(sessionManager, properties);
+        planExecutionOrchestrator = new PlanExecutionOrchestrator(planService, null, null, properties, null);
+        agentEventMapper = new AgentEventMapper(agentConfigService, agentRuntime, properties, planExecutionOrchestrator);
+        PlanRequestHandler planRequestHandler = new PlanRequestHandler(planService, agentRuntime, sessionRepository);
         pipeline = new MessagePipeline(
-                sessionManager, agentRuntime, properties,
-                agentConfigService, commandHandler, auditService,
-                planService, sessionRegistry, sessionRepository, null, null);
+                sessionManager, messageConverter, agentEventMapper, agentRuntime, properties,
+                agentConfigService, commandHandler, auditService, planRequestHandler,
+                planService, planExecutionOrchestrator, sessionRegistry, sessionRepository);
     }
 
     private PlanEntity makePlan(Long id, Long sessionId, String status) {
