@@ -10,8 +10,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -168,4 +167,69 @@ public class SkillFileService {
     }
 
     public record SkillFiles(List<String> scripts, List<String> references, List<String> assets) {}
+
+    // ─── File Tree ───
+
+    public record FileNode(String name, String path, boolean isDirectory, long size, List<FileNode> children) {}
+
+    private static final Set<String> EXCLUDED_DIRS = Set.of(
+            ".git", ".build", "node_modules", "__pycache__", ".DS_Store");
+
+    public FileNode listAllFiles(String skillName) {
+        Path dir = getSkillPath(skillName);
+        if (!Files.isDirectory(dir)) return new FileNode(skillName, "", true, 0, List.of());
+        return buildFileTree(dir, dir);
+    }
+
+    private FileNode buildFileTree(Path root, Path current) {
+        String relativePath = root.equals(current) ? "" : root.relativize(current).toString();
+        String name = current.getFileName().toString();
+
+        if (Files.isDirectory(current)) {
+            if (!relativePath.isEmpty() && EXCLUDED_DIRS.contains(name)) {
+                return null;
+            }
+            List<FileNode> children = new ArrayList<>();
+            try (Stream<Path> entries = Files.list(current)) {
+                entries.sorted()
+                       .map(child -> buildFileTree(root, child))
+                       .filter(Objects::nonNull)
+                       .forEach(children::add);
+            } catch (IOException e) {
+                log.warn("Failed to list directory: {}", current, e);
+            }
+            return new FileNode(name, relativePath, true, 0, children);
+        } else {
+            if (EXCLUDED_DIRS.contains(name)) return null;
+            long size = 0;
+            try { size = Files.size(current); } catch (IOException ignored) {}
+            return new FileNode(name, relativePath, false, size, List.of());
+        }
+    }
+
+    // ─── Arbitrary File Reading ───
+
+    public String readFileByPath(String skillName, String relativePath) {
+        if (relativePath == null || relativePath.contains("..")) {
+            throw new IllegalArgumentException("Invalid path: must not contain '..'");
+        }
+        Path file = getSkillPath(skillName).resolve(relativePath).normalize();
+        Path skillDir = getSkillPath(skillName).normalize();
+        if (!file.startsWith(skillDir)) {
+            throw new IllegalArgumentException("Path traversal detected");
+        }
+        if (!Files.exists(file) || !Files.isRegularFile(file)) {
+            return null;
+        }
+        try {
+            long size = Files.size(file);
+            if (size > 1_048_576) {
+                return "[File too large to preview: " + size + " bytes]";
+            }
+            return Files.readString(file);
+        } catch (IOException e) {
+            log.warn("Failed to read file: {}", file, e);
+            return null;
+        }
+    }
 }
