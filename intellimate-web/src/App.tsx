@@ -14,6 +14,7 @@ import HistoryPage from "./components/HistoryPage";
 import ArchivedChatView from "./components/ArchivedChatView";
 import MemoryManagerPage from "./components/MemoryManagerPage";
 import SchedulerDashboard from "./components/SchedulerDashboard";
+import MonitoringPage from "./components/MonitoringPage";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useAgentStore } from "./stores/agentStore";
 import { useChatStore } from "./stores/chatStore";
@@ -148,6 +149,7 @@ export default function App() {
               }
             />
             <Route path="/scheduler" element={<SchedulerDashboard />} />
+            <Route path="/monitoring" element={<MonitoringPage />} />
           </Routes>
           {showPlanPanel && location.pathname === "/chat" && (
             planPanelCollapsed ? (

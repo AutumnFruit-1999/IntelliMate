@@ -95,6 +95,11 @@ export default function McpServerEditor({ server, onSave, onCancel }: McpServerE
   const [stdioArgs, setStdioArgs] = useState(initStdio.args);
   const [stdioEnv, setStdioEnv] = useState(initStdio.env);
 
+  // Timeout
+  const [requestTimeoutSeconds, setRequestTimeoutSeconds] = useState<string>(
+    server?.requestTimeoutSeconds != null ? String(server.requestTimeoutSeconds) : "",
+  );
+
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<McpTestResult | null>(null);
@@ -130,12 +135,18 @@ export default function McpServerEditor({ server, onSave, onCancel }: McpServerE
       serverUrl = stdioFieldsToJson(stdioCommand.trim(), stdioArgs, stdioEnv);
     }
 
+    const timeoutVal = requestTimeoutSeconds.trim() ? parseInt(requestTimeoutSeconds, 10) : null;
+    if (timeoutVal !== null && (isNaN(timeoutVal) || timeoutVal < 1)) {
+      setError("超时时间必须为正整数（秒）");
+      return;
+    }
+
     setSaving(true);
     try {
       if (isEdit) {
-        await updateMcpServer(server.id, { name, serverUrl, transportType, authConfig });
+        await updateMcpServer(server.id, { name, serverUrl, transportType, authConfig, requestTimeoutSeconds: timeoutVal });
       } else {
-        await createMcpServer({ name, serverUrl, transportType, authConfig });
+        await createMcpServer({ name, serverUrl, transportType, authConfig, requestTimeoutSeconds: timeoutVal });
       }
       onSave();
     } catch (e) {
@@ -143,7 +154,7 @@ export default function McpServerEditor({ server, onSave, onCancel }: McpServerE
     } finally {
       setSaving(false);
     }
-  }, [name, transportType, sseUrl, headersText, stdioCommand, stdioArgs, stdioEnv, isEdit, server, createMcpServer, updateMcpServer, onSave]);
+  }, [name, transportType, sseUrl, headersText, stdioCommand, stdioArgs, stdioEnv, requestTimeoutSeconds, isEdit, server, createMcpServer, updateMcpServer, onSave]);
 
   const buildConfig = useCallback(() => {
     let serverUrlVal: string;
@@ -294,6 +305,22 @@ export default function McpServerEditor({ server, onSave, onCancel }: McpServerE
           </div>
         </>
       )}
+
+      {/* Request Timeout */}
+      <div>
+        <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">
+          请求超时 <span className="text-slate-400 font-normal">(秒，留空使用全局默认 120s)</span>
+        </label>
+        <input
+          type="number"
+          min="1"
+          value={requestTimeoutSeconds}
+          onChange={(e) => setRequestTimeoutSeconds(e.target.value)}
+          placeholder="120"
+          className={inputCls}
+          style={{ maxWidth: 160 }}
+        />
+      </div>
 
       {/* Test Connection */}
       {(

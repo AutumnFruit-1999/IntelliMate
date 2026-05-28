@@ -29,6 +29,10 @@ public class ChatInjectionService {
     public Mono<Integer> injectAgentMessage(String agentName, String content, ProactiveSource source) {
         log.info("injectAgentMessage called: agent='{}', source={}, contentLength={}",
                 agentName, source, content != null ? content.length() : 0);
+        if (content == null || content.isBlank()) {
+            log.warn("Skipping empty proactive message for agent '{}'", agentName);
+            return Mono.just(0);
+        }
         String syntheticRequestId = "bg-" + UUID.randomUUID().toString().substring(0, 8);
 
         Mono<Void> persistMono = sessionManager.findOrCreateProactiveSession(agentName)

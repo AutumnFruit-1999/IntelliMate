@@ -6,8 +6,10 @@ import com.atm.intellimate.core.protocol.RequestFrame;
 import com.atm.intellimate.core.protocol.ResponseFrame;
 import com.atm.intellimate.gateway.pipeline.MessagePipeline;
 import com.atm.intellimate.gateway.security.SecurityService;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
@@ -37,16 +39,19 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
     private final SecurityService securityService;
     private final MessagePipeline messagePipeline;
     private final SessionRegistry sessionRegistry;
+    private final MeterRegistry meterRegistry;
     private final AtomicLong seqGenerator = new AtomicLong(0);
 
     public GatewayWebSocketHandler(ProtocolCodec codec,
                                    SecurityService securityService,
                                    MessagePipeline messagePipeline,
-                                   SessionRegistry sessionRegistry) {
+                                   SessionRegistry sessionRegistry,
+                                   @Autowired(required = false) MeterRegistry meterRegistry) {
         this.codec = codec;
         this.securityService = securityService;
         this.messagePipeline = messagePipeline;
         this.sessionRegistry = sessionRegistry;
+        this.meterRegistry = meterRegistry;
     }
 
     @Override
@@ -128,6 +133,14 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
     }
 
     private Flux<GatewayFrame> routeFrame(GatewayFrame frame, WebSocketSession session) {
+        String method = switch (frame) {
+            case RequestFrame req -> req.method();
+            case EventFrame evt -> evt.event();
+            case ResponseFrame resp -> "response";
+        };
+        if (meterRegistry != null) {
+            meterRegistry.counter("ws.messages.received", "method", method).increment();
+        }
         return switch (frame) {
             case RequestFrame req -> handleRequest(req, session);
             case EventFrame evt -> handleEvent(evt, session);

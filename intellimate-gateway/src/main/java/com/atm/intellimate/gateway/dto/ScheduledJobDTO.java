@@ -25,9 +25,14 @@ public record ScheduledJobDTO(
         String lastStatus,
         Integer consecutiveFailures,
         Boolean running,
+        Boolean builtIn,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
+    private static final java.util.Set<String> BUILT_IN_JOBS = java.util.Set.of(
+            "heartbeat-tick", "memory-nightly-maintenance", "data-cleanup"
+    );
+
     public static ScheduledJobDTO fromEntity(ScheduledJobConfigEntity entity) {
         return fromEntity(entity, false);
     }
@@ -54,6 +59,7 @@ public record ScheduledJobDTO(
                 entity.getLastStatus(),
                 entity.getConsecutiveFailures(),
                 running,
+                BUILT_IN_JOBS.contains(entity.getJobName()),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );

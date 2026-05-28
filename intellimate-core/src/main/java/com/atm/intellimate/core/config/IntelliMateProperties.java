@@ -105,6 +105,7 @@ public class IntelliMateProperties {
         private int maxToolResultChars = 16_000;
         private int maxContextTokens = 128_000;
         private int toolExecutionTimeoutSeconds = 60;
+        private int mcpRequestTimeoutSeconds = 120;
         private int maxParallelToolCalls = 8;
         private int historyLimit = 50;
         private int loopDetectorWindowSize = 8;
@@ -123,7 +124,11 @@ public class IntelliMateProperties {
         private boolean canDelegate = false;
         private String delegateAgents;
         private String goal;
+        private String timezone = "Asia/Shanghai";
         private Long agentDbId;
+
+        public String getTimezone() { return timezone; }
+        public void setTimezone(String timezone) { this.timezone = timezone; }
 
         public Long getAgentDbId() { return agentDbId; }
         public void setAgentDbId(Long agentDbId) { this.agentDbId = agentDbId; }
@@ -146,6 +151,8 @@ public class IntelliMateProperties {
         public void setMaxContextTokens(int maxContextTokens) { this.maxContextTokens = maxContextTokens; }
         public int getToolExecutionTimeoutSeconds() { return toolExecutionTimeoutSeconds; }
         public void setToolExecutionTimeoutSeconds(int toolExecutionTimeoutSeconds) { this.toolExecutionTimeoutSeconds = toolExecutionTimeoutSeconds; }
+        public int getMcpRequestTimeoutSeconds() { return mcpRequestTimeoutSeconds; }
+        public void setMcpRequestTimeoutSeconds(int mcpRequestTimeoutSeconds) { this.mcpRequestTimeoutSeconds = mcpRequestTimeoutSeconds; }
         public int getMaxParallelToolCalls() { return maxParallelToolCalls; }
         public void setMaxParallelToolCalls(int maxParallelToolCalls) { this.maxParallelToolCalls = maxParallelToolCalls; }
         public int getHistoryLimit() { return historyLimit; }

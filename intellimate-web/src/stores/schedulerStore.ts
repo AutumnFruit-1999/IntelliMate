@@ -7,6 +7,7 @@ import {
   triggerJob,
   pauseJob,
   resumeJob,
+  deleteJob,
 } from "../lib/schedulerApi";
 
 interface SchedulerState {
@@ -22,6 +23,7 @@ interface SchedulerState {
   trigger: (jobName: string) => Promise<void>;
   pause: (jobName: string) => Promise<void>;
   resume: (jobName: string) => Promise<void>;
+  remove: (jobName: string) => Promise<void>;
   handleSchedulerEvent: (event: { type: string; payload: Record<string, unknown> }) => void;
 }
 
@@ -73,6 +75,11 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
   resume: async (jobName: string) => {
     await resumeJob(jobName);
     await get().loadJobs();
+  },
+
+  remove: async (jobName: string) => {
+    await deleteJob(jobName);
+    set((state) => ({ jobs: state.jobs.filter((j) => j.jobName !== jobName) }));
   },
 
   handleSchedulerEvent: (event) => {

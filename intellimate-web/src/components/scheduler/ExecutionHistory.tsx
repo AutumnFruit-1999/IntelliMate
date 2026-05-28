@@ -46,9 +46,9 @@ export default function ExecutionHistory({ logs }: ExecutionHistoryProps) {
             <span className="text-xs font-medium text-slate-700 dark:text-slate-200 w-32 truncate">
               {log.jobName}
             </span>
-            <span className="text-xs text-slate-500 w-28">{formatTime(log.fireTime)}</span>
+            <span className="text-xs text-slate-500 w-28">{formatTime(log.startTime)}</span>
             <span className="text-xs text-slate-500 w-16">
-              {log.durationMs != null ? `${log.durationMs}ms` : "—"}
+              {log.durationMs != null ? `${(log.durationMs / 1000).toFixed(1)}s` : "—"}
             </span>
             {statusBadge(log.status)}
             <span className="text-[10px] text-slate-400 ml-auto">{log.triggerSource}</span>

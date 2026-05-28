@@ -20,6 +20,7 @@ export interface ScheduledJobConfig {
   timezone?: string;
   paramsJson?: string;
   concurrentAllowed?: boolean;
+  builtIn?: boolean;
   recentLogs?: ScheduledJobLog[];
 }
 

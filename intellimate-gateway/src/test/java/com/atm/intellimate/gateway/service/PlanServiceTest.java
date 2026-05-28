@@ -4,6 +4,8 @@ import com.atm.intellimate.gateway.entity.PlanEntity;
 import com.atm.intellimate.gateway.entity.PlanStepEntity;
 import com.atm.intellimate.gateway.repository.PlanRepository;
 import com.atm.intellimate.gateway.repository.PlanStepRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -29,12 +31,13 @@ class PlanServiceTest {
 
     @Mock private PlanRepository planRepository;
     @Mock private PlanStepRepository planStepRepository;
+    private final MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private PlanService service;
 
     @BeforeEach
     void setUp() {
-        service = new PlanService(planRepository, planStepRepository);
+        service = new PlanService(planRepository, planStepRepository, meterRegistry);
     }
 
     private PlanEntity makePlan(Long id, String status) {

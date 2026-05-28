@@ -74,6 +74,12 @@ public class SessionHistoryController {
                 });
     }
 
+    @DeleteMapping("/by-id/{sessionId}")
+    public Mono<Map<String, Object>> deleteSession(@PathVariable Long sessionId) {
+        return sessionManager.deleteArchivedSession(sessionId)
+                .thenReturn(Map.<String, Object>of("success", true));
+    }
+
     @GetMapping("/{agentName}/search")
     public Mono<Map<String, Object>> searchMessages(
             @PathVariable String agentName,

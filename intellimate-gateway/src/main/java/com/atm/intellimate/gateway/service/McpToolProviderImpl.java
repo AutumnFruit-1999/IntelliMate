@@ -3,6 +3,7 @@ package com.atm.intellimate.gateway.service;
 import com.atm.intellimate.agent.tools.ToolsEngine;
 import com.atm.intellimate.agent.tools.mcp.McpToolProvider;
 import com.atm.intellimate.agent.tools.mcp.PrefixedToolCallback;
+import com.atm.intellimate.core.config.IntelliMateProperties;
 import com.atm.intellimate.gateway.entity.McpServerEntity;
 import com.atm.intellimate.gateway.repository.McpServerRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -38,12 +39,16 @@ public class McpToolProviderImpl implements McpToolProvider {
 
     private final McpServerRepository repository;
     private final ToolsEngine toolsEngine;
+    private final IntelliMateProperties properties;
     private final Map<String, McpSyncClient> clients = new ConcurrentHashMap<>();
     private final Map<String, ToolCallback[]> mcpToolCallbacks = new ConcurrentHashMap<>();
 
-    public McpToolProviderImpl(McpServerRepository repository, @Lazy ToolsEngine toolsEngine) {
+    public McpToolProviderImpl(McpServerRepository repository,
+                               @Lazy ToolsEngine toolsEngine,
+                               IntelliMateProperties properties) {
         this.repository = repository;
         this.toolsEngine = toolsEngine;
+        this.properties = properties;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -171,7 +176,18 @@ public class McpToolProviderImpl implements McpToolProvider {
         }
     }
 
+    private Duration resolveRequestTimeout(McpServerEntity server) {
+        if (server.getRequestTimeoutSeconds() != null && server.getRequestTimeoutSeconds() > 0) {
+            return Duration.ofSeconds(server.getRequestTimeoutSeconds());
+        }
+        return Duration.ofSeconds(properties.getAgent().getMcpRequestTimeoutSeconds());
+    }
+
     private McpSyncClient createSyncClient(McpServerEntity server) {
+        Duration requestTimeout = resolveRequestTimeout(server);
+        log.debug("Creating MCP client for '{}' with request timeout: {}s",
+                server.getName(), requestTimeout.toSeconds());
+
         return switch (server.getTransportType()) {
             case "SSE" -> {
                 WebClient.Builder wcBuilder = WebClient.builder().baseUrl(server.getServerUrl());
@@ -180,7 +196,7 @@ public class McpToolProviderImpl implements McpToolProvider {
                     wcBuilder.defaultHeaders(h -> headers.forEach(h::set));
                 }
                 yield McpClient.sync(new WebFluxSseClientTransport(wcBuilder))
-                        .requestTimeout(Duration.ofSeconds(30))
+                        .requestTimeout(requestTimeout)
                         .build();
             }
             case "STREAMABLE_HTTP" -> {
@@ -196,9 +212,9 @@ public class McpToolProviderImpl implements McpToolProvider {
                 if (!shHeaders.isEmpty()) {
                     shBuilder.customizeRequest(req -> shHeaders.forEach(req::header));
                 }
-                shBuilder.connectTimeout(Duration.ofSeconds(30));
+                shBuilder.connectTimeout(requestTimeout);
                 yield McpClient.sync(shBuilder.build())
-                        .requestTimeout(Duration.ofSeconds(30))
+                        .requestTimeout(requestTimeout)
                         .build();
             }
             case "STDIO" -> {
@@ -210,7 +226,7 @@ public class McpToolProviderImpl implements McpToolProvider {
                     paramsBuilder.env(config.env());
                 }
                 yield McpClient.sync(new StdioClientTransport(paramsBuilder.build()))
-                        .requestTimeout(Duration.ofSeconds(30))
+                        .requestTimeout(requestTimeout)
                         .build();
             }
             default -> throw new IllegalArgumentException(

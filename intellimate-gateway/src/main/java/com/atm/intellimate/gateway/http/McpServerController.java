@@ -75,6 +75,10 @@ public class McpServerController {
                         entity.setServerUrl((String) body.get("serverUrl"));
                         entity.setTransportType((String) body.getOrDefault("transportType", "SSE"));
                         entity.setAuthConfig(toJsonString(body.get("authConfig")));
+                        if (body.containsKey("requestTimeoutSeconds")) {
+                            Object val = body.get("requestTimeoutSeconds");
+                            entity.setRequestTimeoutSeconds(val != null ? ((Number) val).intValue() : null);
+                        }
                         entity.setEnabled(1);
                         entity.setCreatedAt(LocalDateTime.now());
                         entity.setUpdatedAt(LocalDateTime.now());
@@ -106,6 +110,10 @@ public class McpServerController {
                     if (body.containsKey("enabled")) {
                         Object val = body.get("enabled");
                         entity.setEnabled(val instanceof Boolean b ? (b ? 1 : 0) : ((Number) val).intValue());
+                    }
+                    if (body.containsKey("requestTimeoutSeconds")) {
+                        Object val = body.get("requestTimeoutSeconds");
+                        entity.setRequestTimeoutSeconds(val != null ? ((Number) val).intValue() : null);
                     }
                     entity.setUpdatedAt(LocalDateTime.now());
 

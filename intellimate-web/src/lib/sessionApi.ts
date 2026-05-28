@@ -58,6 +58,10 @@ export function fetchSessionMessages(
   return apiFetch(`/api/sessions/by-id/${sessionId}/messages?limit=${limit}`);
 }
 
+export function deleteArchivedSession(sessionId: number): Promise<{ success: boolean }> {
+  return apiFetch(`/api/sessions/by-id/${sessionId}`, { method: "DELETE" });
+}
+
 export interface SearchResult {
   id: number;
   role: string;

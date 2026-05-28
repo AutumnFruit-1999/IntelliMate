@@ -114,21 +114,34 @@ public class AgentPromptJob implements ScheduledJob {
                                 resolved.agent(),
                                 renderedPrompt,
                                 history,
-                                null, null, null, null, null,
+                                resolved.toolsEnabled(),
+                                resolved.mcpToolsEnabled(),
+                                resolved.skillsEnabled(),
+                                resolved.skillGroupsEnabled(),
+                                null,
                                 false, null, null, null,
                                 resolved.bridgeNode()
                         );
 
                         AtomicReference<String> responseText = new AtomicReference<>("");
+                        StringBuilder lastTurnText = new StringBuilder();
+                        StringBuilder allText = new StringBuilder();
 
                         return agentRuntime.dispatch(runRequest)
                                 .doOnNext(event -> {
-                                    if (event instanceof AgentEvent.TextChunk chunk) {
-                                        responseText.updateAndGet(s -> s + chunk.text());
+                                    if (event instanceof AgentEvent.TurnStart) {
+                                        lastTurnText.setLength(0);
+                                    } else if (event instanceof AgentEvent.TextChunk chunk) {
+                                        lastTurnText.append(chunk.text());
+                                        allText.append(chunk.text());
                                     } else if (event instanceof AgentEvent.Done done) {
-                                        log.info("AgentPromptJob [{}]: agent '{}' Done event received, fullText length={}",
-                                                context.jobName(), agentName, done.fullText().length());
-                                        responseText.set(done.fullText());
+                                        String finalAnswer = lastTurnText.toString();
+                                        if (finalAnswer.isBlank() && !allText.toString().isBlank()) {
+                                            finalAnswer = done.fullText();
+                                        }
+                                        log.info("AgentPromptJob [{}]: agent '{}' Done, response length={}",
+                                                context.jobName(), agentName, finalAnswer.length());
+                                        responseText.set(finalAnswer);
                                     }
                                 })
                                 .doOnComplete(() -> log.info("AgentPromptJob [{}]: dispatch flux completed for agent '{}'",

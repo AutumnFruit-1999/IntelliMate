@@ -16,8 +16,10 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -53,6 +55,10 @@ class MemoryConsolidatorTest {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(text))));
     }
 
+    private static Flux<ChatResponse> streamResponseWithText(String text) {
+        return Flux.just(chatResponseWithText(text));
+    }
+
     @Test
     @DisplayName("tryConsolidate_whenBelowThreshold_returnsNull")
     void tryConsolidate_whenBelowThreshold_returnsNull() {
@@ -72,7 +78,7 @@ class MemoryConsolidatorTest {
         String json = """
                 {"summary":"merged summary","facts":[{"type":"semantic","content":"remember this","importance":0.72}]}
                 """;
-        when(primaryModel.call(any(Prompt.class))).thenReturn(chatResponseWithText(json));
+        when(primaryModel.stream(any(Prompt.class))).thenReturn(streamResponseWithText(json));
         when(longTermMemory.store(any(ExtractedFact.class), anyString(), anyString())).thenReturn(Mono.empty());
 
         MemoryConsolidator consolidator = new MemoryConsolidator(
@@ -97,10 +103,10 @@ class MemoryConsolidatorTest {
     void tryConsolidate_llmFailure_withFallback_usesSecondModel() {
         when(tokenEstimator.estimate(anyString())).thenReturn(8);
         String json = "{\"summary\":\"from-fallback\",\"facts\":[]}";
-        when(primaryModel.call(any(Prompt.class)))
-                .thenThrow(new RuntimeException("primary down"))
-                .thenThrow(new RuntimeException("primary still down"));
-        when(fallbackModel.call(any(Prompt.class))).thenReturn(chatResponseWithText(json));
+        when(primaryModel.stream(any(Prompt.class)))
+                .thenReturn(Flux.error(new RuntimeException("primary down")))
+                .thenReturn(Flux.error(new RuntimeException("primary still down")));
+        when(fallbackModel.stream(any(Prompt.class))).thenReturn(streamResponseWithText(json));
 
         MemoryConsolidator consolidator = new MemoryConsolidator(
                 primaryModel, fallbackModel, longTermMemory, tokenEstimator,
@@ -111,15 +117,15 @@ class MemoryConsolidatorTest {
 
         assertNotNull(result);
         assertEquals("from-fallback", result.summaryChunk().content());
-        verify(primaryModel, times(2)).call(any(Prompt.class));
-        verify(fallbackModel, times(1)).call(any(Prompt.class));
+        verify(primaryModel, times(2)).stream(any(Prompt.class));
+        verify(fallbackModel, times(1)).stream(any(Prompt.class));
     }
 
     @Test
     @DisplayName("tryConsolidate_allFail_returnsNull")
     void tryConsolidate_allFail_returnsNull() {
-        when(primaryModel.call(any(Prompt.class))).thenThrow(new RuntimeException("fail"));
-        when(fallbackModel.call(any(Prompt.class))).thenThrow(new RuntimeException("fail-fallback"));
+        when(primaryModel.stream(any(Prompt.class))).thenReturn(Flux.error(new RuntimeException("fail")));
+        when(fallbackModel.stream(any(Prompt.class))).thenReturn(Flux.error(new RuntimeException("fail-fallback")));
 
         MemoryConsolidator consolidator = new MemoryConsolidator(
                 primaryModel, fallbackModel, longTermMemory, tokenEstimator,
@@ -127,22 +133,16 @@ class MemoryConsolidatorTest {
 
         WorkingMemory wm = workingMemoryWithUserChunks(5);
         assertNull(consolidator.tryConsolidate(wm, "default"));
-        verify(primaryModel, atLeastOnce()).call(any(Prompt.class));
-        verify(fallbackModel, atLeastOnce()).call(any(Prompt.class));
+        verify(primaryModel, atLeastOnce()).stream(any(Prompt.class));
+        verify(fallbackModel, atLeastOnce()).stream(any(Prompt.class));
     }
 
     @Test
     @DisplayName("tryConsolidate_timeout_returnsNull")
     void tryConsolidate_timeout_returnsNull() {
-        when(primaryModel.call(any(Prompt.class))).thenAnswer(invocation -> {
-            try {
-                Thread.sleep(800);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
-            }
-            return chatResponseWithText("{\"summary\":\"late\",\"facts\":[]}");
-        });
+        when(primaryModel.stream(any(Prompt.class)))
+                .thenReturn(Flux.just(chatResponseWithText("{\"summary\":\"late\",\"facts\":[]}"))
+                        .delayElements(Duration.ofMillis(800)));
 
         MemoryConsolidator consolidator = new MemoryConsolidator(
                 primaryModel, null, longTermMemory, tokenEstimator,
@@ -150,6 +150,6 @@ class MemoryConsolidatorTest {
 
         WorkingMemory wm = workingMemoryWithUserChunks(5);
         assertNull(consolidator.tryConsolidate(wm, "default"));
-        verify(primaryModel, atLeast(1)).call(any(Prompt.class));
+        verify(primaryModel, atLeast(1)).stream(any(Prompt.class));
     }
 }

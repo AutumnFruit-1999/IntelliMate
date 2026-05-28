@@ -118,7 +118,6 @@ public class MessagePipeline {
         String userText = (String) params.getOrDefault("text", "");
         String channelId = (String) params.getOrDefault("channelId", "webchat");
         String contextType = (String) params.getOrDefault("contextType", "dm");
-        String baseContextId = (String) params.getOrDefault("contextId", wsSessionId);
         boolean forcePlan = Boolean.TRUE.equals(params.get("forcePlan"));
         boolean isRegenerate = Boolean.TRUE.equals(params.get("regenerate"));
 
@@ -128,7 +127,7 @@ public class MessagePipeline {
         }
         sessionRegistry.bindAgent(wsSessionId, agentName);
 
-        String contextId = baseContextId + "::" + agentName;
+        String contextId = agentName;
 
         SessionKey sessionKey = new SessionKey(channelId, contextType, contextId);
         SessionMetadata metadata = new SessionMetadata(

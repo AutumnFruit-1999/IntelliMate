@@ -26,6 +26,6 @@ public interface SessionRepository extends ReactiveCrudRepository<SessionEntity,
     Mono<Long> countArchivedByAgentName(String agentName);
 
     @Modifying
-    @Query("UPDATE session SET status = 'archived', title = :title WHERE id = :id")
+    @Query("UPDATE session SET status = 'archived', title = :title, context_id = CONCAT(context_id, '::archived::', id) WHERE id = :id")
     Mono<Long> archiveSession(Long id, String title);
 }
