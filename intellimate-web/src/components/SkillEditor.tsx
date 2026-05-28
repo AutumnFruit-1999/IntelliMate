@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Loader2, Upload, Trash2, FileText, Terminal, BookOpen, History, RotateCcw } from "lucide-react";
-import type { SkillDefinition, SkillDefinitionCreate, SkillFiles, SkillVersion } from "../lib/api";
-import { fetchSkillFiles, uploadSkillFile, deleteSkillFile, fetchSkillVersions, fetchSkillVersion, rollbackSkillVersion } from "../lib/api";
+import { Loader2, Upload, Trash2, FileText, Terminal, BookOpen, History, RotateCcw, ChevronRight, ChevronDown, GitBranch, RefreshCw } from "lucide-react";
+import type { SkillDefinition, SkillDefinitionCreate, SkillFiles, SkillVersion, FileNode } from "../lib/api";
+import { fetchSkillFiles, uploadSkillFile, deleteSkillFile, fetchSkillVersions, fetchSkillVersion, rollbackSkillVersion, fetchSkillTree, readSkillFile, syncSkillFromGit } from "../lib/api";
 
 interface SkillEditorProps {
   skill?: SkillDefinition;
@@ -35,7 +35,42 @@ export default function SkillEditor({ skill, onSave, onCancel }: SkillEditorProp
   const [rollingBack, setRollingBack] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
+  const [fileTree, setFileTree] = useState<FileNode | null>(null);
+  const [fileTreeLoading, setFileTreeLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([""]));
+
   const isEdit = !!skill && skill.id !== 0;
+  const isGitSkill = !!skill?.gitUrl;
+
+  const loadFileTree = useCallback(() => {
+    if (!skill || skill.id === 0) return;
+    setFileTreeLoading(true);
+    fetchSkillTree(skill.id)
+      .then(setFileTree)
+      .catch(() => setFileTree(null))
+      .finally(() => setFileTreeLoading(false));
+  }, [skill]);
+
+  useEffect(() => {
+    if (isEdit && isGitSkill) loadFileTree();
+  }, [isEdit, isGitSkill, loadFileTree]);
+
+  const handleSync = useCallback(async () => {
+    if (!skill) return;
+    setSyncing(true);
+    try {
+      await syncSkillFromGit(skill.id);
+      loadFileTree();
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncing(false);
+    }
+  }, [skill, loadFileTree]);
 
   const loadFiles = useCallback(() => {
     if (!skill) return;
@@ -149,6 +184,65 @@ export default function SkillEditor({ skill, onSave, onCancel }: SkillEditorProp
       setDeletingFile(null);
     }
   }, [skill, loadFiles]);
+
+  const formatSize = (bytes: number): string => {
+    if (bytes === 0) return "";
+    if (bytes < 1024) return bytes + "B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + "KB";
+    return (bytes / 1048576).toFixed(1) + "MB";
+  };
+
+  const handlePreviewFile = useCallback(async (node: FileNode) => {
+    if (!skill || node.isDirectory) return;
+    setPreviewPath(node.path);
+    try {
+      const content = await readSkillFile(skill.id, node.path);
+      setPreviewContent(content);
+    } catch {
+      setPreviewContent(null);
+    }
+  }, [skill]);
+
+  const renderFileNode = (node: FileNode, depth: number = 0): React.ReactNode => {
+    const isExpanded = expandedDirs.has(node.path);
+    const toggleExpand = () => {
+      setExpandedDirs(prev => {
+        const next = new Set(prev);
+        if (next.has(node.path)) next.delete(node.path);
+        else next.add(node.path);
+        return next;
+      });
+    };
+
+    if (node.isDirectory) {
+      return (
+        <div key={node.path || "__root__"}>
+          {node.path !== "" && (
+            <button type="button" onClick={toggleExpand}
+              className="flex items-center gap-1 w-full px-2 py-1 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded"
+              style={{ paddingLeft: `${depth * 16 + 8}px` }}>
+              {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              <span className="font-medium">{node.name}/</span>
+            </button>
+          )}
+          {(node.path === "" || isExpanded) && node.children.map(child => renderFileNode(child, node.path === "" ? depth : depth + 1))}
+        </div>
+      );
+    }
+
+    const isSkillMd = node.name === "SKILL.md";
+    return (
+      <button key={node.path} type="button" onClick={() => handlePreviewFile(node)}
+        className={`flex items-center gap-1 w-full px-2 py-1 text-xs rounded hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+          isSkillMd ? "text-blue-600 dark:text-blue-400 font-medium" : "text-slate-500 dark:text-slate-400"
+        } ${previewPath === node.path ? "bg-slate-100 dark:bg-slate-800" : ""}`}
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}>
+        <FileText size={10} />
+        {node.name}
+        <span className="ml-auto text-[10px] text-slate-400">{formatSize(node.size)}</span>
+      </button>
+    );
+  };
 
   const renderFileSection = (type: FileType, label: string, icon: React.ReactNode, fileList: string[]) => (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
@@ -291,7 +385,62 @@ export default function SkillEditor({ skill, onSave, onCancel }: SkillEditorProp
       </div>
 
       {/* File Management (edit mode only) */}
-      {isEdit && (
+      {isEdit && isGitSkill && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+              <GitBranch size={14} className="text-purple-500" />
+              Git 来源
+            </h4>
+            <button type="button" onClick={handleSync} disabled={syncing}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-700 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 transition-colors">
+              {syncing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              {syncing ? "同步中..." : "同步更新"}
+            </button>
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 mb-3 space-y-0.5">
+            <p><span className="text-slate-600 dark:text-slate-300 font-medium">URL:</span> {skill?.gitUrl}</p>
+            {skill?.gitSubPath && (
+              <p><span className="text-slate-600 dark:text-slate-300 font-medium">子路径:</span> {skill.gitSubPath}</p>
+            )}
+          </div>
+
+          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">文件树</h4>
+          {fileTreeLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 size={18} className="animate-spin text-slate-400" />
+            </div>
+          ) : fileTree ? (
+            <div className="flex gap-3">
+              <div className="w-1/2 rounded-lg border border-slate-200 dark:border-slate-700 p-2 max-h-64 overflow-y-auto">
+                {renderFileNode(fileTree)}
+              </div>
+              <div className="w-1/2 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                {previewPath ? (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-mono text-slate-600 dark:text-slate-300 truncate">{previewPath}</span>
+                      <button type="button" onClick={() => { setPreviewPath(null); setPreviewContent(null); }}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                        关闭
+                      </button>
+                    </div>
+                    <pre className="text-xs font-mono text-slate-600 dark:text-slate-300 whitespace-pre-wrap max-h-48 overflow-y-auto bg-slate-50 dark:bg-slate-800/50 rounded p-2">
+                      {previewContent ?? "无法读取文件"}
+                    </pre>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-8">点击左侧文件查看内容</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400">无法加载文件树</p>
+          )}
+        </div>
+      )}
+
+      {isEdit && !isGitSkill && (
         <div>
           <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">
             文件管理
