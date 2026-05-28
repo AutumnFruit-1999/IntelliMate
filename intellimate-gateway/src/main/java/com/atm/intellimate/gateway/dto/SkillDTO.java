@@ -15,6 +15,8 @@ public record SkillDTO(
         Integer hasScripts,
         Integer hasReferences,
         Integer enabled,
+        String gitUrl,
+        String gitSubPath,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
@@ -30,6 +32,8 @@ public record SkillDTO(
                 entity.getHasScripts(),
                 entity.getHasReferences(),
                 entity.getEnabled(),
+                entity.getGitUrl(),
+                entity.getGitSubPath(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );
