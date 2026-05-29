@@ -1,8 +1,10 @@
 package com.atm.intellimate.gateway.pipeline;
 
+import com.atm.intellimate.agent.runtime.AgentEvent;
 import com.atm.intellimate.agent.runtime.AgentRunRequest;
 import com.atm.intellimate.agent.runtime.AgentRuntime;
 import com.atm.intellimate.core.config.IntelliMateProperties;
+import com.atm.intellimate.core.model.InboundEnvelope;
 import com.atm.intellimate.core.model.SessionKey;
 import com.atm.intellimate.core.model.SessionMetadata;
 import com.atm.intellimate.core.protocol.GatewayFrame;
@@ -83,6 +85,144 @@ public class MessagePipeline {
 
     public Flux<GatewayFrame> processRequest(RequestFrame request, String wsSessionId) {
         return withTraceMdc(buildRequestFlux(request, wsSessionId));
+    }
+
+    /**
+     * Processes an inbound message from an external channel (non-WebSocket).
+     * Collects the agent's full reply text without streaming.
+     */
+    public Mono<String> processInbound(InboundEnvelope envelope) {
+        SessionKey sessionKey = envelope.sessionKey();
+        String userText = envelope.text() != null ? envelope.text() : "";
+
+        String agentName = properties.getAgent().getName();
+        SessionMetadata metadata = new SessionMetadata(
+                agentName,
+                envelope.senderName(),
+                sessionKey.channelId(),
+                sessionKey.contextType(),
+                sessionKey.contextId()
+        );
+
+        return sessionManager.getOrCreate(sessionKey, metadata)
+                .flatMap(session -> {
+                    if (CommandHandler.isCommand(userText)) {
+                        return commandHandler.handle(userText, session, "channel-inbound")
+                                .filter(ResponseFrame.class::isInstance)
+                                .cast(ResponseFrame.class)
+                                .last(ResponseFrame.failure("channel-inbound", "No response"))
+                                .map(this::extractResponseText);
+                    }
+                    return runInboundAgent(session, userText);
+                })
+                .onErrorResume(e -> {
+                    log.error("Error processing inbound envelope sessionKey={}: {}",
+                            sessionKey, e.getMessage(), e);
+                    return Mono.just("Error: " + e.getMessage());
+                });
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractResponseText(ResponseFrame frame) {
+        if (!frame.ok()) {
+            return frame.error() != null ? frame.error().toString() : "Unknown error";
+        }
+        if (frame.payload() instanceof Map<?, ?> map) {
+            Object text = map.get("text");
+            if (text != null) {
+                return text.toString();
+            }
+        }
+        return frame.payload() != null ? frame.payload().toString() : "";
+    }
+
+    private Mono<String> runInboundAgent(SessionEntity session, String userText) {
+        return planService.getActivePlan(session.getId())
+                .defaultIfEmpty(new PlanEntity())
+                .flatMap(activePlan -> {
+                    Long planId = activePlan.getId();
+                    String planStatus = activePlan.getStatus();
+                    boolean planExecuting = planId != null
+                            && ("executing".equals(planStatus) || "approved".equals(planStatus));
+                    Long effectivePlanId = planExecuting ? planId : null;
+
+                    TranscriptMessageEntity userMsg = new TranscriptMessageEntity();
+                    userMsg.setRole("user");
+                    userMsg.setContent(userText);
+                    userMsg.setCreatedAt(LocalDateTime.now());
+                    if (planExecuting) {
+                        userMsg.setPlanId(planId);
+                    }
+
+                    Mono<Void> saveUserMono = sessionManager.appendMessage(session.getId(), userMsg)
+                            .then(auditService.log("user_message", "channel", session.getId(),
+                                    userText.length() > 200 ? userText.substring(0, 200) + "..." : userText));
+
+                    return saveUserMono.then(Mono.zip(
+                                    messageConverter.loadHistory(session.getId(), effectivePlanId).collectList(),
+                                    agentConfigService.resolve(session.getAgentName()),
+                                    planExecuting
+                                            ? planExecutionOrchestrator.buildPlanExecutionPayload(planId)
+                                            : Mono.just(new PlanExecutionOrchestrator.PlanExecutionPayload("", null))
+                            ))
+                            .flatMap(tuple -> {
+                                List<Message> messages = messageConverter.convertToAiMessages(tuple.getT1());
+                                ResolvedAgentConfig resolved = tuple.getT2();
+                                PlanExecutionOrchestrator.PlanExecutionPayload planPayload = tuple.getT3();
+                                String planContext = planPayload.markdown().isEmpty() ? null : planPayload.markdown();
+
+                                String effectiveUserId = resolveUserId(session);
+                                AgentRunRequest runRequest = new AgentRunRequest(
+                                        session.getId(),
+                                        effectiveUserId,
+                                        resolved.agent(),
+                                        userText,
+                                        messages,
+                                        resolved.toolsEnabled(),
+                                        resolved.mcpToolsEnabled(),
+                                        resolved.skillsEnabled(),
+                                        resolved.skillGroupsEnabled(),
+                                        planContext,
+                                        false,
+                                        effectivePlanId,
+                                        planPayload.assessment(),
+                                        null,
+                                        resolved.bridgeNode()
+                                );
+
+                                return agentRuntime.dispatch(runRequest)
+                                        .reduce(new StringBuilder(), MessagePipeline::accumulateAgentText)
+                                        .map(StringBuilder::toString)
+                                        .flatMap(completeText -> {
+                                            TranscriptMessageEntity assistantMsg = new TranscriptMessageEntity();
+                                            assistantMsg.setRole("assistant");
+                                            assistantMsg.setContent(completeText);
+                                            assistantMsg.setCreatedAt(LocalDateTime.now());
+                                            if (planExecuting) {
+                                                assistantMsg.setPlanId(planId);
+                                            }
+                                            return sessionManager.appendMessage(session.getId(), assistantMsg)
+                                                    .then(auditService.log("agent_response", "channel", session.getId(),
+                                                            "length=" + completeText.length()))
+                                                    .thenReturn(completeText);
+                                        });
+                            });
+                });
+    }
+
+    private static StringBuilder accumulateAgentText(StringBuilder sb, AgentEvent event) {
+        switch (event) {
+            case AgentEvent.TextChunk tc -> sb.append(tc.text());
+            case AgentEvent.Done done -> {
+                sb.setLength(0);
+                sb.append(done.fullText());
+            }
+            case AgentEvent.Error err -> throw new IllegalStateException(err.message());
+            case AgentEvent.ApprovalRequired ar ->
+                    throw new IllegalStateException("Tool approval required: " + ar.toolName());
+            default -> { /* plan/delegation events ignored for channel inbound */ }
+        }
+        return sb;
     }
 
     private Flux<GatewayFrame> withTraceMdc(Flux<GatewayFrame> flux) {

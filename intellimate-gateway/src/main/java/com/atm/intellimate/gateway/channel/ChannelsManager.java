@@ -49,12 +49,31 @@ public class ChannelsManager {
 
     public void setInboundHandler(Consumer<InboundEnvelope> handler) {
         this.inboundHandler = handler;
-        adapters.values().forEach(a -> a.onMessage(handler));
+    }
+
+    /**
+     * Delivers an inbound envelope to the registered pipeline handler.
+     * Adapters invoke this via {@code onMessage(this::deliverInbound)}.
+     */
+    public void deliverInbound(InboundEnvelope envelope) {
+        if (inboundHandler != null) {
+            inboundHandler.accept(envelope);
+        } else {
+            log.debug("No inbound handler registered, dropping envelope: {}", envelope.sessionKey());
+        }
+    }
+
+    /**
+     * Routes an outbound message to the adapter for the envelope's channel.
+     */
+    public Mono<Void> sendOutbound(OutboundMessage message) {
+        return send(message);
     }
 
     @PostConstruct
     public void init() {
         log.info("ChannelsManager initializing with {} adapter(s)", adapters.size());
+        adapters.values().forEach(a -> a.onMessage(this::deliverInbound));
         connectEnabledChannels().subscribe(
                 null,
                 e -> log.error("Error during channel initialization", e),
@@ -90,10 +109,6 @@ public class ChannelsManager {
         }
 
         Map<String, Object> settings = parseConfig(config.getConfigJson());
-
-        if (inboundHandler != null) {
-            adapter.onMessage(inboundHandler);
-        }
 
         return adapter.connect(settings)
                 .doOnSuccess(v -> log.info("Channel connected: {}", config.getChannelId()))
