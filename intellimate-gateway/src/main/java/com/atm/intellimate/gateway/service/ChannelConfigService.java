@@ -56,16 +56,26 @@ public class ChannelConfigService {
         return configRepository.findByChannelId(channelId)
                 .flatMap(existing -> Mono.<ChannelConfigEntity>error(
                         new IntelliMateException(ErrorCode.VALIDATION_FAILED, "Channel already exists: " + channelId)))
-                .switchIfEmpty(Mono.defer(() -> {
-                    ChannelConfigEntity entity = new ChannelConfigEntity();
-                    entity.setChannelId(channelId);
-                    entity.setEnabled(enabled);
-                    entity.setConfigJson(toJson(config));
-                    entity.setDeleted(0);
-                    entity.setCreatedAt(LocalDateTime.now());
-                    entity.setUpdatedAt(LocalDateTime.now());
-                    return configRepository.save(entity);
-                }));
+                .switchIfEmpty(Mono.defer(() ->
+                        configRepository.findByChannelIdAndDeleted(channelId, 1)
+                                .flatMap(deleted -> {
+                                    deleted.setEnabled(enabled);
+                                    deleted.setConfigJson(toJson(config));
+                                    deleted.setDeleted(0);
+                                    deleted.setUpdatedAt(LocalDateTime.now());
+                                    return configRepository.save(deleted);
+                                })
+                                .switchIfEmpty(Mono.defer(() -> {
+                                    ChannelConfigEntity entity = new ChannelConfigEntity();
+                                    entity.setChannelId(channelId);
+                                    entity.setEnabled(enabled);
+                                    entity.setConfigJson(toJson(config));
+                                    entity.setDeleted(0);
+                                    entity.setCreatedAt(LocalDateTime.now());
+                                    entity.setUpdatedAt(LocalDateTime.now());
+                                    return configRepository.save(entity);
+                                }))
+                ));
     }
 
     public Mono<ChannelConfigEntity> updateChannel(String channelId, boolean enabled, Map<String, Object> config) {

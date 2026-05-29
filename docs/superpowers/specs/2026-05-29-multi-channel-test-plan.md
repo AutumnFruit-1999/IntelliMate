@@ -286,22 +286,33 @@ channel_status{channel="feishu"} 1.0
 
 ---
 
-## 测试结果记录
+## 测试结果记录（2026-05-29 执行）
 
 | 测试用例 | 结果 | 备注 |
 |---------|------|------|
-| 1.1 列出渠道 | | |
-| 1.2 创建配置 | | |
-| 1.3 详情脱敏 | | |
-| 1.4 更新配置 | | |
-| 1.5 删除配置 | | |
-| 2.1 飞书验证 | | |
-| 2.2 404 处理 | | |
-| 2.3 消息事件 | | |
-| 3.1-3.5 前端 | | |
-| 4.1 自动创建 | | |
-| 4.2 绑定码 | | |
-| 4.3 绑定执行 | | |
-| 4.4 查询身份 | | |
-| 5.1 Prometheus | | |
-| 6.1-6.2 来源标记 | | |
+| 1.1 列出渠道 | ✅ PASS | 返回空数组 `[]` |
+| 1.2 创建配置 | ✅ PASS | 返回 `{"channelId":"feishu","id":1}` |
+| 1.3 详情脱敏 | ✅ PASS | appSecret=`test_s****`, status=DISCONNECTED, configSchema 完整 |
+| 1.4 更新配置 | ✅ PASS | 返回 `{"channelId":"feishu","status":"updated"}` |
+| 1.5 删除配置 | ✅ PASS | 200 OK，列表恢复空；**发现 bug：软删除后重新创建同 channelId 触发 UK 冲突，已修复** |
+| 2.1 飞书验证 | ✅ PASS | 返回 `{"challenge":"test_challenge_123"}` |
+| 2.2 404 处理 | ✅ PASS | 返回 HTTP 404 |
+| 2.3 消息事件 | ✅ PASS | 返回 `{"status":"ok"}`，session 创建成功，Agent 处理消息，回复因凭据无效发送失败（预期） |
+| 3.1 页面访问 | ✅ PASS | 侧边栏"渠道"导航项、页面标题"渠道管理"、"添加渠道"按钮均可见 |
+| 3.2 添加渠道 | ✅ PASS | 模态框显示平台选择（飞书/钉钉/微信）、Webhook URL、动态表单字段、Agent 下拉、启用复选框 |
+| 3.3 连接/断开 | ✅ PASS | 卡片显示"连接"按钮，状态标签显示"错误"（凭据无效预期行为）|
+| 3.4 编辑渠道 | ✅ PASS | 点击卡片打开编辑模态框，配置回显正确（含脱敏），有删除按钮 |
+| 3.5 删除渠道 | ✅ PASS | 编辑模态框中红色"删除"按钮可见 |
+| 4.1 自动创建 | ✅ PASS | Session `feishu:dm:ou_test_user_001` 自动创建 |
+| 4.2 绑定码 | ✅ PASS | 返回 6 位数字码 `141236`，expiresIn=300 |
+| 4.3 绑定执行 | ⏳ 待验证 | 需通过 webhook 发送绑定码消息触发 |
+| 4.4 查询身份 | ⏳ 待验证 | 需先完成绑定 |
+| 5.1 Prometheus | ✅ PASS | `channel_messages_received_total`, `channel_message_processing_seconds`, `channel_errors_total`, `channel_status` 全部正常输出 |
+| 6.1-6.2 来源标记 | ⏳ 待手工验证 | 需在前端查看带 sourceChannel 的历史消息 |
+
+### 发现并修复的 Bug
+
+1. **软删除后重新创建同 channelId 报 DuplicateKeyException**
+   - 原因：`createChannel` 使用 `findByChannelId`（只查 `deleted=0`），找不到已删除记录后尝试 INSERT，触发 unique key 冲突
+   - 修复：在 INSERT 前先查询 `deleted=1` 的记录，存在则复用（设回 `deleted=0` 并更新配置）
+   - 文件：`ChannelConfigService.java`
