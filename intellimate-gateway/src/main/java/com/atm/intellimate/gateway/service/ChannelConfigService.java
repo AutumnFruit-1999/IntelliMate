@@ -4,6 +4,7 @@ import com.atm.intellimate.channel.api.ChannelAdapter;
 import com.atm.intellimate.channel.api.ChannelStatus;
 import com.atm.intellimate.core.exception.ErrorCode;
 import com.atm.intellimate.core.exception.IntelliMateException;
+import com.atm.intellimate.gateway.channel.ChannelMetrics;
 import com.atm.intellimate.gateway.channel.ChannelsManager;
 import com.atm.intellimate.gateway.dto.ChannelInfoDto;
 import com.atm.intellimate.gateway.entity.ChannelConfigEntity;
@@ -24,13 +25,16 @@ public class ChannelConfigService {
 
     private final ChannelConfigRepository configRepository;
     private final ChannelsManager channelsManager;
+    private final ChannelMetrics channelMetrics;
     private final ObjectMapper objectMapper;
 
     public ChannelConfigService(ChannelConfigRepository configRepository,
                                 ChannelsManager channelsManager,
+                                ChannelMetrics channelMetrics,
                                 ObjectMapper objectMapper) {
         this.configRepository = configRepository;
         this.channelsManager = channelsManager;
+        this.channelMetrics = channelMetrics;
         this.objectMapper = objectMapper;
     }
 
@@ -90,7 +94,9 @@ public class ChannelConfigService {
     public Mono<Void> connectChannel(String channelId) {
         return configRepository.findByChannelId(channelId)
                 .switchIfEmpty(Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "Channel not found: " + channelId)))
-                .flatMap(entity -> channelsManager.connectChannel(channelId, fromJson(entity.getConfigJson())));
+                .flatMap(entity -> channelsManager.connectChannel(channelId, fromJson(entity.getConfigJson())))
+                .doOnSuccess(v -> channelMetrics.recordChannelStatus(channelId, true))
+                .doOnError(e -> channelMetrics.recordChannelStatus(channelId, false));
     }
 
     public Mono<Void> disconnectChannel(String channelId) {
@@ -98,7 +104,8 @@ public class ChannelConfigService {
         if (adapter == null) {
             return Mono.error(new IntelliMateException(ErrorCode.VALIDATION_FAILED, "No adapter for: " + channelId));
         }
-        return adapter.disconnect();
+        return adapter.disconnect()
+                .doOnSuccess(v -> channelMetrics.recordChannelStatus(channelId, false));
     }
 
     public Mono<Optional<String>> getDefaultAgent(String channelId) {
