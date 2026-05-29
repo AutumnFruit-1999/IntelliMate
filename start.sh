@@ -40,6 +40,18 @@ check_command() {
   fi
 }
 
+kill_port() {
+  local port=$1
+  local pids
+  pids=$(lsof -ti:"$port" 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    echo -e "  ${YELLOW}端口 $port 已被占用，正在终止旧进程...${NC}"
+    echo "$pids" | xargs kill -9 2>/dev/null || true
+    sleep 1
+    echo -e "  ${GREEN}✓ 旧进程已终止${NC}"
+  fi
+}
+
 wait_for_port() {
   local port=$1
   local timeout=${2:-30}
@@ -60,7 +72,7 @@ echo -e "${CYAN}  IntelliMate 一键启动${NC}"
 echo -e "${CYAN}========================================${NC}"
 echo ""
 
-echo -e "${YELLOW}[0/4] 检查环境...${NC}"
+echo -e "${YELLOW}[0/5] 检查环境...${NC}"
 check_command java
 check_command mvn
 check_command node
@@ -69,18 +81,23 @@ JAVA_VER=$(java -version 2>&1 | head -1 | awk -F '"' '{print $2}')
 NODE_VER=$(node --version)
 echo -e "${GREEN}  ✓ Java $JAVA_VER | Node $NODE_VER${NC}"
 
-echo -e "${YELLOW}[1/4] 构建后端 (Maven)...${NC}"
+echo -e "${YELLOW}[1/5] 检查端口占用...${NC}"
+kill_port "$BACKEND_PORT"
+kill_port "$FRONTEND_PORT"
+echo -e "${GREEN}  ✓ 端口可用${NC}"
+
+echo -e "${YELLOW}[2/5] 构建后端 (Maven)...${NC}"
 if ! mvn clean install -DskipTests -q; then
   echo -e "${RED}✗ Maven 构建失败${NC}"
   exit 1
 fi
 echo -e "${GREEN}  ✓ 后端构建完成${NC}"
 
-echo -e "${YELLOW}[2/4] 启动后端 (port: $BACKEND_PORT)...${NC}"
+echo -e "${YELLOW}[3/5] 启动后端 (port: $BACKEND_PORT)...${NC}"
 mvn spring-boot:run -pl intellimate-gateway -q &
 BACKEND_PID=$!
 echo -e "  等待后端就绪..."
-if wait_for_port "$BACKEND_PORT" 30; then
+if wait_for_port "$BACKEND_PORT" 45; then
   echo -e "${GREEN}  ✓ 后端已就绪 (PID: $BACKEND_PID)${NC}"
 else
   echo -e "${RED}✗ 后端启动失败，请检查日志${NC}"
@@ -88,7 +105,7 @@ else
   exit 1
 fi
 
-echo -e "${YELLOW}[3/4] 启动前端 (port: $FRONTEND_PORT)...${NC}"
+echo -e "${YELLOW}[4/5] 启动前端 (port: $FRONTEND_PORT)...${NC}"
 cd "$PROJECT_ROOT/intellimate-web"
 if [ ! -d "node_modules" ]; then
   echo "  首次启动，安装前端依赖..."
@@ -105,7 +122,7 @@ fi
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}  [4/4] 全部就绪!${NC}"
+echo -e "${GREEN}  [5/5] 全部就绪!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo -e "  后端: ${CYAN}http://localhost:$BACKEND_PORT${NC}"
 echo -e "  前端: ${CYAN}http://localhost:$FRONTEND_PORT${NC}"
