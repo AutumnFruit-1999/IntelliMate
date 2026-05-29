@@ -118,17 +118,15 @@ public class ChatInjectionService {
         return sessionRegistry.isAgentOnline(agentName);
     }
 
-    public boolean isAgentReachable(String agentName) {
+    public Mono<Boolean> isAgentReachable(String agentName) {
         if (sessionRegistry.isAgentOnline(agentName)) {
-            return true;
+            return Mono.just(true);
         }
-        Boolean hasExternalChannel = sessionRepository.findExternalChannelSessionsByAgentName(agentName)
+        return sessionRepository.findExternalChannelSessionsByAgentName(agentName)
                 .any(session -> {
                     var adapter = channelsManager.getAdapter(session.getChannelId());
                     return adapter != null && adapter.isConnected();
-                })
-                .block(java.time.Duration.ofSeconds(3));
-        return Boolean.TRUE.equals(hasExternalChannel);
+                });
     }
 
     public enum ProactiveSource {

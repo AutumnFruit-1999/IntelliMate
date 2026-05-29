@@ -192,6 +192,10 @@ public class SessionManagerImpl implements SessionManager {
         newSession.setCreatedAt(LocalDateTime.now());
         newSession.setDeleted(0);
         return sessionRepository.save(newSession)
-                .doOnSuccess(s -> log.info("Created new active session: id={}, agent={}", s.getId(), agentName));
+                .doOnSuccess(s -> log.info("Created new active session: id={}, agent={}", s.getId(), agentName))
+                .onErrorResume(org.springframework.dao.DuplicateKeyException.class, e -> {
+                    log.warn("Duplicate session key for agent '{}', fetching existing", agentName);
+                    return sessionRepository.findActiveByAgentName(agentName);
+                });
     }
 }

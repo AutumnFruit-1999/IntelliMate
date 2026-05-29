@@ -645,24 +645,31 @@ export interface ArchivedMemoryItem extends LongTermMemoryItem {
   archivedAt: string;
 }
 
-export function fetchMemoryConfig(): Promise<MemoryConfigResponse> {
-  return apiFetch<MemoryConfigResponse>("/api/memory/config");
+export function fetchMemoryConfig(agentName?: string): Promise<MemoryConfigResponse> {
+  const params = agentName ? `?agentName=${encodeURIComponent(agentName)}` : "";
+  return apiFetch<MemoryConfigResponse>(`/api/memory/config${params}`);
 }
 
-export function updateMemoryConfig(updates: Record<string, string>): Promise<{ success: string }> {
-  return apiFetch("/api/memory/config", {
+export function updateMemoryConfig(updates: Record<string, string>, agentName?: string): Promise<{ success: string }> {
+  const params = agentName ? `?agentName=${encodeURIComponent(agentName)}` : "";
+  return apiFetch(`/api/memory/config${params}`, {
     method: "PUT",
     body: JSON.stringify(updates),
   });
 }
 
-export function resetMemoryConfig(): Promise<{ success: string }> {
-  return apiFetch("/api/memory/config/reset", { method: "POST" });
+export function resetMemoryConfig(agentName?: string): Promise<{ success: string }> {
+  const params = agentName ? `?agentName=${encodeURIComponent(agentName)}` : "";
+  return apiFetch(`/api/memory/config/reset${params}`, { method: "POST" });
 }
 
 export function fetchMemoryStats(userId = "default", agentId = "default"): Promise<MemoryStatsResponse> {
   const params = new URLSearchParams({ userId, agentId });
   return apiFetch<MemoryStatsResponse>(`/api/memory/stats?${params}`);
+}
+
+export function fetchWorkingMemoryByAgent(agentName: string): Promise<Record<string, unknown>> {
+  return apiFetch(`/api/memory/working/by-agent/${encodeURIComponent(agentName)}`);
 }
 
 export function fetchLongTermMemories(userId?: string, type?: string, agentId = "default"): Promise<LongTermMemoryItem[]> {

@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
+import { useAuthStore } from "../stores/authStore";
 import ConnectionStatus from "./ConnectionStatus";
-import { X, Bot, Settings, Sparkles, Cpu, Brain, Timer, ChevronDown, ChevronRight, History, Plus, Trash2, Activity, Link2 } from "lucide-react";
+import { X, Bot, Settings, Sparkles, Cpu, Brain, Timer, ChevronDown, ChevronRight, History, Plus, Trash2, Activity, Link2, LogOut } from "lucide-react";
 
 interface SidebarProps {
   open: boolean;
@@ -244,7 +245,7 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Footer - Connection */}
+        {/* Footer - Connection + Logout */}
         <div className="px-4 py-2.5 border-t border-slate-200/80 dark:border-slate-700 flex items-center gap-2">
           <ConnectionStatus />
           {wsSessionId && (
@@ -252,6 +253,16 @@ export default function Sidebar({
               {wsSessionId.slice(0, 8)}
             </span>
           )}
+          <button
+            onClick={() => {
+              useAuthStore.getState().logout();
+              window.location.reload();
+            }}
+            className="ml-auto p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 transition-colors"
+            title="退出登录"
+          >
+            <LogOut size={14} />
+          </button>
         </div>
       </aside>
     </>

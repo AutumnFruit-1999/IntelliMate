@@ -98,11 +98,17 @@ public class AgentMemoryLifecycle {
      * Called on WebSocket disconnect to flush deferred episodic memory for the session.
      * Only stores if chunks > 4 and no prior episodic was generated during this session.
      */
-    public void flushDeferredEpisodicMemory(Long sessionId) {
+    public boolean flushDeferredEpisodicMemory(Long sessionId) {
         DeferredEpisodicStore deferred = deferredEpisodicStores.remove(sessionId);
-        if (deferred == null) return;
+        if (deferred == null) {
+            log.info("flushDeferredEpisodicMemory: no deferred data for session {}, skipping", sessionId);
+            return false;
+        }
+        log.info("flushDeferredEpisodicMemory: flushing session {}, chunks={}, minChunks={}",
+                sessionId, deferred.workingMemory().getChunks().size(), deferred.minChunksForEpisodic());
         storeSessionEpisodicMemory(deferred.workingMemory(), deferred.ltm(),
                 deferred.userId(), deferred.agentId(), deferred.sessionId(), deferred.minChunksForEpisodic());
+        return true;
     }
 
     /**
@@ -185,7 +191,12 @@ public class AgentMemoryLifecycle {
                                     String userId, String agentId, Long sessionId, int minChunksForEpisodic) {
         try {
             List<MemoryChunk> chunks = workingMemory.getChunks();
-            if (chunks.size() <= minChunksForEpisodic) return;
+            if (chunks.isEmpty()) {
+                log.info("storeSessionEpisodicMemory: skipped for session {} (no chunks)", sessionId);
+                return;
+            }
+            log.info("storeSessionEpisodicMemory: storing for session {} (chunks={}, consolidationCount={})",
+                    sessionId, chunks.size(), workingMemory.getConsolidationCount());
 
             if (workingMemory.getConsolidationCount() == 0) {
                 storeSessionEpisodicViaLLM(workingMemory, ltm, userId, agentId, sessionId);

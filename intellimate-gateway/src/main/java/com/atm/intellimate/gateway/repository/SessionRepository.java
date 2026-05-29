@@ -16,13 +16,13 @@ public interface SessionRepository extends ReactiveCrudRepository<SessionEntity,
         return findByChannelIdAndContextTypeAndContextIdAndDeleted(channelId, contextType, contextId, 0);
     }
 
-    @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'active' AND deleted = 0 AND channel_id = 'webchat' LIMIT 1")
+    @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'active' AND deleted = 0 AND channel_id IN ('unified', 'webchat') ORDER BY CASE channel_id WHEN 'unified' THEN 0 ELSE 1 END, last_active_at DESC LIMIT 1")
     Mono<SessionEntity> findActiveByAgentName(String agentName);
 
-    @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'archived' AND deleted = 0 AND channel_id = 'webchat' ORDER BY last_active_at DESC LIMIT :limit OFFSET :offset")
+    @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'archived' AND deleted = 0 AND channel_id IN ('unified', 'webchat') ORDER BY last_active_at DESC LIMIT :limit OFFSET :offset")
     Flux<SessionEntity> findArchivedByAgentName(String agentName, int limit, int offset);
 
-    @Query("SELECT COUNT(*) FROM session WHERE agent_name = :agentName AND status = 'archived' AND deleted = 0 AND channel_id = 'webchat'")
+    @Query("SELECT COUNT(*) FROM session WHERE agent_name = :agentName AND status = 'archived' AND deleted = 0 AND channel_id IN ('unified', 'webchat')")
     Mono<Long> countArchivedByAgentName(String agentName);
 
     @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'active' AND deleted = 0 AND channel_id != 'webchat'")

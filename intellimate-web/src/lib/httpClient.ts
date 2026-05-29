@@ -1,8 +1,14 @@
 const BASE_URL =
   import.meta.env.VITE_API_URL ?? `http://${window.location.hostname}:3007`;
 
+function resolveToken(): string {
+  const stored = localStorage.getItem("auth_token");
+  if (stored) return stored;
+  return import.meta.env.VITE_AUTH_TOKEN ?? "";
+}
+
 function getAuthHeaders(): Record<string, string> {
-  const token = import.meta.env.VITE_AUTH_TOKEN ?? "";
+  const token = resolveToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -13,7 +19,7 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 function getAuthHeadersWithoutContentType(): Record<string, string> {
-  const token = import.meta.env.VITE_AUTH_TOKEN ?? "";
+  const token = resolveToken();
   if (token) {
     return { Authorization: `Bearer ${token}` };
   }

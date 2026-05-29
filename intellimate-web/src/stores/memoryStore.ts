@@ -97,7 +97,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   fetchConfig: async () => {
     set({ configLoading: true, configError: null });
     try {
-      const config = await fetchMemoryConfig();
+      const agentId = get().selectedAgentId;
+      const config = await fetchMemoryConfig(agentId);
       set({ memoryConfig: config, configLoading: false, configError: null });
     } catch (e) {
       console.error("Failed to fetch memory config", e);
@@ -107,7 +108,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   saveConfig: async (updates) => {
     try {
-      await updateMemoryConfig(updates);
+      const agentId = get().selectedAgentId;
+      await updateMemoryConfig(updates, agentId);
       await get().fetchConfig();
     } catch (e) {
       console.error("Failed to save memory config", e);
@@ -117,7 +119,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
 
   resetConfig: async () => {
     try {
-      await resetMemoryConfig();
+      const agentId = get().selectedAgentId;
+      await resetMemoryConfig(agentId);
       await get().fetchConfig();
     } catch (e) {
       console.error("Failed to reset memory config", e);

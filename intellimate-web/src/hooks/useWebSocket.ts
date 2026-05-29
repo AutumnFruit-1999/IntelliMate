@@ -33,7 +33,7 @@ export function useWebSocket() {
   >(new Map());
 
   useEffect(() => {
-    const token = import.meta.env.VITE_AUTH_TOKEN ?? "";
+    const token = localStorage.getItem("auth_token") ?? import.meta.env.VITE_AUTH_TOKEN ?? "";
 
     const client = new WsClient({
       url: WS_URL,
@@ -163,6 +163,14 @@ export function useWebSocket() {
             } else {
               store.addProactiveMessage(agentName, text, requestId, source);
             }
+            break;
+          }
+          case "message.sync": {
+            const content = event.payload.content as string;
+            const role = event.payload.role as "user" | "assistant";
+            const sourceChannel = (event.payload.sourceChannel as string) || "external";
+            if (!content?.trim()) break;
+            store.addSyncMessage(role, content, sourceChannel);
             break;
           }
           case "agent.turn_start": {
@@ -446,6 +454,9 @@ export function useWebSocket() {
             const store = useChatStore.getState();
             store.clearMessages();
             store.setHistoryLoaded(true);
+            import("../stores/memoryStore").then(({ useMemoryStore }) => {
+              useMemoryStore.setState({ workingMemory: null, consolidationLog: [] });
+            });
           })
           .catch((err) => {
             console.error("[/clear] Failed:", err);

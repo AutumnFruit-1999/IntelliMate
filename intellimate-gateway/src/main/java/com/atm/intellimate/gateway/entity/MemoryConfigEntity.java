@@ -12,6 +12,9 @@ public class MemoryConfigEntity {
     @Id
     private Long id;
 
+    @Column("agent_name")
+    private String agentName;
+
     @Column("config_key")
     private String configKey;
 
@@ -25,6 +28,8 @@ public class MemoryConfigEntity {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public String getAgentName() { return agentName; }
+    public void setAgentName(String agentName) { this.agentName = agentName; }
     public String getConfigKey() { return configKey; }
     public void setConfigKey(String configKey) { this.configKey = configKey; }
     public String getConfigValue() { return configValue; }

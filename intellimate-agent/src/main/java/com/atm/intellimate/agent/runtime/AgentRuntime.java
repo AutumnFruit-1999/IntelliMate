@@ -46,8 +46,8 @@ public class AgentRuntime {
      * Called on WebSocket disconnect to flush deferred episodic memory for the session.
      * Only stores if chunks > 4 and no prior episodic was generated during this session.
      */
-    public void flushDeferredEpisodicMemory(Long sessionId) {
-        agentMemoryLifecycle.flushDeferredEpisodicMemory(sessionId);
+    public boolean flushDeferredEpisodicMemory(Long sessionId) {
+        return agentMemoryLifecycle.flushDeferredEpisodicMemory(sessionId);
     }
 
     public void registerWsRun(String wsSessionId, org.reactivestreams.Subscription subscription) {

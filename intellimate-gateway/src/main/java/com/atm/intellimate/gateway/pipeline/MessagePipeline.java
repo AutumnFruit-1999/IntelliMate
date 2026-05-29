@@ -11,12 +11,14 @@ import com.atm.intellimate.core.protocol.GatewayFrame;
 import com.atm.intellimate.core.protocol.RequestFrame;
 import com.atm.intellimate.core.protocol.ResponseFrame;
 import com.atm.intellimate.gateway.audit.AuditService;
+import com.atm.intellimate.gateway.channel.ChannelIdentityService;
 import com.atm.intellimate.gateway.config.AgentConfigService;
 import com.atm.intellimate.gateway.config.ResolvedAgentConfig;
 import com.atm.intellimate.gateway.entity.PlanEntity;
 import com.atm.intellimate.gateway.entity.SessionEntity;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
 import com.atm.intellimate.gateway.repository.SessionRepository;
+import com.atm.intellimate.gateway.service.CrossChannelSyncService;
 import com.atm.intellimate.gateway.service.PlanService;
 import com.atm.intellimate.gateway.session.SessionManager;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
@@ -40,6 +42,8 @@ public class MessagePipeline {
 
     private static final Logger log = LoggerFactory.getLogger(MessagePipeline.class);
 
+    private static final String WEBCHAT_DEFAULT_EXTERNAL_ID = "default";
+
     private final SessionManager sessionManager;
     private final MessageConverter messageConverter;
     private final AgentEventMapper agentEventMapper;
@@ -53,6 +57,8 @@ public class MessagePipeline {
     private final PlanExecutionOrchestrator planExecutionOrchestrator;
     private final SessionRegistry sessionRegistry;
     private final SessionRepository sessionRepository;
+    private final ChannelIdentityService channelIdentityService;
+    private final CrossChannelSyncService crossChannelSyncService;
     private final ConcurrentMap<String, Long> wsSessionToDbSession = new ConcurrentHashMap<>();
 
     public MessagePipeline(SessionManager sessionManager,
@@ -67,7 +73,9 @@ public class MessagePipeline {
                            PlanService planService,
                            PlanExecutionOrchestrator planExecutionOrchestrator,
                            SessionRegistry sessionRegistry,
-                           SessionRepository sessionRepository) {
+                           SessionRepository sessionRepository,
+                           ChannelIdentityService channelIdentityService,
+                           CrossChannelSyncService crossChannelSyncService) {
         this.sessionManager = sessionManager;
         this.messageConverter = messageConverter;
         this.agentEventMapper = agentEventMapper;
@@ -81,6 +89,8 @@ public class MessagePipeline {
         this.planExecutionOrchestrator = planExecutionOrchestrator;
         this.sessionRegistry = sessionRegistry;
         this.sessionRepository = sessionRepository;
+        this.channelIdentityService = channelIdentityService;
+        this.crossChannelSyncService = crossChannelSyncService;
     }
 
     public Flux<GatewayFrame> processRequest(RequestFrame request, String wsSessionId) {
@@ -92,12 +102,33 @@ public class MessagePipeline {
      * Collects the agent's full reply text without streaming.
      */
     public Mono<String> processInbound(InboundEnvelope envelope) {
-        return processInbound(envelope, null);
+        return processInbound(envelope, null, null);
     }
 
     public Mono<String> processInbound(InboundEnvelope envelope, String overrideAgentName) {
+        return processInbound(envelope, overrideAgentName, null);
+    }
+
+    /**
+     * @param sourceChannel the originating channel (e.g. "feishu", "dingtalk").
+     *                      For unified cross-channel sessions the envelope's
+     *                      sessionKey.channelId is "unified", so this parameter
+     *                      preserves which channel the message actually came from.
+     */
+    public Mono<String> processInbound(InboundEnvelope envelope, String overrideAgentName,
+                                       String sourceChannel) {
         SessionKey sessionKey = envelope.sessionKey();
-        String userText = envelope.text() != null ? envelope.text() : "";
+        String rawText = envelope.text() != null ? envelope.text() : "";
+        final String userText;
+        if ("group".equals(sessionKey.contextType())
+                && envelope.senderName() != null && !envelope.senderName().isBlank()) {
+            userText = "[" + envelope.senderName() + "] " + rawText;
+        } else {
+            userText = rawText;
+        }
+        String effectiveSourceChannel = (sourceChannel != null && !sourceChannel.isBlank())
+                ? sourceChannel
+                : sessionKey.channelId();
 
         String agentName = (overrideAgentName != null && !overrideAgentName.isBlank())
                 ? overrideAgentName
@@ -110,8 +141,8 @@ public class MessagePipeline {
                 sessionKey.contextId()
         );
 
-        log.info("processInbound: channelId={}, overrideAgent={}, resolvedAgent={}",
-                sessionKey.channelId(), overrideAgentName, agentName);
+        log.info("processInbound: channelId={}, sourceChannel={}, overrideAgent={}, resolvedAgent={}",
+                sessionKey.channelId(), effectiveSourceChannel, overrideAgentName, agentName);
 
         return sessionManager.getOrCreate(sessionKey, metadata)
                 .flatMap(session -> {
@@ -132,7 +163,7 @@ public class MessagePipeline {
                                 .last(ResponseFrame.failure("channel-inbound", "No response"))
                                 .map(this::extractResponseText);
                     }
-                    return runInboundAgent(session, userText);
+                    return runInboundAgent(session, userText, effectiveSourceChannel);
                 })
                 .onErrorResume(e -> {
                     log.error("Error processing inbound envelope sessionKey={}: {}",
@@ -155,7 +186,8 @@ public class MessagePipeline {
         return frame.payload() != null ? frame.payload().toString() : "";
     }
 
-    private Mono<String> runInboundAgent(SessionEntity session, String userText) {
+    private Mono<String> runInboundAgent(SessionEntity session, String userText,
+                                        String sourceChannel) {
         return planService.getActivePlan(session.getId())
                 .defaultIfEmpty(new PlanEntity())
                 .flatMap(activePlan -> {
@@ -168,15 +200,18 @@ public class MessagePipeline {
                     TranscriptMessageEntity userMsg = new TranscriptMessageEntity();
                     userMsg.setRole("user");
                     userMsg.setContent(userText);
-                    userMsg.setSourceChannel(session.getChannelId());
+                    userMsg.setSourceChannel(sourceChannel);
                     userMsg.setCreatedAt(LocalDateTime.now());
                     if (planExecuting) {
                         userMsg.setPlanId(planId);
                     }
 
+                    String sessionContextId = session.getContextId();
                     Mono<Void> saveUserMono = sessionManager.appendMessage(session.getId(), userMsg)
                             .then(auditService.log("user_message", "channel", session.getId(),
-                                    userText.length() > 200 ? userText.substring(0, 200) + "..." : userText));
+                                    userText.length() > 200 ? userText.substring(0, 200) + "..." : userText))
+                            .then(crossChannelSyncService.syncToWeb(
+                                    sessionContextId, "user", userText, sourceChannel));
 
                     return saveUserMono.then(Mono.zip(
                                     messageConverter.loadHistory(session.getId(), effectivePlanId).collectList(),
@@ -217,7 +252,7 @@ public class MessagePipeline {
                                             TranscriptMessageEntity assistantMsg = new TranscriptMessageEntity();
                                             assistantMsg.setRole("assistant");
                                             assistantMsg.setContent(completeText);
-                                            assistantMsg.setSourceChannel(session.getChannelId());
+                                            assistantMsg.setSourceChannel(sourceChannel);
                                             assistantMsg.setCreatedAt(LocalDateTime.now());
                                             if (planExecuting) {
                                                 assistantMsg.setPlanId(planId);
@@ -225,6 +260,8 @@ public class MessagePipeline {
                                             return sessionManager.appendMessage(session.getId(), assistantMsg)
                                                     .then(auditService.log("agent_response", "channel", session.getId(),
                                                             "length=" + completeText.length()))
+                                                    .then(crossChannelSyncService.syncToWeb(
+                                                            sessionContextId, "assistant", completeText, sourceChannel))
                                                     .thenReturn(completeText);
                                         });
                             });
@@ -277,8 +314,6 @@ public class MessagePipeline {
 
         Map<String, Object> params = (Map<String, Object>) request.params();
         String userText = (String) params.getOrDefault("text", "");
-        String channelId = (String) params.getOrDefault("channelId", "webchat");
-        String contextType = (String) params.getOrDefault("contextType", "dm");
         boolean forcePlan = Boolean.TRUE.equals(params.get("forcePlan"));
         boolean isRegenerate = Boolean.TRUE.equals(params.get("regenerate"));
 
@@ -288,27 +323,47 @@ public class MessagePipeline {
         }
         sessionRegistry.bindAgent(wsSessionId, agentName);
 
-        String contextId = agentName;
+        final String finalAgentName = agentName;
 
-        SessionKey sessionKey = new SessionKey(channelId, contextType, contextId);
-        SessionMetadata metadata = new SessionMetadata(
-                agentName, null,
-                channelId, contextType, contextId
-        );
+        Long authenticatedUserId = sessionRegistry.getUserId(wsSessionId);
+        String webchatExternalId = authenticatedUserId != null
+                ? String.valueOf(authenticatedUserId) : WEBCHAT_DEFAULT_EXTERNAL_ID;
 
-        return sessionManager.getOrCreate(sessionKey, metadata)
-                .flatMapMany(session -> {
-                    wsSessionToDbSession.put(wsSessionId, session.getId());
-                    if (CommandHandler.isCommand(userText)) {
-                        return auditService.log("command", wsSessionId, session.getId(), userText)
-                                .thenMany(commandHandler.handle(userText, session, request.id()));
-                    }
-                    return processMessageStreaming(session, userText, request.id(), wsSessionId, forcePlan, isRegenerate);
+        return channelIdentityService.resolveUserId("webchat", webchatExternalId, null)
+                .flatMapMany(userId -> {
+                    SessionKey sessionKey = new SessionKey("unified", "dm", userId);
+                    SessionMetadata metadata = new SessionMetadata(
+                            finalAgentName, null,
+                            "unified", "dm", userId
+                    );
+
+                    return sessionManager.getOrCreate(sessionKey, metadata)
+                            .flatMapMany(session -> {
+                                if (!finalAgentName.equals(session.getAgentName())) {
+                                    session.setAgentName(finalAgentName);
+                                    return sessionRepository.save(session).flatMapMany(saved -> {
+                                        wsSessionToDbSession.put(wsSessionId, saved.getId());
+                                        return dispatchWebchatMessage(saved, userText, request, wsSessionId, forcePlan, isRegenerate);
+                                    });
+                                }
+                                wsSessionToDbSession.put(wsSessionId, session.getId());
+                                return dispatchWebchatMessage(session, userText, request, wsSessionId, forcePlan, isRegenerate);
+                            });
                 })
                 .onErrorResume(e -> {
                     log.error("Error processing request id={}: {}", request.id(), e.getMessage(), e);
                     return Flux.just(ResponseFrame.failure(request.id(), e.getMessage()));
                 });
+    }
+
+    private Flux<GatewayFrame> dispatchWebchatMessage(
+            SessionEntity session, String userText, RequestFrame request,
+            String wsSessionId, boolean forcePlan, boolean isRegenerate) {
+        if (CommandHandler.isCommand(userText)) {
+            return auditService.log("command", wsSessionId, session.getId(), userText)
+                    .thenMany(commandHandler.handle(userText, session, request.id()));
+        }
+        return processMessageStreaming(session, userText, request.id(), wsSessionId, forcePlan, isRegenerate);
     }
 
     private Flux<GatewayFrame> processMessageStreaming(
@@ -325,6 +380,7 @@ public class MessagePipeline {
 
                     final Long effectivePlanId = planExecuting ? planId : null;
 
+                    String contextId = session.getContextId();
                     Mono<Void> saveUserMono;
                     if (isRegenerate) {
                         saveUserMono = Mono.empty();
@@ -332,13 +388,16 @@ public class MessagePipeline {
                         TranscriptMessageEntity userMsg = new TranscriptMessageEntity();
                         userMsg.setRole("user");
                         userMsg.setContent(userText);
+                        userMsg.setSourceChannel("webchat");
                         userMsg.setCreatedAt(LocalDateTime.now());
                         if (planExecuting) {
                             userMsg.setPlanId(planId);
                         }
                         saveUserMono = sessionManager.appendMessage(session.getId(), userMsg)
                                 .then(auditService.log("user_message", wsSessionId, session.getId(),
-                                        userText.length() > 200 ? userText.substring(0, 200) + "..." : userText));
+                                        userText.length() > 200 ? userText.substring(0, 200) + "..." : userText))
+                                .then(crossChannelSyncService.syncToExternalChannels(
+                                        contextId, "user", userText));
                     }
 
                     return saveUserMono.then(Mono.zip(
@@ -388,6 +447,7 @@ public class MessagePipeline {
                                     TranscriptMessageEntity assistantMsg = new TranscriptMessageEntity();
                                     assistantMsg.setRole("assistant");
                                     assistantMsg.setContent(completeText);
+                                    assistantMsg.setSourceChannel("webchat");
                                     assistantMsg.setCreatedAt(LocalDateTime.now());
                                     if (planExecuting) {
                                         assistantMsg.setPlanId(planId);
@@ -395,7 +455,9 @@ public class MessagePipeline {
 
                                     Mono<Void> saveMsgMono = sessionManager.appendMessage(session.getId(), assistantMsg)
                                             .then(auditService.log("agent_response", "agent", session.getId(),
-                                                    "length=" + completeText.length()));
+                                                    "length=" + completeText.length()))
+                                            .then(crossChannelSyncService.syncToExternalChannels(
+                                                    contextId, "assistant", completeText));
 
                                     String memoryAgentId = resolveAgentId(session);
                                     String memoryUserId = resolveUserId(session);

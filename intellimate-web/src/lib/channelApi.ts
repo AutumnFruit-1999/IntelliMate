@@ -55,3 +55,27 @@ export function connectChannel(channelId: string): Promise<{ status: string }> {
 export function disconnectChannel(channelId: string): Promise<{ status: string }> {
   return apiFetch(`/api/channels/${encodeURIComponent(channelId)}/disconnect`, { method: "POST" });
 }
+
+export interface ChannelIdentity {
+  id: number;
+  userId: string;
+  channelId: string;
+  externalId: string;
+  externalName: string | null;
+  boundAt: string;
+}
+
+export function generateBindingCode(userId: string): Promise<{ code: string; expiresIn: number }> {
+  return apiFetch("/api/channel-binding/generate-code", {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export function listBoundIdentities(userId: string): Promise<ChannelIdentity[]> {
+  return apiFetch(`/api/channel-binding/identities/${encodeURIComponent(userId)}`);
+}
+
+export function unbindIdentity(identityId: number): Promise<void> {
+  return apiFetch(`/api/channel-binding/identities/${identityId}`, { method: "DELETE" });
+}

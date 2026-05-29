@@ -4,6 +4,7 @@ import type { ResponseFrame } from "../lib/protocol";
 import { generateId } from "../lib/protocol";
 import { usePlanStore } from "./planStore";
 import { useAgentStore } from "./agentStore";
+import { useMemoryStore } from "./memoryStore";
 import { toFriendlyError } from "../lib/errorMessages";
 import type { DelegationState } from "../components/workflow/DelegationCard";
 import type { WorkflowEntry, HandoffInfo, ParallelGroupInfo } from "../components/workflow/WorkflowTimeline";
@@ -111,6 +112,7 @@ interface ChatState {
   addProactiveMessage: (agentName: string, text: string, requestId: string, source: string) => void;
   bufferProactiveMessage: (agentName: string, text: string, requestId: string, source: string) => void;
   flushProactiveBuffer: () => void;
+  addSyncMessage: (role: "user" | "assistant", content: string, sourceChannel: string) => void;
 
   activity: ActivityState;
   setActivityPhase: (phase: ActivityPhase) => void;
@@ -313,6 +315,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (command === "clear" || command === "reset") {
         usePlanStore.getState().clearPlan();
+        useMemoryStore.setState({ workingMemory: null, consolidationLog: [] });
         set((state) => ({
           isWaiting: false,
           ...updateAgentMessages(state, () => []),
@@ -688,6 +691,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().addProactiveMessage(msg.agentName, msg.text, msg.requestId, msg.source);
     }
     set({ proactiveBuffer: [] });
+  },
+
+  addSyncMessage: (role, content, sourceChannel) => {
+    const agent = get().currentAgent;
+    const current = get().messagesByAgent[agent] ?? [];
+    const newMsg: ChatMessage = {
+      id: `sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      role,
+      content,
+      streaming: false,
+      timestamp: Date.now(),
+      sourceChannel,
+    };
+    const updated = [...current, newMsg];
+    const newByAgent = { ...get().messagesByAgent, [agent]: updated };
+    if (agent === get().currentAgent) {
+      set({ messagesByAgent: newByAgent, messages: updated });
+    } else {
+      set({ messagesByAgent: newByAgent });
+    }
   },
 
   setActivityPhase: (phase) => {

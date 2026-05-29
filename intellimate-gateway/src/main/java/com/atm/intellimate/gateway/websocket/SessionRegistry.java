@@ -24,6 +24,7 @@ public class SessionRegistry {
     private final AtomicLong seqGenerator = new AtomicLong(0);
     private final ConcurrentHashMap<String, Sinks.Many<GatewayFrame>> sessionSinks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Set<String>> agentSessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> sessionUserIds = new ConcurrentHashMap<>();
     private final MeterRegistry meterRegistry;
 
     public SessionRegistry(@Autowired(required = false) MeterRegistry meterRegistry) {
@@ -41,6 +42,15 @@ public class SessionRegistry {
         log.debug("Session registered: {}", wsSessionId);
     }
 
+    public void bindUserId(String wsSessionId, Long userId) {
+        sessionUserIds.put(wsSessionId, userId);
+        log.debug("User {} bound to session {}", userId, wsSessionId);
+    }
+
+    public Long getUserId(String wsSessionId) {
+        return sessionUserIds.get(wsSessionId);
+    }
+
     public void bindAgent(String wsSessionId, String agentName) {
         agentSessions
                 .computeIfAbsent(agentName, k -> ConcurrentHashMap.newKeySet())
@@ -50,6 +60,7 @@ public class SessionRegistry {
 
     public void unregister(String wsSessionId) {
         sessionSinks.remove(wsSessionId);
+        sessionUserIds.remove(wsSessionId);
         agentSessions.values().forEach(set -> set.remove(wsSessionId));
         agentSessions.entrySet().removeIf(e -> e.getValue().isEmpty());
         if (meterRegistry != null) {
@@ -94,6 +105,21 @@ public class SessionRegistry {
         if (sink == null) return false;
         EventFrame frame = new EventFrame(eventType, payload, seqGenerator.incrementAndGet());
         return sink.tryEmitNext(frame).isSuccess();
+    }
+
+    public int pushToUser(Long userId, String eventType, Map<String, Object> payload) {
+        if (userId == null) return 0;
+        EventFrame frame = new EventFrame(eventType, payload, seqGenerator.incrementAndGet());
+        int delivered = 0;
+        for (Map.Entry<String, Long> entry : sessionUserIds.entrySet()) {
+            if (userId.equals(entry.getValue())) {
+                Sinks.Many<GatewayFrame> sink = sessionSinks.get(entry.getKey());
+                if (sink != null && sink.tryEmitNext(frame).isSuccess()) {
+                    delivered++;
+                }
+            }
+        }
+        return delivered;
     }
 
     public void broadcast(String eventType, Map<String, Object> payload) {

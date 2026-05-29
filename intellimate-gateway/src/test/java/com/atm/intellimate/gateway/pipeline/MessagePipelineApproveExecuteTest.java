@@ -48,6 +48,8 @@ class MessagePipelineApproveExecuteTest {
     @Mock private PlanService planService;
     @Mock private SessionRegistry sessionRegistry;
     @Mock private SessionRepository sessionRepository;
+    @Mock private com.atm.intellimate.gateway.channel.ChannelIdentityService channelIdentityService;
+    @Mock private com.atm.intellimate.gateway.service.CrossChannelSyncService crossChannelSyncService;
 
     private MessagePipeline pipeline;
     private MessageConverter messageConverter;
@@ -63,7 +65,8 @@ class MessagePipelineApproveExecuteTest {
         pipeline = new MessagePipeline(
                 sessionManager, messageConverter, agentEventMapper, agentRuntime, properties,
                 agentConfigService, commandHandler, auditService, planRequestHandler,
-                planService, planExecutionOrchestrator, sessionRegistry, sessionRepository);
+                planService, planExecutionOrchestrator, sessionRegistry, sessionRepository,
+                channelIdentityService, crossChannelSyncService);
     }
 
     private PlanEntity makePlan(Long id, Long sessionId, String status) {

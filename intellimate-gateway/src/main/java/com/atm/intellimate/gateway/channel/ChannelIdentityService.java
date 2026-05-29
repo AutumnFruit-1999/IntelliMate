@@ -2,6 +2,7 @@ package com.atm.intellimate.gateway.channel;
 
 import com.atm.intellimate.gateway.entity.ChannelIdentityEntity;
 import com.atm.intellimate.gateway.repository.ChannelIdentityRepository;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -38,7 +39,7 @@ public class ChannelIdentityService {
                     if (externalName != null) {
                         existing.setExternalName(externalName);
                     }
-                    return identityRepository.save(existing).then();
+                    return identityRepository.save(existing);
                 })
                 .switchIfEmpty(Mono.defer(() -> {
                     ChannelIdentityEntity entity = new ChannelIdentityEntity();
@@ -47,8 +48,16 @@ public class ChannelIdentityService {
                     entity.setExternalId(externalId);
                     entity.setExternalName(externalName);
                     entity.setBoundAt(LocalDateTime.now());
-                    return identityRepository.save(entity).then();
-                }));
+                    return identityRepository.save(entity)
+                            .onErrorResume(DuplicateKeyException.class, e ->
+                                    identityRepository.findByChannelIdAndExternalId(channelId, externalId)
+                                            .flatMap(dup -> {
+                                                dup.setUserId(userId);
+                                                if (externalName != null) dup.setExternalName(externalName);
+                                                return identityRepository.save(dup);
+                                            }));
+                }))
+                .then();
     }
 
     public Flux<ChannelIdentityEntity> listByUserId(String userId) {
@@ -67,6 +76,10 @@ public class ChannelIdentityService {
         entity.setExternalId(externalId);
         entity.setExternalName(externalName);
         entity.setBoundAt(LocalDateTime.now());
-        return identityRepository.save(entity).map(ChannelIdentityEntity::getUserId);
+        return identityRepository.save(entity)
+                .map(ChannelIdentityEntity::getUserId)
+                .onErrorResume(DuplicateKeyException.class, e ->
+                        identityRepository.findByChannelIdAndExternalId(channelId, externalId)
+                                .map(ChannelIdentityEntity::getUserId));
     }
 }

@@ -47,10 +47,17 @@ class MemoryControllerTest {
     @Mock
     private AgentMemoryArchiveRepository agentMemoryArchiveRepository;
 
+    @Mock
+    private com.atm.intellimate.gateway.repository.SessionRepository sessionRepository;
+
+    @Mock
+    private com.atm.intellimate.gateway.repository.TranscriptMessageRepository transcriptRepository;
+
     @BeforeEach
     void setUp() {
         MemoryController controller = new MemoryController(
-                configService, longTermMemory, agentMemoryRepository, agentMemoryArchiveRepository);
+                configService, longTermMemory, agentMemoryRepository, agentMemoryArchiveRepository,
+                sessionRepository, transcriptRepository);
         client = WebTestClient.bindToController(controller)
                 .controllerAdvice(new GlobalExceptionHandler())
                 .build();

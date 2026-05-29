@@ -2,6 +2,7 @@ package com.atm.intellimate.gateway.config;
 
 import com.atm.intellimate.core.model.InboundEnvelope;
 import com.atm.intellimate.core.model.OutboundMessage;
+import com.atm.intellimate.core.model.SessionKey;
 import com.atm.intellimate.gateway.channel.ChannelBindingCodeService;
 import com.atm.intellimate.gateway.channel.ChannelIdentityService;
 import com.atm.intellimate.gateway.channel.ChannelMetrics;
@@ -15,17 +16,24 @@ import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
 
 import java.util.Collections;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
  * Wires external channel inbound messages through the agent pipeline
  * and sends replies back via the appropriate channel adapter.
+ *
+ * Cross-channel unified sessions: for DM messages, the external identity
+ * is resolved to a unified IntelliMate userId via {@link ChannelIdentityService},
+ * and the session key is transformed to {@code ("unified", "dm", userId)} so
+ * that the same user shares one conversation across all channels.
  */
 @Configuration
 public class ChannelPipelineConfig {
 
     private static final Logger log = LoggerFactory.getLogger(ChannelPipelineConfig.class);
     private static final Pattern BINDING_CODE_PATTERN = Pattern.compile("^\\d{6}$");
+    private static final Set<String> DM_CONTEXT_TYPES = Set.of("dm", "p2p");
 
     public ChannelPipelineConfig(ChannelsManager channelsManager,
                                  MessagePipeline messagePipeline,
@@ -40,9 +48,8 @@ public class ChannelPipelineConfig {
             Timer.Sample sample = channelMetrics.startProcessingTimer();
 
             Mono<String> replyMono = tryBindingCode(envelope, bindingCodeService, identityService)
-                    .orElseGet(() -> channelConfigService.getDefaultAgent(channelId)
-                            .flatMap(optAgent -> messagePipeline.processInbound(
-                                    envelope, optAgent.orElse(null))));
+                    .orElseGet(() -> resolveIdentityAndProcess(
+                            envelope, identityService, channelConfigService, messagePipeline));
 
             replyMono
                     .flatMap(replyText -> {
@@ -69,6 +76,44 @@ public class ChannelPipelineConfig {
                     );
         });
         log.info("Channel inbound pipeline wired");
+    }
+
+    /**
+     * Resolves the external identity to a unified userId, transforms the
+     * session key for DM messages, and dispatches to the message pipeline.
+     */
+    private static Mono<String> resolveIdentityAndProcess(
+            InboundEnvelope envelope,
+            ChannelIdentityService identityService,
+            ChannelConfigService channelConfigService,
+            MessagePipeline messagePipeline) {
+
+        String channelId = envelope.sessionKey().channelId();
+        String contextType = envelope.sessionKey().contextType();
+
+        return identityService.resolveUserId(channelId, envelope.senderId(), envelope.senderName())
+                .flatMap(userId -> {
+                    InboundEnvelope effectiveEnvelope;
+                    if (DM_CONTEXT_TYPES.contains(contextType)) {
+                        SessionKey unifiedKey = new SessionKey("unified", "dm", userId);
+                        effectiveEnvelope = new InboundEnvelope(
+                                unifiedKey,
+                                envelope.senderId(),
+                                envelope.senderName(),
+                                envelope.text(),
+                                envelope.attachments(),
+                                envelope.timestamp(),
+                                envelope.rawPayload()
+                        );
+                        log.debug("Unified session: {} {} -> userId={}", channelId, envelope.senderId(), userId);
+                    } else {
+                        effectiveEnvelope = envelope;
+                    }
+
+                    return channelConfigService.getDefaultAgent(channelId)
+                            .flatMap(optAgent -> messagePipeline.processInbound(
+                                    effectiveEnvelope, optAgent.orElse(null), channelId));
+                });
     }
 
     private static java.util.Optional<Mono<String>> tryBindingCode(

@@ -1,4 +1,5 @@
 main分支提交代码必须经过批准
+Mysql基于本地Docker安装
 
 主干由两个插件组成：
 - superpowers —— 思考与流程层（plan/brainstorm/debug/TDD/review/verify）
@@ -32,3 +33,5 @@ main分支提交代码必须经过批准
 
 下列能力只走 gstack：
 - 浏览器、QA、ship、deploy、canary、retro、护栏
+
+在代码修改完成之后，必须同步修改测试代码，防止启动时测试代码报错

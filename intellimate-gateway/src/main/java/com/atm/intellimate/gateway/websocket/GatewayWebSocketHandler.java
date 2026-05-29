@@ -63,6 +63,11 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
             return session.close();
         }
 
+        securityService.extractJwtClaims(token).ifPresent(claims -> {
+            sessionRegistry.bindUserId(session.getId(), claims.userId());
+            log.info("WebSocket authenticated: user={} ({})", claims.username(), claims.userId());
+        });
+
         log.info("WebSocket connected: sessionId={}", session.getId());
 
         Sinks.Many<GatewayFrame> outSink = Sinks.many().unicast()

@@ -48,39 +48,73 @@ public class MemoryConfigService implements MemoryConfigProvider {
             Map.entry("long_term.archive_after_days", "冷记忆归档天数")
     );
 
+    private static final String GLOBAL_AGENT = "_global_";
+
     public MemoryConfigService(MemoryConfigRepository configRepo) {
         this.configRepo = configRepo;
     }
 
     @Override
     public Mono<ResolvedMemoryConfig> resolve() {
-        return configRepo.findAll()
+        return configRepo.findByAgentName(GLOBAL_AGENT)
                 .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
                 .map(ResolvedMemoryConfig::fromMap);
     }
 
+    public Mono<ResolvedMemoryConfig> resolveForAgent(String agentName) {
+        return configRepo.findByAgentName(GLOBAL_AGENT)
+                .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
+                .flatMap(globalMap -> configRepo.findByAgentName(agentName)
+                        .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
+                        .map(agentMap -> {
+                            Map<String, String> merged = new java.util.HashMap<>(globalMap);
+                            merged.putAll(agentMap);
+                            return ResolvedMemoryConfig.fromMap(merged);
+                        }));
+    }
+
     public Mono<Map<String, ConfigItem>> resolveGrouped() {
-        return configRepo.findAll()
-                .collectMap(e -> e.getConfigKey(), e -> new ConfigItem(
-                        e.getConfigValue(),
-                        DEFAULTS.getOrDefault(e.getConfigKey(), ""),
-                        e.getDescription() != null ? e.getDescription()
-                                : DESCRIPTIONS.getOrDefault(e.getConfigKey(), ""),
-                        inferType(e.getConfigKey())
-                ));
+        return resolveGroupedForAgent(GLOBAL_AGENT);
+    }
+
+    public Mono<Map<String, ConfigItem>> resolveGroupedForAgent(String agentName) {
+        return configRepo.findByAgentName(GLOBAL_AGENT)
+                .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
+                .flatMap(globalMap -> configRepo.findByAgentName(agentName)
+                        .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
+                        .map(agentMap -> {
+                            Map<String, ConfigItem> result = new java.util.LinkedHashMap<>();
+                            DEFAULTS.forEach((key, defVal) -> {
+                                String value = agentMap.containsKey(key) ? agentMap.get(key)
+                                        : globalMap.getOrDefault(key, defVal);
+                                result.put(key, new ConfigItem(
+                                        value, defVal,
+                                        DESCRIPTIONS.getOrDefault(key, ""),
+                                        inferType(key)));
+                            });
+                            return result;
+                        }));
     }
 
     public Mono<Void> updateConfig(Map<String, String> updates) {
+        return updateConfigForAgent(GLOBAL_AGENT, updates);
+    }
+
+    public Mono<Void> updateConfigForAgent(String agentName, Map<String, String> updates) {
         return reactor.core.publisher.Flux.fromIterable(updates.entrySet())
-                .flatMap(e -> configRepo.upsert(e.getKey(), e.getValue(),
+                .flatMap(e -> configRepo.upsertForAgent(agentName, e.getKey(), e.getValue(),
                         DESCRIPTIONS.getOrDefault(e.getKey(), "")))
                 .then();
     }
 
     public Mono<Void> resetToDefaults() {
-        return configRepo.deleteAll()
+        return resetToDefaultsForAgent(GLOBAL_AGENT);
+    }
+
+    public Mono<Void> resetToDefaultsForAgent(String agentName) {
+        return configRepo.deleteByAgentName(agentName)
                 .then(reactor.core.publisher.Flux.fromIterable(DEFAULTS.entrySet())
-                        .flatMap(e -> configRepo.upsert(e.getKey(), e.getValue(),
+                        .flatMap(e -> configRepo.upsertForAgent(agentName, e.getKey(), e.getValue(),
                                 DESCRIPTIONS.getOrDefault(e.getKey(), "")))
                         .then());
     }

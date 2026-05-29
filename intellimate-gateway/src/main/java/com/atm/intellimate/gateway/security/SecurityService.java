@@ -22,27 +22,34 @@ public class SecurityService {
 
     private final IntelliMateProperties properties;
     private final AllowlistEntryRepository allowlistRepository;
+    private final JwtService jwtService;
 
     private final Set<String> allowlistCache = ConcurrentHashMap.newKeySet();
     private volatile boolean cacheLoaded = false;
 
     public SecurityService(IntelliMateProperties properties,
-                           AllowlistEntryRepository allowlistRepository) {
+                           AllowlistEntryRepository allowlistRepository,
+                           JwtService jwtService) {
         this.properties = properties;
         this.allowlistRepository = allowlistRepository;
+        this.jwtService = jwtService;
     }
 
-    /**
-     * Validate the provided authentication token.
-     * If no authToken is configured, all connections are allowed (dev mode).
-     */
     public boolean validateToken(String token) {
         String configuredToken = properties.getSecurity().getAuthToken();
         if (configuredToken == null || configuredToken.isBlank()) {
             log.warn("No auth token configured — accepting all connections (dev mode)");
             return true;
         }
-        return configuredToken.equals(token);
+        if (configuredToken.equals(token)) {
+            return true;
+        }
+        return jwtService.validateToken(token).isPresent();
+    }
+
+    public java.util.Optional<JwtService.JwtClaims> extractJwtClaims(String token) {
+        if (token == null) return java.util.Optional.empty();
+        return jwtService.validateToken(token);
     }
 
     /**

@@ -116,27 +116,43 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
         return getValidToken()
                 .flatMap(token -> {
                     String appKey = configString("appKey");
-                    String userId = message.sessionKey().contextId();
+                    String contextType = message.sessionKey().contextType();
+                    String contextId = message.sessionKey().contextId();
                     String msgParam;
                     try {
                         msgParam = objectMapper.writeValueAsString(Map.of("content", message.text()));
                     } catch (JsonProcessingException e) {
                         return Mono.error(e);
                     }
-                    Map<String, Object> body = Map.of(
-                            "robotCode", appKey,
-                            "userIds", List.of(userId),
-                            "msgKey", "sampleText",
-                            "msgParam", msgParam
-                    );
+
+                    String uri;
+                    Map<String, Object> body;
+                    if ("group".equals(contextType)) {
+                        uri = "/v1.0/robot/groupMessages/send";
+                        body = Map.of(
+                                "robotCode", appKey,
+                                "openConversationId", contextId,
+                                "msgKey", "sampleText",
+                                "msgParam", msgParam
+                        );
+                    } else {
+                        uri = "/v1.0/robot/oToMessages/batchSend";
+                        body = Map.of(
+                                "robotCode", appKey,
+                                "userIds", List.of(contextId),
+                                "msgKey", "sampleText",
+                                "msgParam", msgParam
+                        );
+                    }
+
                     return webClient.post()
-                            .uri("/v1.0/robot/oToMessages/batchSend")
+                            .uri(uri)
                             .header("x-acs-dingtalk-access-token", token)
                             .contentType(MediaType.APPLICATION_JSON)
                             .bodyValue(body)
                             .retrieve()
                             .bodyToMono(JsonNode.class)
-                            .doOnNext(resp -> log.debug("[{}] send response: {}", CHANNEL_ID, resp))
+                            .doOnNext(resp -> log.debug("[{}] send response ({}): {}", CHANNEL_ID, contextType, resp))
                             .then();
                 });
     }
@@ -194,6 +210,7 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
             if (senderId == null || senderId.isBlank()) {
                 senderId = message.getSenderId();
             }
+            String senderName = message.getSenderNick();
             String text = "";
             if (message.getText() != null && message.getText().getContent() != null) {
                 text = message.getText().getContent().trim();
@@ -205,7 +222,7 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
             InboundEnvelope envelope = new InboundEnvelope(
                     new SessionKey(CHANNEL_ID, contextType, contextId),
                     senderId,
-                    null,
+                    senderName,
                     text,
                     List.of(),
                     Instant.now(),

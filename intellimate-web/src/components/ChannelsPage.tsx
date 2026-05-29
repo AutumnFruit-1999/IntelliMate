@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
-import { ArrowLeft, Loader2, Plus } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { ArrowLeft, Loader2, Plus, Link, Unlink, Copy, Check, Trash2 } from "lucide-react";
 import { useChannelStore } from "../stores/channelStore";
+import { useAuthStore } from "../stores/authStore";
+import { generateBindingCode, listBoundIdentities, unbindIdentity, type ChannelIdentity } from "../lib/channelApi";
 import ChannelConfigModal from "./ChannelConfigModal";
 
 const CHANNEL_META: Record<string, { name: string; icon: string }> = {
@@ -44,14 +46,54 @@ export default function ChannelsPage({ onBack }: ChannelsPageProps) {
   const fetchChannels = useChannelStore((s) => s.fetchChannels);
   const connectChannel = useChannelStore((s) => s.connectChannel);
   const disconnectChannel = useChannelStore((s) => s.disconnectChannel);
+  const deleteChannel = useChannelStore((s) => s.deleteChannel);
 
   const [showModal, setShowModal] = useState(false);
   const [editingChannel, setEditingChannel] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  const unifiedUserId = useAuthStore((s) => s.unifiedUserId);
+  const [identities, setIdentities] = useState<ChannelIdentity[]>([]);
+  const [bindingCode, setBindingCode] = useState<string | null>(null);
+  const [codeExpiresIn, setCodeExpiresIn] = useState(0);
+  const [bindingLoading, setBindingLoading] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+
   useEffect(() => {
     fetchChannels();
   }, [fetchChannels]);
+
+  const loadIdentities = useCallback(() => {
+    if (!unifiedUserId) return;
+    listBoundIdentities(unifiedUserId).then(setIdentities).catch(() => {});
+  }, [unifiedUserId]);
+
+  useEffect(() => { loadIdentities(); }, [loadIdentities]);
+
+  const handleGenerateCode = async () => {
+    if (!unifiedUserId) return;
+    setBindingLoading(true);
+    try {
+      const result = await generateBindingCode(unifiedUserId);
+      setBindingCode(result.code);
+      setCodeExpiresIn(result.expiresIn);
+    } finally {
+      setBindingLoading(false);
+    }
+  };
+
+  const handleCopyCode = () => {
+    if (bindingCode) {
+      navigator.clipboard.writeText(bindingCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    }
+  };
+
+  const handleUnbind = async (identityId: number) => {
+    await unbindIdentity(identityId);
+    loadIdentities();
+  };
 
   const displayChannels = channels.filter((c) => c.channelId !== "webchat");
 
@@ -103,6 +145,78 @@ export default function ChannelsPage({ onBack }: ChannelsPageProps) {
       </div>
 
       <div className="flex-1 p-6">
+        {/* 身份绑定区域 */}
+        {unifiedUserId && (
+          <div className="mb-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Link size={16} className="text-blue-500" />
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                跨渠道身份绑定
+              </h3>
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                将钉钉/飞书账号与 Web 账号关联，实现对话共享
+              </span>
+            </div>
+
+            <div className="flex gap-4 flex-wrap mb-4">
+              <div className="flex-1 min-w-[260px]">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                  步骤：生成绑定码 → 在钉钉/飞书中发送该绑定码 → 绑定完成
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleGenerateCode}
+                    disabled={bindingLoading}
+                    className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {bindingLoading ? "生成中…" : "生成绑定码"}
+                  </button>
+                  {bindingCode && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <span className="text-lg font-mono font-bold text-blue-600 dark:text-blue-400 tracking-widest">
+                        {bindingCode}
+                      </span>
+                      <button onClick={handleCopyCode} className="p-0.5 text-blue-500 hover:text-blue-700">
+                        {codeCopied ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                      <span className="text-[10px] text-blue-400">
+                        {Math.floor(codeExpiresIn / 60)}分钟有效
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {identities.filter(i => i.channelId !== "webchat").length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">已绑定身份</p>
+                <div className="flex flex-wrap gap-2">
+                  {identities.filter(i => i.channelId !== "webchat").map(identity => {
+                    const meta = CHANNEL_META[identity.channelId] ?? { name: identity.channelId, icon: "📡" };
+                    return (
+                      <div key={identity.id} className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600">
+                        <span className="text-sm">{meta.icon}</span>
+                        <span className="text-xs text-slate-700 dark:text-slate-300">{meta.name}</span>
+                        {identity.externalName && (
+                          <span className="text-[11px] text-slate-400">({identity.externalName})</span>
+                        )}
+                        <button
+                          onClick={() => handleUnbind(identity.id)}
+                          className="p-0.5 text-slate-400 hover:text-red-500 transition-colors"
+                          title="解绑"
+                        >
+                          <Unlink size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 px-4 py-3 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
             {error}
@@ -189,6 +303,23 @@ export default function ChannelsPage({ onBack }: ChannelsPageProps) {
                         {isBusy ? "处理中…" : "连接"}
                       </button>
                     )}
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm(`确定删除渠道「${meta.name}」吗？`)) return;
+                        setActionLoading(channel.channelId);
+                        try {
+                          await deleteChannel(channel.channelId);
+                        } finally {
+                          setActionLoading(null);
+                        }
+                      }}
+                      disabled={isBusy}
+                      className="px-2 py-1 text-xs border border-red-200 dark:border-red-800 rounded-md text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors"
+                      title="删除渠道"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
               );

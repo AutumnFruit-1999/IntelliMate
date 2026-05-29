@@ -1,5 +1,6 @@
 package com.atm.intellimate.gateway.pipeline;
 
+import com.atm.intellimate.agent.runtime.AgentRuntime;
 import com.atm.intellimate.core.prompt.PromptLoader;
 import com.atm.intellimate.core.protocol.GatewayFrame;
 import com.atm.intellimate.core.protocol.ResponseFrame;
@@ -15,7 +16,7 @@ import reactor.core.publisher.Mono;
 import java.util.Map;
 
 /**
- * Handles slash commands: /reset, /status, /model, /approve, /help
+ * Handles slash commands: /clear, /status, /model, /approve, /help
  */
 @Component
 public class CommandHandler {
@@ -24,10 +25,14 @@ public class CommandHandler {
 
     private final SessionManager sessionManager;
     private final DmPairingService dmPairingService;
+    private final AgentRuntime agentRuntime;
 
-    public CommandHandler(SessionManager sessionManager, DmPairingService dmPairingService) {
+    public CommandHandler(SessionManager sessionManager,
+                          DmPairingService dmPairingService,
+                          AgentRuntime agentRuntime) {
         this.sessionManager = sessionManager;
         this.dmPairingService = dmPairingService;
+        this.agentRuntime = agentRuntime;
     }
 
     public static boolean isCommand(String text) {
@@ -41,7 +46,6 @@ public class CommandHandler {
 
         return switch (command) {
             case "/clear" -> handleClear(session, requestId);
-            case "/reset" -> handleReset(session, requestId);
             case "/status" -> handleStatus(session, requestId);
             case "/model" -> handleModel(session, arg, requestId);
             case "/approve" -> handleApprove(arg, requestId);
@@ -53,17 +57,11 @@ public class CommandHandler {
     }
 
     private Flux<GatewayFrame> handleClear(SessionEntity session, String requestId) {
-        log.info("Clearing conversation for session: id={}", session.getId());
-        return sessionManager.resetSession(session.getId())
+        log.info("Clearing conversation for session: id={}, persisting memory first", session.getId());
+        return Mono.fromRunnable(() -> agentRuntime.flushDeferredEpisodicMemory(session.getId()))
+                .then(sessionManager.resetSession(session.getId()))
                 .thenMany(Flux.just(ResponseFrame.success(requestId,
-                        Map.of("text", "对话已清除。", "command", "clear"))));
-    }
-
-    private Flux<GatewayFrame> handleReset(SessionEntity session, String requestId) {
-        log.info("Resetting session: id={}", session.getId());
-        return sessionManager.resetSession(session.getId())
-                .thenMany(Flux.just(ResponseFrame.success(requestId,
-                        Map.of("text", "会话已重置，上下文已清除。", "command", "reset"))));
+                        Map.of("text", "对话已清除（记忆已持久化）。", "command", "clear"))));
     }
 
     private Flux<GatewayFrame> handleStatus(SessionEntity session, String requestId) {

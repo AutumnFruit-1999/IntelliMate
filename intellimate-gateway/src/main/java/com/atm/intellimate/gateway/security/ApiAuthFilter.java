@@ -11,10 +11,6 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-/**
- * Protects /api endpoints with the same auth token used for WebSocket.
- * In dev mode (no token configured), all requests pass through.
- */
 @Component
 @Order(1)
 public class ApiAuthFilter implements WebFilter {
@@ -22,15 +18,21 @@ public class ApiAuthFilter implements WebFilter {
     private static final Logger log = LoggerFactory.getLogger(ApiAuthFilter.class);
 
     private final IntelliMateProperties properties;
+    private final JwtService jwtService;
 
-    public ApiAuthFilter(IntelliMateProperties properties) {
+    public ApiAuthFilter(IntelliMateProperties properties, JwtService jwtService) {
         this.properties = properties;
+        this.jwtService = jwtService;
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
         if (!path.startsWith("/api")) {
+            return chain.filter(exchange);
+        }
+
+        if (path.startsWith("/api/auth/")) {
             return chain.filter(exchange);
         }
 
@@ -48,7 +50,11 @@ public class ApiAuthFilter implements WebFilter {
             token = exchange.getRequest().getQueryParams().getFirst("token");
         }
 
-        if (configuredToken.equals(token)) {
+        if (token != null && configuredToken.equals(token)) {
+            return chain.filter(exchange);
+        }
+
+        if (token != null && jwtService.validateToken(token).isPresent()) {
             return chain.filter(exchange);
         }
 

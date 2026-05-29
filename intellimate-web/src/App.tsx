@@ -16,12 +16,15 @@ import MemoryManagerPage from "./components/MemoryManagerPage";
 import SchedulerDashboard from "./components/SchedulerDashboard";
 import MonitoringPage from "./components/MonitoringPage";
 import ChannelsPage from "./components/ChannelsPage";
+import LoginPage from "./components/LoginPage";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useAgentStore } from "./stores/agentStore";
 import { useChatStore } from "./stores/chatStore";
 import { usePlanStore } from "./stores/planStore";
+import { useAuthStore } from "./stores/authStore";
 
 export default function App() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -103,6 +106,10 @@ export default function App() {
   const handleAgentCardClick = useCallback((name: string) => {
     setAgentConfigTarget(name);
   }, []);
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-slate-900">

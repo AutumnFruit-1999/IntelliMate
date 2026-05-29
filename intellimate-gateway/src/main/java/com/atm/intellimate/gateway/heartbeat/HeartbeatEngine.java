@@ -72,16 +72,15 @@ public class HeartbeatEngine {
         return agentRepository.findById(config.getAgentId())
                 .map(entity -> entity.getName())
                 .defaultIfEmpty("Agent#" + config.getAgentId())
-                .flatMap(agentName -> {
-                    if (!chatInjectionService.isAgentReachable(agentName)) {
-                        return Mono.empty();
-                    }
-                    return shouldTrigger(config, state)
-                            .flatMap(shouldFire -> {
-                                if (!shouldFire) return Mono.empty();
-                                return executeBeat(config, state, now);
-                            });
-                });
+                .flatMap(agentName -> chatInjectionService.isAgentReachable(agentName)
+                        .flatMap(reachable -> {
+                            if (!reachable) return Mono.empty();
+                            return shouldTrigger(config, state)
+                                    .flatMap(shouldFire -> {
+                                        if (!shouldFire) return Mono.empty();
+                                        return executeBeat(config, state, now);
+                                    });
+                        }));
     }
 
     public Mono<Void> forceHeartbeat(HeartbeatConfigEntity config) {

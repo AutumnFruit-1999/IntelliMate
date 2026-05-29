@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useMemoryStore, type MemorySnapshotData, type ConsolidationLogEntry } from "../stores/memoryStore";
 import { ArrowLeft, Brain, Database, Settings, Trash2, RefreshCw, RotateCcw, HelpCircle } from "lucide-react";
 import type { MemoryConfigItem, LongTermMemoryItem, ArchivedMemoryItem, ModelGroup, AgentSummary } from "../lib/api";
-import { fetchModelGroups, fetchAgents, fetchArchivedMemories } from "../lib/api";
+import { fetchModelGroups, fetchAgents, fetchArchivedMemories, fetchWorkingMemoryByAgent } from "../lib/api";
 
 interface Props {
   onBack: () => void;
@@ -88,10 +88,18 @@ function OverviewTab() {
   const stats = useMemoryStore((s) => s.memoryStats);
   const consolidationLog = useMemoryStore((s) => s.consolidationLog);
   const fetchStats = useMemoryStore((s) => s.fetchStats);
+  const handleMemorySnapshot = useMemoryStore((s) => s.handleMemorySnapshot);
   const selectedAgentId = useMemoryStore((s) => s.selectedAgentId);
 
   useEffect(() => {
     void fetchStats();
+    if (!snapshot && selectedAgentId) {
+      fetchWorkingMemoryByAgent(selectedAgentId).then((data) => {
+        if (data && "tokenBudget" in data) {
+          handleMemorySnapshot(data as unknown as MemorySnapshotData);
+        }
+      }).catch(() => {});
+    }
   }, [fetchStats, selectedAgentId]);
 
   return (
@@ -354,11 +362,12 @@ function ConfigTab() {
   const fetchConfig = useMemoryStore((s) => s.fetchConfig);
   const saveConfig = useMemoryStore((s) => s.saveConfig);
   const resetCfg = useMemoryStore((s) => s.resetConfig);
+  const selectedAgentId = useMemoryStore((s) => s.selectedAgentId);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
 
-  useEffect(() => { fetchConfig(); }, [fetchConfig]);
+  useEffect(() => { fetchConfig(); }, [fetchConfig, selectedAgentId]);
   useEffect(() => { setEdits({}); }, [config]);
   useEffect(() => {
     fetchModelGroups().then(setModelGroups).catch(() => {});
