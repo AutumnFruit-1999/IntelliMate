@@ -149,6 +149,7 @@ public class MessagePipeline {
                     TranscriptMessageEntity userMsg = new TranscriptMessageEntity();
                     userMsg.setRole("user");
                     userMsg.setContent(userText);
+                    userMsg.setSourceChannel(session.getChannelId());
                     userMsg.setCreatedAt(LocalDateTime.now());
                     if (planExecuting) {
                         userMsg.setPlanId(planId);
@@ -197,6 +198,7 @@ public class MessagePipeline {
                                             TranscriptMessageEntity assistantMsg = new TranscriptMessageEntity();
                                             assistantMsg.setRole("assistant");
                                             assistantMsg.setContent(completeText);
+                                            assistantMsg.setSourceChannel(session.getChannelId());
                                             assistantMsg.setCreatedAt(LocalDateTime.now());
                                             if (planExecuting) {
                                                 assistantMsg.setPlanId(planId);

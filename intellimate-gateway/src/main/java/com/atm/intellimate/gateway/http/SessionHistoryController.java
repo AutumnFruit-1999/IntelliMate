@@ -122,6 +122,9 @@ public class SessionHistoryController {
         if (entity.getMetadataJson() != null && !entity.getMetadataJson().isBlank()) {
             dto.put("metadata", entity.getMetadataJson());
         }
+        if (entity.getSourceChannel() != null && !entity.getSourceChannel().isBlank()) {
+            dto.put("sourceChannel", entity.getSourceChannel());
+        }
         return dto;
     }
 

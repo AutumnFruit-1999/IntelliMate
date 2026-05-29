@@ -52,6 +52,7 @@ export interface ChatMessage {
   stepGroupSnapshot?: StepGroupSnapshot;
   workflowEntries?: WorkflowEntry[];
   error?: import("../lib/errorMessages").FriendlyError;
+  sourceChannel?: string;
 }
 
 interface ChatState {
@@ -748,6 +749,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           content: m.content ?? "",
           streaming: false,
           timestamp: new Date(m.createdAt).getTime(),
+          sourceChannel: m.sourceChannel,
         }));
       const current = get().currentAgent;
       if (current === agentName) {
@@ -800,6 +802,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           content: m.content ?? "",
           streaming: false,
           timestamp: new Date(m.createdAt).getTime(),
+          sourceChannel: m.sourceChannel,
         }));
       get().prependHistory(messages);
       set({ historyHasMore: resp.hasMore, loadingHistory: false });

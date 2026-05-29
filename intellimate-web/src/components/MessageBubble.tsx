@@ -13,6 +13,23 @@ import {
   Loader2, CheckCircle2, XCircle, Circle, MinusCircle,
 } from "lucide-react";
 
+const CHANNEL_BADGES: Record<string, { icon: string; label: string }> = {
+  feishu: { icon: "🔷", label: "飞书" },
+  dingtalk: { icon: "🔵", label: "钉钉" },
+  wechat: { icon: "🟢", label: "微信" },
+};
+
+function ChannelBadge({ channel }: { channel?: string }) {
+  if (!channel || channel === "webchat") return null;
+  const badge = CHANNEL_BADGES[channel];
+  if (!badge) return null;
+  return (
+    <span className="text-[10px] text-slate-400 dark:text-slate-500 ml-1" title={`来自${badge.label}`}>
+      {badge.icon}
+    </span>
+  );
+}
+
 function formatMessageTime(timestamp: number): string {
   if (!timestamp || timestamp <= 0) return "";
   const date = new Date(timestamp);
@@ -121,8 +138,9 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools, 
       </div>
       <div className={`max-w-[75%] ${isUser ? "" : "min-w-0"}`}>
         {message.timestamp > 0 && (
-          <div className={`text-[10px] text-slate-400 dark:text-slate-500 mb-0.5 ${isUser ? "text-right mr-1" : "ml-1"}`}>
-            {formatMessageTime(message.timestamp)}
+          <div className={`text-[10px] text-slate-400 dark:text-slate-500 mb-0.5 flex items-center gap-0.5 ${isUser ? "justify-end mr-1" : "ml-1"}`}>
+            <span>{formatMessageTime(message.timestamp)}</span>
+            <ChannelBadge channel={message.sourceChannel} />
           </div>
         )}
         {!isUser && message.streaming && <ActivityStrip />}

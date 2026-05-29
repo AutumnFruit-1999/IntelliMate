@@ -7,6 +7,7 @@ export interface HistoryMessage {
   createdAt: string;
   toolName?: string;
   metadata?: string;
+  sourceChannel?: string;
 }
 
 export interface MessagesResponse {
