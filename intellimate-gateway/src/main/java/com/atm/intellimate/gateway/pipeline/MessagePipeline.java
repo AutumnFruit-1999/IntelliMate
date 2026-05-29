@@ -92,10 +92,16 @@ public class MessagePipeline {
      * Collects the agent's full reply text without streaming.
      */
     public Mono<String> processInbound(InboundEnvelope envelope) {
+        return processInbound(envelope, null);
+    }
+
+    public Mono<String> processInbound(InboundEnvelope envelope, String overrideAgentName) {
         SessionKey sessionKey = envelope.sessionKey();
         String userText = envelope.text() != null ? envelope.text() : "";
 
-        String agentName = properties.getAgent().getName();
+        String agentName = (overrideAgentName != null && !overrideAgentName.isBlank())
+                ? overrideAgentName
+                : properties.getAgent().getName();
         SessionMetadata metadata = new SessionMetadata(
                 agentName,
                 envelope.senderName(),

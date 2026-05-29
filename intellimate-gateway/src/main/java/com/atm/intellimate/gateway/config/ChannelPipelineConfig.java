@@ -7,6 +7,7 @@ import com.atm.intellimate.gateway.channel.ChannelIdentityService;
 import com.atm.intellimate.gateway.channel.ChannelMetrics;
 import com.atm.intellimate.gateway.channel.ChannelsManager;
 import com.atm.intellimate.gateway.pipeline.MessagePipeline;
+import com.atm.intellimate.gateway.service.ChannelConfigService;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +31,8 @@ public class ChannelPipelineConfig {
                                  MessagePipeline messagePipeline,
                                  ChannelMetrics channelMetrics,
                                  ChannelBindingCodeService bindingCodeService,
-                                 ChannelIdentityService identityService) {
+                                 ChannelIdentityService identityService,
+                                 ChannelConfigService channelConfigService) {
         channelsManager.setInboundHandler(envelope -> {
             String channelId = envelope.sessionKey().channelId();
             String contextType = envelope.sessionKey().contextType();
@@ -38,7 +40,9 @@ public class ChannelPipelineConfig {
             Timer.Sample sample = channelMetrics.startProcessingTimer();
 
             Mono<String> replyMono = tryBindingCode(envelope, bindingCodeService, identityService)
-                    .orElseGet(() -> messagePipeline.processInbound(envelope));
+                    .orElseGet(() -> channelConfigService.getDefaultAgent(channelId)
+                            .flatMap(optAgent -> messagePipeline.processInbound(
+                                    envelope, optAgent.orElse(null))));
 
             replyMono
                     .flatMap(replyText -> {
