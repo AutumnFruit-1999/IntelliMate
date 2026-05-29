@@ -12,7 +12,8 @@ interface ChannelConfigModalProps {
 
 const AVAILABLE_CHANNELS = [
   { id: "feishu", name: "飞书", icon: "🔷" },
-  { id: "dingtalk", name: "钉钉", icon: "🔵" },
+  { id: "dingtalk", name: "钉钉", icon: "🔵", subtitle: "Webhook" },
+  { id: "dingtalk-stream", name: "钉钉", icon: "🔵", subtitle: "Stream" },
   { id: "wechat", name: "微信", icon: "🟢" },
 ] as const;
 
@@ -21,6 +22,8 @@ const SETUP_GUIDES: Record<string, string> = {
     "在飞书开放平台创建企业自建应用，开启机器人能力，将下方 Webhook URL 填入「事件订阅」请求地址，并填写相同的 Verification Token 与 Encrypt Key。",
   dingtalk:
     "在钉钉开放平台创建应用，配置机器人，将 Webhook URL 填入回调地址，并配置 App Key、App Secret 与签名密钥。",
+  "dingtalk-stream":
+    "在钉钉开放平台创建应用，选择 Stream 模式（推荐），无需公网 IP 和回调地址，只需填写 App Key 和 App Secret 即可。",
   wechat:
     "在微信公众平台或企业微信管理后台配置服务器 URL，将 Webhook URL 填入，Token 与 Encoding AES Key 需与下方配置一致。",
 };
@@ -160,7 +163,7 @@ export default function ChannelConfigModal({ channelId, onClose }: ChannelConfig
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                     选择平台
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     {AVAILABLE_CHANNELS.map((ch) => (
                       <button
                         key={ch.id}
@@ -174,6 +177,9 @@ export default function ChannelConfigModal({ channelId, onClose }: ChannelConfig
                       >
                         <div className="text-2xl">{ch.icon}</div>
                         <div className="text-sm mt-1 text-slate-700 dark:text-slate-300">{ch.name}</div>
+                        {"subtitle" in ch && ch.subtitle && (
+                          <div className="text-xs text-slate-500 dark:text-slate-400">{ch.subtitle}</div>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -183,22 +189,26 @@ export default function ChannelConfigModal({ channelId, onClose }: ChannelConfig
               {selectedType && (
                 <>
                   <div className="mb-4 p-3 bg-slate-50 dark:bg-slate-800/80 rounded-lg border border-slate-200 dark:border-slate-700">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Webhook URL
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleCopyWebhook}
-                        className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        {copied ? <Check size={12} /> : <Copy size={12} />}
-                        {copied ? "已复制" : "复制"}
-                      </button>
-                    </div>
-                    <code className="block text-xs break-all text-slate-600 dark:text-slate-400 font-mono">
-                      {webhookUrl}
-                    </code>
+                    {selectedType !== "dingtalk-stream" && (
+                      <>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Webhook URL
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleCopyWebhook}
+                            className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            {copied ? <Check size={12} /> : <Copy size={12} />}
+                            {copied ? "已复制" : "复制"}
+                          </button>
+                        </div>
+                        <code className="block text-xs break-all text-slate-600 dark:text-slate-400 font-mono">
+                          {webhookUrl}
+                        </code>
+                      </>
+                    )}
                     <p className="text-xs text-slate-500 dark:text-slate-500 mt-2 leading-relaxed">
                       {SETUP_GUIDES[selectedType] ??
                         `请将此 URL 配置到${platformName || "对应"}平台的事件订阅 / 回调地址。`}
@@ -219,6 +229,12 @@ export default function ChannelConfigModal({ channelId, onClose }: ChannelConfig
                         <InputField label="App Key" value={config.appKey ?? ""} onChange={(v) => setConfig({ ...config, appKey: v })} />
                         <InputField label="App Secret" value={config.appSecret ?? ""} onChange={(v) => setConfig({ ...config, appSecret: v })} type="password" />
                         <InputField label="签名密钥" value={config.signSecret ?? ""} onChange={(v) => setConfig({ ...config, signSecret: v })} />
+                      </>
+                    )}
+                    {selectedType === "dingtalk-stream" && (
+                      <>
+                        <InputField label="App Key" value={config.appKey ?? ""} onChange={(v) => setConfig({ ...config, appKey: v })} />
+                        <InputField label="App Secret" value={config.appSecret ?? ""} onChange={(v) => setConfig({ ...config, appSecret: v })} type="password" />
                       </>
                     )}
                     {selectedType === "wechat" && (
