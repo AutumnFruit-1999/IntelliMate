@@ -15,6 +15,7 @@ import ArchivedChatView from "./components/ArchivedChatView";
 import MemoryManagerPage from "./components/MemoryManagerPage";
 import SchedulerDashboard from "./components/SchedulerDashboard";
 import MonitoringPage from "./components/MonitoringPage";
+import ChannelsPage from "./components/ChannelsPage";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useAgentStore } from "./stores/agentStore";
 import { useChatStore } from "./stores/chatStore";
@@ -142,6 +143,7 @@ export default function App() {
             <Route path="/tools" element={<ToolManagerPage onBack={() => navigate("/chat")} />} />
             <Route path="/skills" element={<SkillManagerPage onBack={() => navigate("/chat")} />} />
             <Route path="/models" element={<ModelManagerPage onBack={() => navigate("/chat")} />} />
+            <Route path="/channels" element={<ChannelsPage onBack={() => navigate("/chat")} />} />
             <Route
               path="/memory"
               element={

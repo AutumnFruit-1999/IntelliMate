@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
 import ConnectionStatus from "./ConnectionStatus";
-import { X, Bot, Settings, Sparkles, Cpu, Brain, Timer, ChevronDown, ChevronRight, History, Plus, Trash2, Activity } from "lucide-react";
+import { X, Bot, Settings, Sparkles, Cpu, Brain, Timer, ChevronDown, ChevronRight, History, Plus, Trash2, Activity, Link2 } from "lucide-react";
 
 interface SidebarProps {
   open: boolean;
@@ -28,7 +28,7 @@ export default function Sidebar({
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
   const agentDropdownRef = useRef<HTMLDivElement>(null);
 
-  const managementPaths = ["/agents", "/tools", "/skills", "/models"];
+  const managementPaths = ["/agents", "/tools", "/skills", "/models", "/channels"];
   const isInManagement = managementPaths.some((p) => location.pathname === p);
   const [managementExpanded, setManagementExpanded] = useState(true);
 
@@ -219,6 +219,9 @@ export default function Sidebar({
                 </button>
                 <button onClick={() => { navigate("/models"); onClose(); }} className={navItemClass("/models")}>
                   <Cpu size={14} /> 模型管理
+                </button>
+                <button onClick={() => { navigate("/channels"); onClose(); }} className={navItemClass("/channels")}>
+                  <Link2 size={14} /> 渠道
                 </button>
               </div>
             )}
