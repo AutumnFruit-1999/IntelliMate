@@ -351,32 +351,44 @@ ALTER TABLE conversation_message
 
 ## 实施顺序
 
-### 阶段 1：管道打通 + 管理 API
+### 阶段 1：管道打通 + 管理 API ✅ 已完成
 
-1. 补全入站链路（WebhookController → MessagePipeline）
-2. 实现 `AbstractChannelAdapter` 基类
-3. 实现渠道管理 REST API + `ChannelConfigService`
-4. 数据库迁移（channel_identity、channel_message_log、source_channel）
-5. 基础单元测试
+1. ✅ 补全入站链路（WebhookController → MessagePipeline）
+2. ✅ 实现 `AbstractChannelAdapter` 基类
+3. ✅ 实现渠道管理 REST API + `ChannelConfigService`
+4. ✅ 数据库迁移（channel_identity、channel_message_log、source_channel）
+5. ✅ 基础单元测试
 
-### 阶段 2：飞书适配器 + 前端管理页
+### 阶段 2：飞书适配器 + 前端管理页 ✅ 已完成
 
-1. 实现 `FeishuAdapter`（事件订阅、消息收发、验签）
-2. 前端「渠道管理」页面（列表 + 配置 + 状态）
-3. 端到端测试：飞书 → Agent → 飞书回复
-4. 用户身份映射 + 跨渠道会话
+1. ✅ 实现 `FeishuAdapter`（事件订阅、消息收发、验签）
+2. ✅ 前端「渠道管理」页面（列表 + 配置 + 状态 + 删除）
+3. ✅ 端到端测试：飞书 → Agent → 飞书回复
+4. ✅ 用户身份映射 + 跨渠道会话
 
-### 阶段 3：钉钉适配器
+### 阶段 3：钉钉适配器 ✅ 已完成
 
-1. 实现 `DingtalkAdapter`
-2. 复用阶段 2 的管理 UI 和会话机制
-3. 端到端测试
+1. ✅ 实现 `DingtalkAdapter`（Webhook 模式）
+2. ✅ 实现 `DingtalkStreamAdapter`（Stream 模式，推荐）
+3. ✅ 复用阶段 2 的管理 UI 和会话机制
+4. ✅ 端到端测试
 
-### 阶段 4：微信适配器 + 监控完善
+### 阶段 4：微信适配器 + 监控完善 ✅ 已完成
 
-1. 实现 `AbstractWeChatAdapter` + 第一个具体形态
-2. 完善监控指标和告警
-3. 账号绑定功能（配对码）
+1. ✅ 实现 `AbstractWeChatAdapter` + 微信公众号适配器
+2. ✅ 完善监控指标和告警（ChannelMetrics + Micrometer）
+3. ✅ 账号绑定功能（6 位配对码）
+
+### 阶段 5：会话与记忆增强 ✅ 已完成
+
+1. ✅ 统一会话（unified channel）管理优化
+2. ✅ `/clear` 记忆持久化：直接从 DB transcript 构建情景记忆
+3. ✅ 每 Agent 独立记忆配置
+4. ✅ 工作记忆观测从 transcript 重建
+5. ✅ 前端 `/clear` 后同步清空记忆面板
+6. ✅ 归档会话查询支持 unified + webchat channel
+7. ✅ 主动消息推送到外部渠道
+8. ✅ 跨渠道实时消息同步（CrossChannelSyncService）
 
 ## 向后兼容
 

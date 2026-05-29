@@ -261,11 +261,22 @@ CREATE TABLE channel_identity (
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/api/sessions/{agentName}/messages` | 活跃会话消息（支持分页） |
-| `POST` | `/api/sessions/{agentName}/clear` | 归档当前会话、开启新会话 |
+| `POST` | `/api/sessions/{agentName}/clear` | 归档当前会话、持久化记忆、开启新会话 |
 | `GET` | `/api/sessions/{agentName}/archived` | 历史归档会话列表 |
 | `GET` | `/api/sessions/by-id/{sessionId}/messages` | 指定会话的消息 |
 | `DELETE` | `/api/sessions/by-id/{sessionId}` | 删除归档会话 |
 | `GET` | `/api/sessions/{agentName}/search` | 关键词搜索 |
+
+### 5.3 /clear 命令行为
+
+执行 `/clear`（通过 WebSocket 命令或 HTTP API）时，系统依次执行：
+
+1. **记忆持久化** — 从数据库 `transcript_message` 表读取当前会话的所有消息，提取用户话题摘要，生成情景记忆（episodic）存入 `agent_memory` 表
+2. **会话归档** — 将当前活跃 session 标记为 `archived`，生成标题
+3. **新建会话** — 创建新的活跃 session，上下文重置
+4. **前端清空** — 清除对话消息列表、工作记忆观测面板、计划面板
+
+**设计原则**：记忆持久化直接从数据库读取 transcript，不依赖内存状态，即使服务重启后 `/clear` 也能正确产生长期记忆。
 
 ### 5.3 主动推送（Proactive Messages）
 
@@ -344,7 +355,43 @@ curl -X POST http://localhost:3007/api/channel-binding/generate-code \
 
 ---
 
-## 8. 数据库表清单
+## 8. 记忆系统
+
+### 8.1 记忆层级
+
+| 层级 | 存储位置 | 持久性 | 说明 |
+|------|----------|--------|------|
+| 工作记忆 | 内存 + DB 重建 | 会话内 | 当前对话上下文窗口，管理 token 预算 |
+| 长期记忆 | `agent_memory` 表 | 持久 | 情景/语义/程序性记忆 |
+| 记忆配置 | `memory_config` 表 | 持久 | 按 Agent 独立配置 |
+
+### 8.2 工作记忆观测
+
+记忆观测面板（`/memory`）显示当前工作记忆状态：
+
+- **在线时**：从 Agent 运行时获取实时快照
+- **页面加载时**：从 `transcript_message` 表重建快照视图（token 估算 + chunk 列表）
+- **`/clear` 后**：前端立即清空显示为空状态
+
+### 8.3 每 Agent 独立配置
+
+记忆配置通过 `memory_config` 表管理，支持按 `agent_name` 隔离：
+
+- 每个 Agent 可独立设置 token 预算、整合阈值、遗忘策略等
+- 未配置的 Agent 继承 `_global_` 全局默认值
+- 前端切换 Agent 时自动加载对应配置
+
+**配置 API**（均支持 `?agentName=xxx` 参数）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/memory/config` | 获取配置 |
+| `POST` | `/api/memory/config` | 更新配置 |
+| `POST` | `/api/memory/config/reset` | 重置为默认 |
+
+---
+
+## 9. 数据库表清单
 
 | 表名 | 用途 |
 |------|------|
@@ -353,5 +400,7 @@ curl -X POST http://localhost:3007/api/channel-binding/generate-code \
 | `channel_config` | 渠道连接配置 |
 | `session` | 对话会话 |
 | `transcript_message` | 消息记录（含 `source_channel`） |
+| `agent_memory` | 长期记忆存储 |
+| `memory_config` | 记忆参数配置（按 Agent 隔离） |
 | `allowlist_entry` | 渠道发送者白名单 |
 | `pairing_request` | DM 配对请求 |
