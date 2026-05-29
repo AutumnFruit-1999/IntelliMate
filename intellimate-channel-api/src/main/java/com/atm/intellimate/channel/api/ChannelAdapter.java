@@ -1,10 +1,17 @@
 package com.atm.intellimate.channel.api;
 
+import com.atm.intellimate.channel.api.model.MessageType;
+import com.atm.intellimate.channel.api.model.WebhookRequest;
+import com.atm.intellimate.channel.api.model.WebhookResponse;
 import com.atm.intellimate.core.model.InboundEnvelope;
 import com.atm.intellimate.core.model.OutboundMessage;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import reactor.core.publisher.Mono;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -54,5 +61,17 @@ public interface ChannelAdapter {
      */
     default boolean isConnected() {
         return getStatus() == ChannelStatus.CONNECTED;
+    }
+
+    default WebhookResponse handleWebhook(WebhookRequest request) {
+        return WebhookResponse.ok();
+    }
+
+    default Set<MessageType> supportedMessageTypes() {
+        return Collections.singleton(MessageType.TEXT);
+    }
+
+    default JsonNode getConfigSchema() {
+        return JsonNodeFactory.instance.objectNode();
     }
 }
