@@ -102,18 +102,19 @@ public class ChannelsManager {
     }
 
     private Mono<Void> connectChannel(ChannelConfigEntity config) {
-        ChannelAdapter adapter = adapters.get(config.getChannelId());
-        if (adapter == null) {
-            log.warn("No adapter found for channel: {}", config.getChannelId());
-            return Mono.empty();
-        }
-
-        Map<String, Object> settings = parseConfig(config.getConfigJson());
-
-        return adapter.connect(settings)
-                .doOnSuccess(v -> log.info("Channel connected: {}", config.getChannelId()))
-                .doOnError(e -> log.error("Failed to connect channel: {}", config.getChannelId(), e))
+        return connectChannel(config.getChannelId(), parseConfig(config.getConfigJson()))
                 .onErrorComplete();
+    }
+
+    public Mono<Void> connectChannel(String channelId, Map<String, Object> settings) {
+        ChannelAdapter adapter = adapters.get(channelId);
+        if (adapter == null) {
+            return Mono.error(new IllegalArgumentException("No adapter for: " + channelId));
+        }
+        Map<String, Object> config = settings != null ? settings : Collections.emptyMap();
+        return adapter.connect(config)
+                .doOnSuccess(v -> log.info("Channel connected: {}", channelId))
+                .doOnError(e -> log.error("Failed to connect channel: {}", channelId, e));
     }
 
     public Mono<Void> send(OutboundMessage message) {
