@@ -110,7 +110,20 @@ public class MessagePipeline {
                 sessionKey.contextId()
         );
 
+        log.info("processInbound: channelId={}, overrideAgent={}, resolvedAgent={}",
+                sessionKey.channelId(), overrideAgentName, agentName);
+
         return sessionManager.getOrCreate(sessionKey, metadata)
+                .flatMap(session -> {
+                    if (overrideAgentName != null && !overrideAgentName.isBlank()
+                            && !overrideAgentName.equals(session.getAgentName())) {
+                        log.info("Updating session agentName: {} -> {}",
+                                session.getAgentName(), overrideAgentName);
+                        session.setAgentName(overrideAgentName);
+                        return sessionRepository.save(session);
+                    }
+                    return Mono.just(session);
+                })
                 .flatMap(session -> {
                     if (CommandHandler.isCommand(userText)) {
                         return commandHandler.handle(userText, session, "channel-inbound")

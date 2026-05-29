@@ -25,6 +25,9 @@ public interface SessionRepository extends ReactiveCrudRepository<SessionEntity,
     @Query("SELECT COUNT(*) FROM session WHERE agent_name = :agentName AND status = 'archived' AND deleted = 0 AND channel_id = 'webchat'")
     Mono<Long> countArchivedByAgentName(String agentName);
 
+    @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'active' AND deleted = 0 AND channel_id != 'webchat'")
+    Flux<SessionEntity> findExternalChannelSessionsByAgentName(String agentName);
+
     @Modifying
     @Query("UPDATE session SET status = 'archived', title = :title, context_id = CONCAT(context_id, '::archived::', id) WHERE id = :id")
     Mono<Long> archiveSession(Long id, String title);

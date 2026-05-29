@@ -73,7 +73,7 @@ public class HeartbeatEngine {
                 .map(entity -> entity.getName())
                 .defaultIfEmpty("Agent#" + config.getAgentId())
                 .flatMap(agentName -> {
-                    if (!chatInjectionService.isAgentOnline(agentName)) {
+                    if (!chatInjectionService.isAgentReachable(agentName)) {
                         return Mono.empty();
                     }
                     return shouldTrigger(config, state)
