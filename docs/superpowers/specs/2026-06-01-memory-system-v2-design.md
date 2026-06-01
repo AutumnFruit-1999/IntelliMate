@@ -268,9 +268,65 @@ public MemoryChunk toRecalledChunk(int estimatedTokens, double relevanceScore) {
 
 修改 `AgentLoopExecutor` 中的注入逻辑，使用新的 `toRecalledChunk` 方法。
 
-### 5. 缺陷修复
+### 5. 持久化质量优化
 
-#### 5.1 findByUserId 多用户隔离修复
+#### 5.1 提取 fact 质量过滤
+
+**问题**：LLM 提取的每一条 fact 都直接存储，包括"用户在使用系统"这种无价值内容。
+
+**修复**：在 `LongTermMemoryImpl.store()` 入口增加质量门控：
+
+```java
+if (fact.importance() < MIN_FACT_IMPORTANCE) {
+    log.debug("Fact filtered: importance {} < threshold {}", fact.importance(), MIN_FACT_IMPORTANCE);
+    return Mono.empty();
+}
+if (fact.content() == null || fact.content().length() < MIN_FACT_CONTENT_LENGTH) {
+    log.debug("Fact filtered: content too short ({})", fact.content() == null ? 0 : fact.content().length());
+    return Mono.empty();
+}
+```
+
+新增配置项：
+
+| 配置键 | 默认值 | 说明 |
+|--------|--------|------|
+| `long_term.min_fact_importance` | `0.3` | 低于此 importance 的 fact 不存储 |
+| `long_term.min_fact_content_length` | `10` | 内容短于此字符数的 fact 不存储 |
+
+#### 5.2 合并去重内容大小限制
+
+**问题**：相似记忆反复合并时用 `\n---\n` 拼接，导致单条记忆内容无限膨胀。
+
+**修复**：在 `LongTermMemoryImpl.store()` 的合并逻辑中增加大小限制：
+
+```java
+String mergedContent = existing.getContent();
+if (!existing.getContent().contains(fact.content()) && fact.content().length() < 500) {
+    mergedContent = existing.getContent() + "\n---\n" + fact.content();
+    if (mergedContent.length() > MAX_MERGED_CONTENT_LENGTH) {
+        // 截断到最大长度，保留最新的部分
+        mergedContent = mergedContent.substring(
+            mergedContent.length() - MAX_MERGED_CONTENT_LENGTH);
+        // 确保从完整段落开始
+        int firstSeparator = mergedContent.indexOf("\n---\n");
+        if (firstSeparator > 0) {
+            mergedContent = mergedContent.substring(firstSeparator + 5);
+        }
+    }
+}
+existing.setContent(mergedContent);
+```
+
+新增配置项：
+
+| 配置键 | 默认值 | 说明 |
+|--------|--------|------|
+| `long_term.max_merged_content_length` | `1000` | 合并后单条记忆的最大字符数 |
+
+### 6. 缺陷修复
+
+#### 6.1 findByUserId 多用户隔离修复
 
 **问题**：`LongTermMemoryImpl.findByUserId()` 和 `countByUserId()` 忽略 userId 参数。
 
@@ -281,7 +337,7 @@ public MemoryChunk toRecalledChunk(int estimatedTokens, double relevanceScore) {
 - 缓存 key 改为 `userId:agentId` 组合
 - `AgentMemoryRepository` 新增对应查询方法
 
-#### 5.2 min_chunks_for_episodic 生效
+#### 6.2 min_chunks_for_episodic 生效
 
 **问题**：配置项存在但从未检查。
 
@@ -295,7 +351,7 @@ if (nonSystemChunks.size() < minChunksForEpisodic) {
 }
 ```
 
-#### 5.3 persistFromTranscript 尊重 long_term.enabled
+#### 6.3 persistFromTranscript 尊重 long_term.enabled
 
 **问题**：`/clear` 时无视配置开关。
 
@@ -309,7 +365,7 @@ memoryConfigService.resolve()
         log.info("Long-term memory disabled, skipping episodic persistence")))
 ```
 
-#### 5.4 现有数据迁移到 Qdrant
+#### 6.4 现有数据迁移到 Qdrant
 
 提供应用启动时自动执行的迁移任务（`ApplicationRunner`），仅在 `vector.enabled=true` 时运行：
 
@@ -320,7 +376,7 @@ memoryConfigService.resolve()
 - 记录迁移进度到日志（每 100 条输出一次进度）
 - 迁移失败的记录记录 WARN 日志并跳过，不阻塞启动
 
-### 6. 新增配置项
+### 7. 新增配置项
 
 以下配置项添加到 `memory_config` 表：
 
@@ -338,10 +394,13 @@ memoryConfigService.resolve()
 | `scoring.semantic_decay_lambda` | `0.03` | scoring | semantic 衰减系数 |
 | `scoring.episodic_decay_lambda` | `0.10` | scoring | episodic 衰减系数 |
 | `scoring.procedural_decay_lambda` | `0.05` | scoring | procedural 衰减系数 |
+| `long_term.min_fact_importance` | `0.3` | long_term | 低于此 importance 的 fact 不存储 |
+| `long_term.min_fact_content_length` | `10` | long_term | 内容短于此字符数的 fact 不存储 |
+| `long_term.max_merged_content_length` | `1000` | long_term | 合并后单条记忆最大字符数 |
 
 同时需要新增 Flyway migration 插入这些默认配置。
 
-### 7. 受影响的模块
+### 8. 受影响的模块
 
 | 模块 | 变更类型 | 涉及文件 |
 |------|---------|---------|
@@ -351,7 +410,7 @@ memoryConfigService.resolve()
 | intellimate-web | 配置面板新增向量/评分相关配置项 | MemoryManagerPage.tsx, memoryStore.ts |
 | Docker / 启动脚本 | 新增 Qdrant 容器配置 | docker-compose.yml, start.sh |
 
-### 8. 测试策略
+### 9. 测试策略
 
 - `ScoringFunction` 单元测试：验证类型差异化评分
 - `HybridMemoryRetrieval` 单元测试：验证融合排序、降级逻辑
@@ -360,7 +419,7 @@ memoryConfigService.resolve()
 - 数据迁移任务测试：幂等性验证
 - 端到端测试：完整的存储 → 检索 → 注入流程
 
-### 9. 向后兼容
+### 10. 向后兼容
 
 - Qdrant 为可选依赖，不可用时自动降级为纯关键词模式
 - 现有 `MemoryRetrieval` 类保持不变，可独立使用
