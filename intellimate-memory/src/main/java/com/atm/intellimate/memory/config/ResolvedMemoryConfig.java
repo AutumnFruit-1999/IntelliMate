@@ -20,7 +20,21 @@ public record ResolvedMemoryConfig(
         float decayLambda,
         int compactionThreshold,
         int archiveAfterDays,
-        int minChunksForEpisodic
+        int minChunksForEpisodic,
+        boolean vectorEnabled,
+        String embeddingModel,
+        int embeddingDimensions,
+        String retrievalStrategy,
+        float vectorWeight,
+        float keywordWeight,
+        float semanticWeight,
+        float episodicWeight,
+        float proceduralWeight,
+        float semanticDecayLambda,
+        float episodicDecayLambda,
+        float proceduralDecayLambda,
+        float minFactImportance,
+        int maxMergedContentLength
 ) {
 
     public static ResolvedMemoryConfig fromMap(Map<String, String> map) {
@@ -39,7 +53,21 @@ public record ResolvedMemoryConfig(
                 parseFloat(map, "long_term.decay_lambda"),
                 parseInt(map, "long_term.compaction_threshold"),
                 parseInt(map, "long_term.archive_after_days"),
-                parseIntOrDefault(map, "long_term.min_chunks_for_episodic", 4)
+                parseIntOrDefault(map, "long_term.min_chunks_for_episodic", 4),
+                parseBooleanOrDefault(map, "vector.enabled", true),
+                getOrDefault(map, "embedding.model", "text-embedding-v3"),
+                parseIntOrDefault(map, "embedding.dimensions", 1024),
+                getOrDefault(map, "retrieval.strategy", "hybrid"),
+                parseFloatOrDefault(map, "retrieval.vector_weight", 0.6f),
+                parseFloatOrDefault(map, "retrieval.keyword_weight", 0.4f),
+                parseFloatOrDefault(map, "scoring.semantic_weight", 1.2f),
+                parseFloatOrDefault(map, "scoring.episodic_weight", 0.8f),
+                parseFloatOrDefault(map, "scoring.procedural_weight", 1.0f),
+                parseFloatOrDefault(map, "scoring.semantic_decay_lambda", 0.03f),
+                parseFloatOrDefault(map, "scoring.episodic_decay_lambda", 0.10f),
+                parseFloatOrDefault(map, "scoring.procedural_decay_lambda", 0.05f),
+                parseFloatOrDefault(map, "long_term.min_fact_importance", 0.3f),
+                parseIntOrDefault(map, "long_term.max_merged_content_length", 1000)
         );
     }
 
@@ -48,6 +76,12 @@ public record ResolvedMemoryConfig(
         if (val == null) {
             throw new IllegalArgumentException("Missing required memory config key: " + key);
         }
+        return val;
+    }
+
+    private static String getOrDefault(Map<String, String> map, String key, String defaultValue) {
+        String val = map.get(key);
+        if (val == null || val.isBlank()) return defaultValue;
         return val;
     }
 
@@ -84,5 +118,21 @@ public record ResolvedMemoryConfig(
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    private static float parseFloatOrDefault(Map<String, String> map, String key, float defaultValue) {
+        String val = map.get(key);
+        if (val == null || val.isBlank()) return defaultValue;
+        try {
+            return Float.parseFloat(val);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private static boolean parseBooleanOrDefault(Map<String, String> map, String key, boolean defaultValue) {
+        String val = map.get(key);
+        if (val == null || val.isBlank()) return defaultValue;
+        return Boolean.parseBoolean(val);
     }
 }

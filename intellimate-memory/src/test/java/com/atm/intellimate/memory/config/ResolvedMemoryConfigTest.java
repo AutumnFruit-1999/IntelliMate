@@ -27,11 +27,26 @@ class ResolvedMemoryConfigTest {
         map.put("long_term.decay_lambda", "0.1");
         map.put("long_term.compaction_threshold", "300");
         map.put("long_term.archive_after_days", "30");
+        map.put("long_term.min_chunks_for_episodic", "4");
+        map.put("vector.enabled", "true");
+        map.put("embedding.model", "text-embedding-v3");
+        map.put("embedding.dimensions", "1024");
+        map.put("retrieval.strategy", "hybrid");
+        map.put("retrieval.vector_weight", "0.6");
+        map.put("retrieval.keyword_weight", "0.4");
+        map.put("scoring.semantic_weight", "1.2");
+        map.put("scoring.episodic_weight", "0.8");
+        map.put("scoring.procedural_weight", "1.0");
+        map.put("scoring.semantic_decay_lambda", "0.03");
+        map.put("scoring.episodic_decay_lambda", "0.10");
+        map.put("scoring.procedural_decay_lambda", "0.05");
+        map.put("long_term.min_fact_importance", "0.3");
+        map.put("long_term.max_merged_content_length", "1000");
         return map;
     }
 
     @Test
-    @DisplayName("fromMap parses all 14 fields correctly")
+    @DisplayName("fromMap parses all fields correctly")
     void fromMap_parsesAllFields() {
         ResolvedMemoryConfig cfg = ResolvedMemoryConfig.fromMap(fullDefaults());
         assertEquals(128000, cfg.tokenBudget());
@@ -48,6 +63,57 @@ class ResolvedMemoryConfigTest {
         assertEquals(0.1f, cfg.decayLambda(), 0.001f);
         assertEquals(300, cfg.compactionThreshold());
         assertEquals(30, cfg.archiveAfterDays());
+        assertEquals(4, cfg.minChunksForEpisodic());
+        assertTrue(cfg.vectorEnabled());
+        assertEquals("text-embedding-v3", cfg.embeddingModel());
+        assertEquals(1024, cfg.embeddingDimensions());
+        assertEquals("hybrid", cfg.retrievalStrategy());
+        assertEquals(0.6f, cfg.vectorWeight(), 0.001f);
+        assertEquals(0.4f, cfg.keywordWeight(), 0.001f);
+        assertEquals(1.2f, cfg.semanticWeight(), 0.001f);
+        assertEquals(0.8f, cfg.episodicWeight(), 0.001f);
+        assertEquals(1.0f, cfg.proceduralWeight(), 0.001f);
+        assertEquals(0.03f, cfg.semanticDecayLambda(), 0.001f);
+        assertEquals(0.10f, cfg.episodicDecayLambda(), 0.001f);
+        assertEquals(0.05f, cfg.proceduralDecayLambda(), 0.001f);
+        assertEquals(0.3f, cfg.minFactImportance(), 0.001f);
+        assertEquals(1000, cfg.maxMergedContentLength());
+    }
+
+    @Test
+    @DisplayName("fromMap uses defaults for optional vector and scoring fields")
+    void fromMap_optionalFieldsUseDefaults() {
+        Map<String, String> requiredOnly = new HashMap<>(fullDefaults());
+        requiredOnly.remove("vector.enabled");
+        requiredOnly.remove("embedding.model");
+        requiredOnly.remove("embedding.dimensions");
+        requiredOnly.remove("retrieval.strategy");
+        requiredOnly.remove("retrieval.vector_weight");
+        requiredOnly.remove("retrieval.keyword_weight");
+        requiredOnly.remove("scoring.semantic_weight");
+        requiredOnly.remove("scoring.episodic_weight");
+        requiredOnly.remove("scoring.procedural_weight");
+        requiredOnly.remove("scoring.semantic_decay_lambda");
+        requiredOnly.remove("scoring.episodic_decay_lambda");
+        requiredOnly.remove("scoring.procedural_decay_lambda");
+        requiredOnly.remove("long_term.min_fact_importance");
+        requiredOnly.remove("long_term.max_merged_content_length");
+
+        ResolvedMemoryConfig cfg = ResolvedMemoryConfig.fromMap(requiredOnly);
+        assertTrue(cfg.vectorEnabled());
+        assertEquals("text-embedding-v3", cfg.embeddingModel());
+        assertEquals(1024, cfg.embeddingDimensions());
+        assertEquals("hybrid", cfg.retrievalStrategy());
+        assertEquals(0.6f, cfg.vectorWeight(), 0.001f);
+        assertEquals(0.4f, cfg.keywordWeight(), 0.001f);
+        assertEquals(1.2f, cfg.semanticWeight(), 0.001f);
+        assertEquals(0.8f, cfg.episodicWeight(), 0.001f);
+        assertEquals(1.0f, cfg.proceduralWeight(), 0.001f);
+        assertEquals(0.03f, cfg.semanticDecayLambda(), 0.001f);
+        assertEquals(0.10f, cfg.episodicDecayLambda(), 0.001f);
+        assertEquals(0.05f, cfg.proceduralDecayLambda(), 0.001f);
+        assertEquals(0.3f, cfg.minFactImportance(), 0.001f);
+        assertEquals(1000, cfg.maxMergedContentLength());
     }
 
     @Test
