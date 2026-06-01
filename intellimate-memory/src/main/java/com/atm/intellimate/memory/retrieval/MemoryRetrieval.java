@@ -28,8 +28,14 @@ public class MemoryRetrieval {
 
     public MemoryRetrieval(LongTermMemory longTermMemory,
                            TokenEstimator tokenEstimator) {
+        this(longTermMemory, tokenEstimator, new ScoringFunction());
+    }
+
+    public MemoryRetrieval(LongTermMemory longTermMemory,
+                           TokenEstimator tokenEstimator,
+                           ScoringFunction scoringFunction) {
         this.longTermMemory = longTermMemory;
-        this.scoringFunction = new ScoringFunction();
+        this.scoringFunction = scoringFunction;
         this.keywordExtractor = new KeywordExtractor();
         this.tokenEstimator = tokenEstimator;
     }

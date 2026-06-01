@@ -62,4 +62,25 @@ class ScoringFunctionTest {
         double decay = scorer.computeRecencyDecay(null, 0.1);
         assertEquals(0.5, decay);
     }
+
+    @Test
+    @DisplayName("Semantic memory has higher weight and slower decay than episodic after 30 days")
+    void computeRetrievalScore_semanticMemory_hasHigherWeightAndSlowerDecay() {
+        ScoringFunction sf = new ScoringFunction(1.2, 0.8, 1.0, 0.03, 0.10, 0.05);
+        MemoryEntry semantic = createEntry("semantic", 0.7f, 30);
+        MemoryEntry episodic = createEntry("episodic", 0.7f, 30);
+
+        double semanticScore = sf.computeRetrievalScore(semantic, 0.5, 0.1);
+        double episodicScore = sf.computeRetrievalScore(episodic, 0.5, 0.1);
+
+        assertTrue(semanticScore > episodicScore,
+                "Semantic memory should score higher than episodic after 30 days");
+    }
+
+    private MemoryEntry createEntry(String memoryType, float importance, int daysAgo) {
+        MemoryEntry m = new MemoryEntry("user1", "default", memoryType, "test content", importance, null);
+        m.setAccessCount(1);
+        m.setLastAccessedAt(Instant.now().minus(daysAgo, ChronoUnit.DAYS));
+        return m;
+    }
 }
