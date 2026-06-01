@@ -4,6 +4,7 @@ import com.atm.intellimate.gateway.entity.SessionEntity;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
 import com.atm.intellimate.gateway.repository.TranscriptMessageRepository;
 import com.atm.intellimate.gateway.session.SessionManager;
+import com.atm.intellimate.memory.config.MemoryConfigProvider;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.ExtractedFact;
 import org.slf4j.Logger;
@@ -23,14 +24,18 @@ public class SessionHistoryController {
     private final SessionManager sessionManager;
     private final TranscriptMessageRepository transcriptRepository;
     private final LongTermMemory longTermMemory;
+    private final MemoryConfigProvider memoryConfigProvider;
 
     public SessionHistoryController(SessionManager sessionManager,
                                      TranscriptMessageRepository transcriptRepository,
                                      @org.springframework.beans.factory.annotation.Autowired(required = false)
-                                     LongTermMemory longTermMemory) {
+                                     LongTermMemory longTermMemory,
+                                     @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                     MemoryConfigProvider memoryConfigProvider) {
         this.sessionManager = sessionManager;
         this.transcriptRepository = transcriptRepository;
         this.longTermMemory = longTermMemory;
+        this.memoryConfigProvider = memoryConfigProvider;
     }
 
     @GetMapping("/{agentName}/messages")
@@ -73,6 +78,24 @@ public class SessionHistoryController {
             log.warn("persistFromTranscript: longTermMemory is null, skip");
             return Mono.empty();
         }
+        if (memoryConfigProvider != null) {
+            return memoryConfigProvider.resolve()
+                    .flatMap(config -> {
+                        if (!config.longTermEnabled()) {
+                            log.info("persistFromTranscript: long_term.enabled is false, skip");
+                            return Mono.empty();
+                        }
+                        return doActualPersist(session);
+                    })
+                    .onErrorResume(e -> {
+                        log.warn("persistFromTranscript: config check failed, proceeding with persist: {}", e.getMessage());
+                        return doActualPersist(session);
+                    });
+        }
+        return doActualPersist(session);
+    }
+
+    private Mono<Void> doActualPersist(SessionEntity session) {
         log.info("persistFromTranscript: reading transcript for session {}", session.getId());
         return transcriptRepository.findRecentBySessionId(session.getId(), 200)
                 .collectList()

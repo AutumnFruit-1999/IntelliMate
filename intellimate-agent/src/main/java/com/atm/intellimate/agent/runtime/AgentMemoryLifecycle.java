@@ -195,6 +195,15 @@ public class AgentMemoryLifecycle {
                 log.info("storeSessionEpisodicMemory: skipped for session {} (no chunks)", sessionId);
                 return;
             }
+            long nonSystemCount = chunks.stream()
+                    .filter(c -> c.type() != com.atm.intellimate.memory.model.ChunkType.SYSTEM
+                            && c.type() != com.atm.intellimate.memory.model.ChunkType.RECALLED)
+                    .count();
+            if (nonSystemCount < minChunksForEpisodic) {
+                log.info("storeSessionEpisodicMemory: skipped for session {} ({} non-system chunks < min {})",
+                        sessionId, nonSystemCount, minChunksForEpisodic);
+                return;
+            }
             log.info("storeSessionEpisodicMemory: storing for session {} (chunks={}, consolidationCount={})",
                     sessionId, chunks.size(), workingMemory.getConsolidationCount());
 

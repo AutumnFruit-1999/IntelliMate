@@ -37,13 +37,13 @@ public class LongTermMemoryImpl implements LongTermMemory {
         this.repository = repository;
     }
 
-    private String cacheKey(String agentId) {
-        return "agent:" + effectiveAgentId(agentId);
+    private String cacheKey(String userId, String agentId) {
+        return effectiveUserId(userId) + ":" + effectiveAgentId(agentId);
     }
 
     /** Invalidate hot cache for a specific scope (called on write/delete). */
     private void invalidateCache(String userId, String agentId) {
-        hotCache.invalidate(cacheKey(agentId));
+        hotCache.invalidate(cacheKey(userId, agentId));
     }
 
     private static String effectiveUserId(String userId) {
@@ -90,17 +90,18 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     @Override
     public Flux<MemoryEntry> search(String cue, String userId, String agentId) {
+        final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
         List<String> keywords = keywordExtractor.extract(cue);
         if (keywords.isEmpty()) {
-            return repository.findByAgentId(aid).map(this::toMemoryEntry);
+            return repository.findByUserIdAndAgentId(uid, aid).map(this::toMemoryEntry);
         }
 
         String fulltextExpr = String.join(" ", keywords);
-        return repository.fulltextSearchByAgentId(aid, fulltextExpr, 100)
+        return repository.fulltextSearch(uid, aid, fulltextExpr, 100)
                 .map(this::toMemoryEntry)
                 .switchIfEmpty(Flux.fromIterable(keywords)
-                        .flatMap(kw -> repository.findByAgentId(aid)
+                        .flatMap(kw -> repository.findByUserIdAndAgentId(uid, aid)
                                 .filter(e -> e.getContent() != null && e.getContent().contains(kw)))
                         .distinct(AgentMemoryEntity::getId)
                         .map(this::toMemoryEntry));
@@ -114,13 +115,14 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     @Override
     public Flux<MemoryEntry> findByUserId(String userId, String agentId) {
+        final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
-        String key = "agent:" + aid;
+        String key = cacheKey(uid, aid);
         List<MemoryEntry> cached = hotCache.getIfPresent(key);
         if (cached != null) {
             return Flux.fromIterable(cached);
         }
-        return repository.findByAgentId(aid)
+        return repository.findByUserIdAndAgentId(uid, aid)
                 .map(this::toMemoryEntry)
                 .collectList()
                 .doOnNext(list -> hotCache.put(key, list))
@@ -129,8 +131,9 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     @Override
     public Mono<Long> countByUserId(String userId, String agentId) {
+        final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
-        return repository.findByAgentId(aid).count();
+        return repository.countByUserIdAndAgentId(uid, aid);
     }
 
     @Override
@@ -156,11 +159,12 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     @Override
     public Mono<MemoryStats> getStats(String userId, String agentId) {
+        final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
         return Mono.zip(
-                repository.findByAgentIdAndMemoryType(aid, "episodic").count().defaultIfEmpty(0L),
-                repository.findByAgentIdAndMemoryType(aid, "semantic").count().defaultIfEmpty(0L),
-                repository.findByAgentIdAndMemoryType(aid, "procedural").count().defaultIfEmpty(0L)
+                repository.countByUserIdAndAgentIdAndMemoryType(uid, aid, "episodic").defaultIfEmpty(0L),
+                repository.countByUserIdAndAgentIdAndMemoryType(uid, aid, "semantic").defaultIfEmpty(0L),
+                repository.countByUserIdAndAgentIdAndMemoryType(uid, aid, "procedural").defaultIfEmpty(0L)
         ).map(t -> new MemoryStats(t.getT1(), t.getT2(), t.getT3(),
                 t.getT1() + t.getT2() + t.getT3()));
     }
