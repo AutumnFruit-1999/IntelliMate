@@ -5,6 +5,7 @@ import com.atm.intellimate.memory.consolidation.MemoryConsolidator;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.MemoryChunk;
 import com.atm.intellimate.memory.perception.ImportanceAssessor;
+import com.atm.intellimate.memory.retrieval.HybridMemoryRetrieval;
 import com.atm.intellimate.memory.retrieval.MemoryRetrieval;
 import com.atm.intellimate.memory.working.TokenEstimator;
 import com.atm.intellimate.memory.working.WorkingMemory;
@@ -23,17 +24,28 @@ public class MemorySystem {
     private final MemoryConsolidator consolidator;
     private final LongTermMemory longTermMemory;
     private final MemoryRetrieval memoryRetrieval;
+    private final HybridMemoryRetrieval hybridRetrieval;
 
     public MemorySystem(ImportanceAssessor importanceAssessor,
                         TokenEstimator tokenEstimator,
                         MemoryConsolidator consolidator,
                         LongTermMemory longTermMemory,
                         MemoryRetrieval memoryRetrieval) {
+        this(importanceAssessor, tokenEstimator, consolidator, longTermMemory, memoryRetrieval, null);
+    }
+
+    public MemorySystem(ImportanceAssessor importanceAssessor,
+                        TokenEstimator tokenEstimator,
+                        MemoryConsolidator consolidator,
+                        LongTermMemory longTermMemory,
+                        MemoryRetrieval memoryRetrieval,
+                        HybridMemoryRetrieval hybridRetrieval) {
         this.importanceAssessor = importanceAssessor;
         this.tokenEstimator = tokenEstimator;
         this.consolidator = consolidator;
         this.longTermMemory = longTermMemory;
         this.memoryRetrieval = memoryRetrieval;
+        this.hybridRetrieval = hybridRetrieval;
     }
 
     public WorkingMemory createWorkingMemory(ResolvedMemoryConfig config, String systemPrompt) {
@@ -66,7 +78,27 @@ public class MemorySystem {
         if (!config.longTermEnabled()) {
             return Mono.just(List.of());
         }
+        if (hybridRetrieval != null) {
+            HybridMemoryRetrieval.Strategy strategy = parseRetrievalStrategy(config);
+            return hybridRetrieval.retrieve(cue, userId, agentId,
+                    config.maxInjectionTokens(), config.decayLambda(), strategy);
+        }
         return memoryRetrieval.retrieve(cue, userId, agentId, config.maxInjectionTokens(), config.decayLambda());
+    }
+
+    private static HybridMemoryRetrieval.Strategy parseRetrievalStrategy(ResolvedMemoryConfig config) {
+        if (!config.vectorEnabled()) {
+            return HybridMemoryRetrieval.Strategy.KEYWORD_ONLY;
+        }
+        String strategy = config.retrievalStrategy();
+        if (strategy == null || strategy.isBlank()) {
+            return HybridMemoryRetrieval.Strategy.HYBRID;
+        }
+        return switch (strategy.toLowerCase()) {
+            case "vector_only" -> HybridMemoryRetrieval.Strategy.VECTOR_ONLY;
+            case "keyword_only" -> HybridMemoryRetrieval.Strategy.KEYWORD_ONLY;
+            default -> HybridMemoryRetrieval.Strategy.HYBRID;
+        };
     }
 
     public ImportanceAssessor getImportanceAssessor() {
@@ -83,6 +115,10 @@ public class MemorySystem {
 
     public MemoryRetrieval getMemoryRetrieval() {
         return memoryRetrieval;
+    }
+
+    public HybridMemoryRetrieval getHybridRetrieval() {
+        return hybridRetrieval;
     }
 
     public MemoryConsolidator getConsolidator() {

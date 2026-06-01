@@ -233,9 +233,6 @@ public class AgentLoopExecutor {
 
                         Mono<Void> retrievalMono;
                         if (longTermMemory != null && ltEnabled) {
-                            MemoryRetrieval retrieval = memorySystem != null
-                                    ? memorySystem.getMemoryRetrieval()
-                                    : new MemoryRetrieval(longTermMemory, tokenEstimator);
                             int maxInjectionTokens = resolvedMem.maxInjectionTokens();
                             double lambda = resolvedMem.decayLambda();
 
@@ -245,18 +242,23 @@ public class AgentLoopExecutor {
                                 cue = cue + " " + request.planExecutionAssessment().currentStepDescription();
                             }
 
+                            Mono<List<MemoryChunk>> retrievalResult;
+                            if (memorySystem != null) {
+                                retrievalResult = memorySystem.retrieveMemories(cue, sessionUserId, agentId, resolvedMem);
+                            } else {
+                                MemoryRetrieval retrieval = new MemoryRetrieval(longTermMemory, tokenEstimator);
+                                retrievalResult = retrieval.retrieve(cue, sessionUserId, agentId, maxInjectionTokens, lambda);
+                            }
+
                             long retrievalStart = System.currentTimeMillis();
-                            retrievalMono = retrieval.retrieve(cue, sessionUserId, agentId, maxInjectionTokens, lambda)
-                                    .timeout(Duration.ofSeconds(3))
+                            retrievalMono = retrievalResult
+                                    .timeout(Duration.ofSeconds(5))
                                     .doOnNext(recalledChunks -> {
                                         agentMemoryLifecycle.recordLongTermRetrievalLatency(
                                                 agentId, System.currentTimeMillis() - retrievalStart);
                                         if (!recalledChunks.isEmpty()) {
                                             for (MemoryChunk chunk : recalledChunks) {
-                                                String prefixed = "[历史记忆] " + chunk.content();
-                                                MemoryChunk recalledWithPrefix = MemoryChunk.recalled(
-                                                        prefixed, chunk.estimatedTokens(), chunk.importance());
-                                                workingMemory.accept(recalledWithPrefix);
+                                                workingMemory.accept(chunk);
                                             }
                                             int injectedTokens = recalledChunks.stream()
                                                     .mapToInt(MemoryChunk::estimatedTokens)
