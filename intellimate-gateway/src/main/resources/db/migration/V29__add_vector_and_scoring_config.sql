@@ -1,12 +1,31 @@
--- V29: Add agent_name column (pre-existing entity requires it) + vector/scoring config
+-- V29: Add agent_name column (if absent) + vector/scoring config
 
-ALTER TABLE `memory_config`
-    ADD COLUMN `agent_name` VARCHAR(128) NOT NULL DEFAULT '_global_' AFTER `id`;
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'memory_config' AND COLUMN_NAME = 'agent_name');
+SET @sql = IF(@col_exists = 0,
+  'ALTER TABLE `memory_config` ADD COLUMN `agent_name` VARCHAR(128) NOT NULL DEFAULT ''_global_'' AFTER `id`',
+  'SELECT 1');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-ALTER TABLE `memory_config` DROP INDEX `uk_config_key`;
-ALTER TABLE `memory_config` ADD UNIQUE KEY `uk_agent_config_key` (`agent_name`, `config_key`);
+SET @idx_old = (SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'memory_config' AND INDEX_NAME = 'uk_config_key');
+SET @sql2 = IF(@idx_old > 0, 'ALTER TABLE `memory_config` DROP INDEX `uk_config_key`', 'SELECT 1');
+PREPARE stmt2 FROM @sql2;
+EXECUTE stmt2;
+DEALLOCATE PREPARE stmt2;
 
-UPDATE `memory_config` SET `agent_name` = '_global_' WHERE `agent_name` = '_global_';
+SET @idx_new = (SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'memory_config' AND INDEX_NAME = 'uk_agent_config_key');
+SET @sql3 = IF(@idx_new = 0,
+  'ALTER TABLE `memory_config` ADD UNIQUE KEY `uk_agent_config_key` (`agent_name`, `config_key`)',
+  'SELECT 1');
+PREPARE stmt3 FROM @sql3;
+EXECUTE stmt3;
+DEALLOCATE PREPARE stmt3;
+
+UPDATE `memory_config` SET `agent_name` = '_global_' WHERE `agent_name` = '' OR `agent_name` IS NULL;
 
 INSERT INTO memory_config (agent_name, config_key, config_value, description) VALUES
 ('_global_', 'vector.enabled', 'true', '向量检索主开关'),

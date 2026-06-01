@@ -24,6 +24,7 @@ spring:
     password: ${MYSQL_PASSWORD:NyD0+oFDoOB+9cdVtnMonWFf4ZkDpTTs}
     locations: classpath:db/migration
     baseline-on-migrate: true
+    out-of-order: true
 
   ai:
     dashscope:
@@ -31,6 +32,10 @@ spring:
       chat:
         options:
           model: ${INTELLIMATE_AGENT_MODEL:qwen-plus}
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:text-embedding-v3}
+          dimensions: ${EMBEDDING_DIMENSIONS:1024}
     vectorstore:
       qdrant:
         host: ${QDRANT_HOST:localhost}
