@@ -27,6 +27,20 @@ public interface LongTermMemory {
     Mono<Void> recordAccess(MemoryEntry entry);
 
     /**
+     * Record access and optionally boost importance (retrieval practice effect).
+     */
+    default Mono<Void> recordAccess(MemoryEntry entry, float importanceBoost) {
+        return recordAccess(entry);
+    }
+
+    /**
+     * Store with optional metadata JSON (e.g. episodic topics/outcome).
+     */
+    default Mono<Void> store(ExtractedFact fact, String userId, String agentId, String metadataJson) {
+        return store(fact, userId, agentId);
+    }
+
+    /**
      * Find all memories for a user within an agent scope.
      */
     Flux<MemoryEntry> findByUserId(String userId, String agentId);

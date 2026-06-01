@@ -10,6 +10,8 @@ import com.atm.intellimate.memory.consolidation.MemoryConsolidator;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.ExtractedFact;
 import com.atm.intellimate.memory.model.MemoryChunk;
+import com.atm.intellimate.memory.model.ChunkType;
+import com.atm.intellimate.memory.retrieval.KeywordExtractor;
 import com.atm.intellimate.memory.working.TokenEstimator;
 import com.atm.intellimate.memory.working.WorkingMemory;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -23,7 +25,9 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -266,19 +270,95 @@ public class AgentMemoryLifecycle {
         }
         summary.append(userCount).append(" user turns, ").append(toolCount).append(" tool calls. ");
 
-        for (MemoryChunk c : chunks) {
-            if (c.type() == com.atm.intellimate.memory.model.ChunkType.USER) {
-                String preview = c.content().length() > 100 ? c.content().substring(0, 100) + "..." : c.content();
-                summary.append("Topics: ").append(preview);
-                break;
+        List<String> topTopics = extractTopTopicsFromUserChunks(chunks, 3);
+        if (!topTopics.isEmpty()) {
+            summary.append("Topics: ").append(String.join(", ", topTopics));
+        } else {
+            for (MemoryChunk c : chunks) {
+                if (c.type() == ChunkType.USER) {
+                    String preview = c.content().length() > 100
+                            ? c.content().substring(0, 100) + "..." : c.content();
+                    summary.append("Topics: ").append(preview);
+                    break;
+                }
             }
         }
 
-        ExtractedFact episodic = new ExtractedFact("episodic", summary.toString(), 0.5f);
-        ltm.store(episodic, userId, agentId)
+        String outcome = detectSessionOutcome(chunks);
+        float importance = "success".equals(outcome) ? 0.6f : 0.5f;
+        String metadataJson = buildEpisodicMetadataJson(topTopics, outcome);
+
+        ExtractedFact episodic = new ExtractedFact("episodic", summary.toString(), importance);
+        ltm.store(episodic, userId, agentId, metadataJson)
                 .subscribe(
                         unused -> recordEpisodicStored(agentId),
                         e -> log.warn("Failed to store session episodic memory for session {}: {}", sessionId, e.getMessage()));
+    }
+
+    private static List<String> extractTopTopicsFromUserChunks(List<MemoryChunk> chunks, int topN) {
+        KeywordExtractor extractor = new KeywordExtractor();
+        Map<String, Integer> freq = new HashMap<>();
+        for (MemoryChunk c : chunks) {
+            if (c.type() == ChunkType.USER) {
+                for (String kw : extractor.extract(c.content())) {
+                    freq.merge(kw, 1, Integer::sum);
+                }
+            }
+        }
+        return freq.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(topN)
+                .map(Map.Entry::getKey)
+                .toList();
+    }
+
+    private static String detectSessionOutcome(List<MemoryChunk> chunks) {
+        MemoryChunk lastAssistant = null;
+        for (int i = chunks.size() - 1; i >= 0; i--) {
+            if (chunks.get(i).type() == ChunkType.ASSISTANT) {
+                lastAssistant = chunks.get(i);
+                break;
+            }
+        }
+        if (lastAssistant == null) {
+            return "unknown";
+        }
+        String content = lastAssistant.content().toLowerCase();
+        if (containsAny(content, "成功", "完成", "已解决", "success", "completed", "done")) {
+            return "success";
+        }
+        if (containsAny(content, "失败", "错误", "无法", "failed", "error", "unable")) {
+            return "failure";
+        }
+        return "unknown";
+    }
+
+    private static boolean containsAny(String text, String... keywords) {
+        for (String kw : keywords) {
+            if (text.contains(kw)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String buildEpisodicMetadataJson(List<String> topics, String outcome) {
+        StringBuilder sb = new StringBuilder("{\"topics\":[");
+        for (int i = 0; i < topics.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append('"').append(escapeJson(topics.get(i))).append('"');
+        }
+        sb.append("],\"outcome\":\"").append(escapeJson(outcome)).append("\"}");
+        return sb.toString();
+    }
+
+    private static String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private ResolvedModel resolveModel(String modelRef) {

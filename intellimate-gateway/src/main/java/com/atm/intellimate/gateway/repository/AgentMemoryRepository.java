@@ -38,6 +38,10 @@ public interface AgentMemoryRepository extends ReactiveCrudRepository<AgentMemor
     @Query("UPDATE agent_memory SET access_count = access_count + 1, last_accessed_at = NOW() WHERE id = :id")
     Mono<Integer> incrementAccessCount(Long id);
 
+    @Modifying
+    @Query("UPDATE agent_memory SET access_count = access_count + 1, last_accessed_at = NOW(), importance = LEAST(importance + :boost, 1.0) WHERE id = :id")
+    Mono<Integer> incrementAccessCountWithBoost(Long id, float boost);
+
     @Query("""
         SELECT * FROM agent_memory
         WHERE (last_accessed_at IS NULL OR last_accessed_at < DATE_SUB(NOW(), INTERVAL :days DAY))

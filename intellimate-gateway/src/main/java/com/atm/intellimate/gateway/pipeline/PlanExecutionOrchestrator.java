@@ -272,6 +272,7 @@ public class PlanExecutionOrchestrator {
                     String outcome = failedCount == 0 ? "成功" : "部分完成(" + completedCount + "成功/" + failedCount + "失败)";
 
                     String procedural = buildPlanProceduralSummary(title, steps, outcome);
+                    procedural = "适用场景：" + title + "\n" + procedural;
                     String episodic = "完成计划: " + title + ", 共" + steps.size() + "步, " + outcome;
 
                     Mono<Void> proceduralMono = longTermMemory.store(

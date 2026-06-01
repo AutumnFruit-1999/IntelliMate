@@ -2,10 +2,13 @@ package com.atm.intellimate.gateway.service;
 
 import com.atm.intellimate.gateway.entity.AgentMemoryEntity;
 import com.atm.intellimate.gateway.repository.AgentMemoryRepository;
+import com.atm.intellimate.memory.config.ResolvedMemoryConfig;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.ExtractedFact;
 import com.atm.intellimate.memory.model.MemoryEntry;
 import com.atm.intellimate.memory.retrieval.KeywordExtractor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -22,10 +25,14 @@ import java.util.List;
 @Service
 public class LongTermMemoryImpl implements LongTermMemory {
 
+    private static final Logger log = LoggerFactory.getLogger(LongTermMemoryImpl.class);
     private static final double DEDUP_SIMILARITY_THRESHOLD = 0.85;
 
     private final AgentMemoryRepository repository;
     private final KeywordExtractor keywordExtractor = new KeywordExtractor();
+
+    private volatile float minFactImportance = 0.3f;
+    private volatile int maxMergedContentLength = 1000;
 
     /** Hot tier: recently accessed memories keyed by (userId:agentId). LRU eviction via Caffeine. */
     private final Cache<String, List<MemoryEntry>> hotCache = Caffeine.newBuilder()
@@ -33,8 +40,17 @@ public class LongTermMemoryImpl implements LongTermMemory {
             .expireAfterWrite(Duration.ofMinutes(5))
             .build();
 
+    private record SimilarMatch(AgentMemoryEntity entity, double similarity) {}
+
     public LongTermMemoryImpl(AgentMemoryRepository repository) {
         this.repository = repository;
+    }
+
+    public void updateConfig(ResolvedMemoryConfig config) {
+        if (config != null) {
+            this.minFactImportance = config.minFactImportance();
+            this.maxMergedContentLength = config.maxMergedContentLength();
+        }
     }
 
     private String cacheKey(String userId, String agentId) {
@@ -56,13 +72,45 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     @Override
     public Mono<Void> store(ExtractedFact fact, String userId, String agentId) {
+        return store(fact, userId, agentId, null);
+    }
+
+    @Override
+    public Mono<Void> store(ExtractedFact fact, String userId, String agentId, String metadataJson) {
         final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
+
+        if (fact.importance() < minFactImportance) {
+            log.debug("Fact filtered by importance: {} < {}", fact.importance(), minFactImportance);
+            return Mono.empty();
+        }
+        if (fact.content() == null || fact.content().isBlank()) {
+            log.debug("Fact filtered: content is null or blank");
+            return Mono.empty();
+        }
+
         return repository.findByUserIdAndAgentIdAndMemoryType(uid, aid, fact.type())
-                .filter(existing -> keywordExtractor.jaccardSimilarity(
-                        existing.getContent(), fact.content()) > DEDUP_SIMILARITY_THRESHOLD)
-                .next()
                 .flatMap(existing -> {
+                    double similarity = keywordExtractor.jaccardSimilarity(
+                            existing.getContent(), fact.content());
+                    if (similarity <= DEDUP_SIMILARITY_THRESHOLD) {
+                        return Mono.empty();
+                    }
+                    return Mono.just(new SimilarMatch(existing, similarity));
+                })
+                .next()
+                .flatMap(match -> {
+                    AgentMemoryEntity existing = match.entity();
+                    double similarity = match.similarity();
+
+                    if ("semantic".equals(fact.type()) && similarity > DEDUP_SIMILARITY_THRESHOLD) {
+                        existing.setContent(fact.content());
+                        existing.setImportance(Math.max(existing.getImportance(), fact.importance()));
+                        existing.setAccessCount(existing.getAccessCount() + 1);
+                        existing.setLastAccessedAt(LocalDateTime.now());
+                        return repository.save(existing).then();
+                    }
+
                     existing.setImportance(Math.max(existing.getImportance(), fact.importance()));
                     existing.setAccessCount(existing.getAccessCount() + 1);
                     existing.setLastAccessedAt(LocalDateTime.now());
@@ -70,6 +118,13 @@ public class LongTermMemoryImpl implements LongTermMemory {
                     if (!existing.getContent().contains(fact.content())
                             && fact.content().length() < 500) {
                         mergedContent = existing.getContent() + "\n---\n" + fact.content();
+                        if (mergedContent.length() > maxMergedContentLength) {
+                            mergedContent = mergedContent.substring(mergedContent.length() - maxMergedContentLength);
+                            int firstSep = mergedContent.indexOf("\n---\n");
+                            if (firstSep > 0) {
+                                mergedContent = mergedContent.substring(firstSep + 5);
+                            }
+                        }
                     }
                     existing.setContent(mergedContent);
                     return repository.save(existing).then();
@@ -83,6 +138,9 @@ public class LongTermMemoryImpl implements LongTermMemory {
                     entity.setImportance(fact.importance());
                     entity.setAccessCount(0);
                     entity.setCreatedAt(LocalDateTime.now());
+                    if (metadataJson != null && !metadataJson.isBlank()) {
+                        entity.setMetadataJson(metadataJson);
+                    }
                     return repository.save(entity).then();
                 }))
                 .doOnTerminate(() -> invalidateCache(uid, aid));
@@ -111,6 +169,15 @@ public class LongTermMemoryImpl implements LongTermMemory {
     public Mono<Void> recordAccess(MemoryEntry entry) {
         if (entry.getId() == null) return Mono.empty();
         return repository.incrementAccessCount(entry.getId()).then();
+    }
+
+    @Override
+    public Mono<Void> recordAccess(MemoryEntry entry, float importanceBoost) {
+        if (entry.getId() == null) return Mono.empty();
+        if (importanceBoost > 0) {
+            return repository.incrementAccessCountWithBoost(entry.getId(), importanceBoost).then();
+        }
+        return recordAccess(entry);
     }
 
     @Override
