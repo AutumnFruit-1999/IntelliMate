@@ -619,6 +619,10 @@ export interface MemoryConfigResponse {
   working: Record<string, MemoryConfigItem>;
   consolidation: Record<string, MemoryConfigItem>;
   longTerm: Record<string, MemoryConfigItem>;
+  vector?: Record<string, MemoryConfigItem>;
+  embedding?: Record<string, MemoryConfigItem>;
+  retrieval?: Record<string, MemoryConfigItem>;
+  scoring?: Record<string, MemoryConfigItem>;
 }
 
 export interface MemoryStatsResponse {

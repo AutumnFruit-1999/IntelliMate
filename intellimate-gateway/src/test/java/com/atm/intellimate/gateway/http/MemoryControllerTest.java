@@ -66,8 +66,10 @@ class MemoryControllerTest {
     @Test
     @DisplayName("GET /api/memory/config returns grouped config")
     void getConfig_returnsGroupedConfig() {
-        when(configService.resolveGrouped()).thenReturn(Mono.just(Map.of(
-                "working.token_budget", new MemoryConfigService.ConfigItem("128000", "128000", "Token budget", "number")
+        when(configService.resolveGroupedForAgent("_global_")).thenReturn(Mono.just(Map.of(
+                "working.token_budget", new MemoryConfigService.ConfigItem("128000", "128000", "Token budget", "number"),
+                "vector.enabled", new MemoryConfigService.ConfigItem("true", "true", "Enable vector DB", "boolean"),
+                "retrieval.strategy", new MemoryConfigService.ConfigItem("hybrid", "hybrid", "Retrieval strategy", "string")
         )));
 
         client.get().uri("/api/memory/config")
@@ -76,7 +78,9 @@ class MemoryControllerTest {
                 .expectBody()
                 .jsonPath("$.success").isEqualTo(true)
                 .jsonPath("$.data.working.token_budget.value").isEqualTo("128000")
-                .jsonPath("$.data.working.token_budget.type").isEqualTo("number");
+                .jsonPath("$.data.working.token_budget.type").isEqualTo("number")
+                .jsonPath("$.data.vector.enabled.value").isEqualTo("true")
+                .jsonPath("$.data.retrieval.strategy.value").isEqualTo("hybrid");
     }
 
     @Test

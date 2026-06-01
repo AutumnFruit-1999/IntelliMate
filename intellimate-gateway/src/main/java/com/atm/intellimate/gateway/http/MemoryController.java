@@ -54,6 +54,10 @@ public class MemoryController {
             Map<String, Object> working = new LinkedHashMap<>();
             Map<String, Object> consolidation = new LinkedHashMap<>();
             Map<String, Object> longTerm = new LinkedHashMap<>();
+            Map<String, Object> vector = new LinkedHashMap<>();
+            Map<String, Object> embedding = new LinkedHashMap<>();
+            Map<String, Object> retrieval = new LinkedHashMap<>();
+            Map<String, Object> scoring = new LinkedHashMap<>();
 
             items.forEach((key, item) -> {
                 Map<String, Object> entry = Map.of(
@@ -68,12 +72,24 @@ public class MemoryController {
                     consolidation.put(key.substring("consolidation.".length()), entry);
                 } else if (key.startsWith("long_term.")) {
                     longTerm.put(key.substring("long_term.".length()), entry);
+                } else if (key.startsWith("vector.")) {
+                    vector.put(key.substring("vector.".length()), entry);
+                } else if (key.startsWith("embedding.")) {
+                    embedding.put(key.substring("embedding.".length()), entry);
+                } else if (key.startsWith("retrieval.")) {
+                    retrieval.put(key.substring("retrieval.".length()), entry);
+                } else if (key.startsWith("scoring.")) {
+                    scoring.put(key.substring("scoring.".length()), entry);
                 }
             });
 
             grouped.put("working", working);
             grouped.put("consolidation", consolidation);
             grouped.put("longTerm", longTerm);
+            grouped.put("vector", vector);
+            grouped.put("embedding", embedding);
+            grouped.put("retrieval", retrieval);
+            grouped.put("scoring", scoring);
             return ApiResponse.ok(grouped);
         });
     }

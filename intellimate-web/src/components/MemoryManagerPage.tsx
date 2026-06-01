@@ -438,6 +438,42 @@ function ConfigTab() {
         edits={edits}
         setEdits={setEdits}
       />
+      {config.vector && Object.keys(config.vector).length > 0 && (
+        <ConfigSection
+          title="向量数据库"
+          prefix="vector"
+          items={config.vector}
+          edits={edits}
+          setEdits={setEdits}
+        />
+      )}
+      {config.embedding && Object.keys(config.embedding).length > 0 && (
+        <ConfigSection
+          title="Embedding 模型"
+          prefix="embedding"
+          items={config.embedding}
+          edits={edits}
+          setEdits={setEdits}
+        />
+      )}
+      {config.retrieval && Object.keys(config.retrieval).length > 0 && (
+        <ConfigSection
+          title="检索策略"
+          prefix="retrieval"
+          items={config.retrieval}
+          edits={edits}
+          setEdits={setEdits}
+        />
+      )}
+      {config.scoring && Object.keys(config.scoring).length > 0 && (
+        <ConfigSection
+          title="评分参数"
+          prefix="scoring"
+          items={config.scoring}
+          edits={edits}
+          setEdits={setEdits}
+        />
+      )}
 
       <div className="flex gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
         <button
@@ -493,6 +529,30 @@ const CONFIG_TOOLTIPS: Record<string, string> = {
     "记忆衰减系数 λ。控制遗忘曲线的陡峭程度：得分衰减公式为 score × (1 - λ)。值越大遗忘越快（0.1 表示每次衰减约 10%）。值为 0 表示永不衰减。建议范围 0.05~0.2。",
   "long_term.archive_after_days":
     "冷记忆归档天数。当记忆超过此天数未被访问且得分低于阈值时，将从主表迁移到归档表（冷存储）。归档后不再参与检索，但可在「遗忘日志」中查看。",
+  "vector.enabled":
+    "是否启用向量数据库（Qdrant）进行语义检索。关闭后仅使用关键词检索。需要先部署 Qdrant 服务。",
+  "embedding.model":
+    "生成向量嵌入时使用的模型。默认使用 DashScope text-embedding-v3。更换模型后需要重新迁移现有记忆。",
+  "embedding.dimensions":
+    "向量维度。必须与所选 Embedding 模型的输出维度一致。默认 1024。修改后需要重建向量索引。",
+  "retrieval.strategy":
+    "记忆检索策略。hybrid = 向量+关键词混合检索（推荐）；vector_only = 仅向量语义检索；keyword_only = 仅关键词检索。",
+  "retrieval.vector_weight":
+    "混合检索中向量结果的权重。与 keyword_weight 共同决定排序。值范围 0~1，默认 0.6。",
+  "retrieval.keyword_weight":
+    "混合检索中关键词结果的权重。与 vector_weight 共同决定排序。值范围 0~1，默认 0.4。",
+  "scoring.semantic_weight":
+    "知识型记忆（semantic）的检索评分权重。越高则知识型记忆越容易被召回。默认 1.2。",
+  "scoring.episodic_weight":
+    "情景型记忆（episodic）的检索评分权重。越高则对话经历越容易被召回。默认 0.8。",
+  "scoring.procedural_weight":
+    "程序型记忆（procedural）的检索评分权重。越高则操作步骤类记忆越容易被召回。默认 1.0。",
+  "scoring.semantic_decay_lambda":
+    "知识型记忆的时间衰减速率。越大衰减越快。默认 0.03（衰减较慢，知识长期有效）。",
+  "scoring.episodic_decay_lambda":
+    "情景型记忆的时间衰减速率。越大衰减越快。默认 0.10（衰减较快，旧对话经历逐渐淡化）。",
+  "scoring.procedural_decay_lambda":
+    "程序型记忆的时间衰减速率。越大衰减越快。默认 0.05（中等衰减，操作步骤保持一段时间）。",
 };
 
 function Tooltip({ text }: { text: string }) {
