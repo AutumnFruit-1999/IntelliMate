@@ -395,6 +395,61 @@ if ("procedural".equals(entry.getMemoryType()) && isSuccessfulReuse) {
 
 这在 `recordAccess()` 时附带执行。需要扩展 `recordAccess()` 方法签名以支持可选的 importance boost。
 
+#### 5.6 关键词检索优化 — 引入中文分词
+
+**问题**：当前 `KeywordExtractor` 使用 bigram 切分中文，产生无意义 token（如"库连"），降低关键词匹配精度。
+
+**方案**：引入 jieba-analysis（jieba 的 Java 实现）替代 bigram 分词。
+
+**新增依赖**：
+
+```xml
+<!-- intellimate-memory/pom.xml -->
+<dependency>
+    <groupId>com.huaban</groupId>
+    <artifactId>jieba-analysis</artifactId>
+    <version>1.0.2</version>
+</dependency>
+```
+
+**改造 `KeywordExtractor`**：
+
+```java
+public class KeywordExtractor {
+    private final JiebaSegmenter segmenter = new JiebaSegmenter();
+
+    public List<String> extract(String text) {
+        if (text == null || text.isBlank()) return List.of();
+        String normalized = text.toLowerCase();
+        List<String> tokens = new ArrayList<>();
+
+        // jieba 分词处理中文
+        List<SegToken> segTokens = segmenter.process(normalized, JiebaSegmenter.SegMode.SEARCH);
+        for (SegToken token : segTokens) {
+            String word = token.word.trim();
+            if (word.length() >= 2 && !STOP_WORDS.contains(word) && !isAllStopChars(word)) {
+                tokens.add(word);
+            }
+        }
+
+        return tokens.stream().distinct().limit(15).collect(Collectors.toList());
+    }
+}
+```
+
+**效果对比**：
+
+| 输入 | bigram (现有) | jieba (改进后) |
+|------|-------------|---------------|
+| "数据库连接超时" | ["数据", "据库", "库连", "连接", "接超", "超时"] | ["数据库", "连接", "超时"] |
+| "用户偏好简洁代码风格" | ["用户", "户偏", "偏好", "好简", "简洁", "洁代", "代码", "码风", "风格"] | ["用户", "偏好", "简洁", "代码", "风格"] |
+
+jieba 的搜索模式 (`SegMode.SEARCH`) 会同时输出长词和组成部分（如"数据库" → ["数据", "数据库"]），提高召回率。
+
+**影响范围**：`KeywordExtractor` 被 `MemoryRetrieval`（关键词检索）和 `LongTermMemoryImpl`（去重判断）共同使用。改进分词质量后两边都会受益。
+
+**向后兼容**：jieba 的输出是 bigram 的超集（搜索模式输出所有子词），现有 FULLTEXT 索引不需要修改。
+
 ### 6. 缺陷修复
 
 #### 6.1 findByUserId 多用户隔离修复
