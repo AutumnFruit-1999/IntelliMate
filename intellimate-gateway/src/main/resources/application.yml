@@ -31,6 +31,12 @@ spring:
       chat:
         options:
           model: ${INTELLIMATE_AGENT_MODEL:qwen-plus}
+    vectorstore:
+      qdrant:
+        host: ${QDRANT_HOST:localhost}
+        port: ${QDRANT_GRPC_PORT:6334}
+        collection-name: intellimate_memories
+        initialize-schema: true
     mcp:
       client:
         enabled: false
