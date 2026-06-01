@@ -107,7 +107,7 @@ public class MemoryRetrieval {
                 log.warn("Failed to record memory access", e);
             }
 
-            result.add(sm.entry().toRecalledChunk(chunkTokens));
+            result.add(sm.entry().toRecalledChunk(chunkTokens, sm.relevance()));
         }
         return result;
     }

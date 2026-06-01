@@ -59,4 +59,19 @@ public class MemoryEntry {
     public MemoryChunk toRecalledChunk(int estimatedTokens) {
         return MemoryChunk.recalled(content, estimatedTokens, importance);
     }
+
+    public MemoryChunk toRecalledChunk(int estimatedTokens, double relevanceScore) {
+        String typeLabel = switch (memoryType) {
+            case "semantic" -> "知识";
+            case "episodic" -> "事件";
+            case "procedural" -> "流程";
+            default -> memoryType;
+        };
+        String dateStr = createdAt != null
+                ? createdAt.atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+                : "未知";
+        String prefix = String.format("[历史记忆 | %s | %s | 相关度:%.2f] ",
+                typeLabel, dateStr, relevanceScore);
+        return MemoryChunk.recalled(prefix + content, estimatedTokens, importance);
+    }
 }
