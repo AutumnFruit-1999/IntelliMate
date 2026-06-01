@@ -281,18 +281,19 @@ if (fact.importance() < MIN_FACT_IMPORTANCE) {
     log.debug("Fact filtered: importance {} < threshold {}", fact.importance(), MIN_FACT_IMPORTANCE);
     return Mono.empty();
 }
-if (fact.content() == null || fact.content().length() < MIN_FACT_CONTENT_LENGTH) {
-    log.debug("Fact filtered: content too short ({})", fact.content() == null ? 0 : fact.content().length());
+if (fact.content() == null || fact.content().isBlank()) {
+    log.debug("Fact filtered: content is null or blank");
     return Mono.empty();
 }
 ```
+
+不设最小内容长度限制——短 fact 如"称呼：小张"同样有价值，由 importance 阈值控制质量。
 
 新增配置项：
 
 | 配置键 | 默认值 | 说明 |
 |--------|--------|------|
 | `long_term.min_fact_importance` | `0.3` | 低于此 importance 的 fact 不存储 |
-| `long_term.min_fact_content_length` | `10` | 内容短于此字符数的 fact 不存储 |
 
 #### 5.2 合并去重内容大小限制
 
@@ -395,7 +396,6 @@ memoryConfigService.resolve()
 | `scoring.episodic_decay_lambda` | `0.10` | scoring | episodic 衰减系数 |
 | `scoring.procedural_decay_lambda` | `0.05` | scoring | procedural 衰减系数 |
 | `long_term.min_fact_importance` | `0.3` | long_term | 低于此 importance 的 fact 不存储 |
-| `long_term.min_fact_content_length` | `10` | long_term | 内容短于此字符数的 fact 不存储 |
 | `long_term.max_merged_content_length` | `1000` | long_term | 合并后单条记忆最大字符数 |
 
 同时需要新增 Flyway migration 插入这些默认配置。
