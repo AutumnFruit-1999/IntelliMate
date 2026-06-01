@@ -7,11 +7,14 @@ import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.ExtractedFact;
 import com.atm.intellimate.memory.model.MemoryEntry;
 import com.atm.intellimate.memory.retrieval.KeywordExtractor;
+import com.atm.intellimate.memory.retrieval.VectorMemoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -29,6 +32,7 @@ public class LongTermMemoryImpl implements LongTermMemory {
     private static final double DEDUP_SIMILARITY_THRESHOLD = 0.85;
 
     private final AgentMemoryRepository repository;
+    private final VectorMemoryStore vectorMemoryStore;  // nullable
     private final KeywordExtractor keywordExtractor = new KeywordExtractor();
 
     private volatile float minFactImportance = 0.3f;
@@ -42,8 +46,10 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     private record SimilarMatch(AgentMemoryEntity entity, double similarity) {}
 
-    public LongTermMemoryImpl(AgentMemoryRepository repository) {
+    public LongTermMemoryImpl(AgentMemoryRepository repository,
+                               @Autowired(required = false) VectorMemoryStore vectorMemoryStore) {
         this.repository = repository;
+        this.vectorMemoryStore = vectorMemoryStore;
     }
 
     public void updateConfig(ResolvedMemoryConfig config) {
@@ -108,7 +114,9 @@ public class LongTermMemoryImpl implements LongTermMemory {
                         existing.setImportance(Math.max(existing.getImportance(), fact.importance()));
                         existing.setAccessCount(existing.getAccessCount() + 1);
                         existing.setLastAccessedAt(LocalDateTime.now());
-                        return repository.save(existing).then();
+                        return repository.save(existing)
+                                .doOnSuccess(saved -> writeToVector(saved))
+                                .then();
                     }
 
                     existing.setImportance(Math.max(existing.getImportance(), fact.importance()));
@@ -127,7 +135,9 @@ public class LongTermMemoryImpl implements LongTermMemory {
                         }
                     }
                     existing.setContent(mergedContent);
-                    return repository.save(existing).then();
+                    return repository.save(existing)
+                            .doOnSuccess(saved -> writeToVector(saved))
+                            .then();
                 })
                 .switchIfEmpty(Mono.defer(() -> {
                     AgentMemoryEntity entity = new AgentMemoryEntity();
@@ -141,7 +151,9 @@ public class LongTermMemoryImpl implements LongTermMemory {
                     if (metadataJson != null && !metadataJson.isBlank()) {
                         entity.setMetadataJson(metadataJson);
                     }
-                    return repository.save(entity).then();
+                    return repository.save(entity)
+                            .doOnSuccess(saved -> writeToVector(saved))
+                            .then();
                 }))
                 .doOnTerminate(() -> invalidateCache(uid, aid));
     }
@@ -207,7 +219,17 @@ public class LongTermMemoryImpl implements LongTermMemory {
     public Mono<Void> deleteById(Long id) {
         return repository.findById(id)
                 .doOnNext(entity -> invalidateCache(entity.getUserId(), entity.getAgentId()))
-                .then(repository.deleteById(id));
+                .flatMap(entity -> {
+                    Mono<Void> deleteFromDb = repository.deleteById(id);
+                    if (vectorMemoryStore != null) {
+                        return deleteFromDb.then(vectorMemoryStore.deleteById(id)
+                                .onErrorResume(e -> {
+                                    log.warn("Vector delete failed for id={}: {}", id, e.getMessage());
+                                    return Mono.empty();
+                                }));
+                    }
+                    return deleteFromDb;
+                });
     }
 
     @Override
@@ -234,6 +256,19 @@ public class LongTermMemoryImpl implements LongTermMemory {
                 repository.countByUserIdAndAgentIdAndMemoryType(uid, aid, "procedural").defaultIfEmpty(0L)
         ).map(t -> new MemoryStats(t.getT1(), t.getT2(), t.getT3(),
                 t.getT1() + t.getT2() + t.getT3()));
+    }
+
+    private void writeToVector(AgentMemoryEntity saved) {
+        if (vectorMemoryStore != null && saved != null && saved.getId() != null) {
+            MemoryEntry entry = toMemoryEntry(saved);
+            vectorMemoryStore.store(entry)
+                    .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)))
+                    .subscribe(
+                            null,
+                            err -> log.error("Vector store write failed after retries for mysql_id={}: {}",
+                                    saved.getId(), err.getMessage())
+                    );
+        }
     }
 
     private MemoryEntry toMemoryEntry(AgentMemoryEntity entity) {
