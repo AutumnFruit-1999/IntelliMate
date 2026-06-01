@@ -325,6 +325,76 @@ existing.setContent(mergedContent);
 |--------|--------|------|
 | `long_term.max_merged_content_length` | `1000` | 合并后单条记忆的最大字符数 |
 
+#### 5.3 情景记忆 (episodic) 持久化增强
+
+**改进 1：会话主题标签**
+
+在 `storeSessionEpisodicMemory` 中，从用户消息提取 2-3 个关键词作为主题标签，写入 `metadata_json`：
+
+```json
+{
+  "topics": ["数据库", "连接池", "优化"],
+  "outcome": "resolved"
+}
+```
+
+提取方式：复用 `KeywordExtractor.extract()` 对所有 USER 类型 chunk 的内容提取关键词，取频率最高的前 3 个。
+
+**改进 2：会话结果标记**
+
+在 episodic 存储时判断会话结果：
+- 若最后一条 ASSISTANT chunk 包含"完成"/"成功"/"已修复"等关键词 → `outcome: "resolved"`
+- 若包含"错误"/"失败"/"无法" → `outcome: "unresolved"`
+- 其他 → `outcome: "unknown"`
+
+resolved 会话的 importance 基础值 +0.1，unresolved 的 -0.1。
+
+#### 5.4 语义记忆 (semantic) 冲突检测
+
+**问题**：旧记忆说"项目使用 MySQL 5"，新 fact 说"项目使用 MySQL 8"，当前逻辑会用 `\n---\n` 拼接，导致矛盾信息共存。
+
+**改进**：在 `LongTermMemoryImpl.store()` 的合并逻辑中，对 semantic 类型增加冲突检测：
+
+```java
+if ("semantic".equals(fact.type()) && similarity > DEDUP_SIMILARITY_THRESHOLD) {
+    // 高度相似 = 同一主题的知识更新，用新内容替换旧内容而不是拼接
+    existing.setContent(fact.content());
+    existing.setImportance(Math.max(existing.getImportance(), fact.importance()));
+    existing.setAccessCount(existing.getAccessCount() + 1);
+    existing.setLastAccessedAt(LocalDateTime.now());
+    return repository.save(existing).then();
+}
+```
+
+区别于 episodic/procedural 的拼接合并，semantic 的高相似度合并采用**替换策略**——新知识取代旧知识。
+
+#### 5.5 程序记忆 (procedural) 前置条件和强化
+
+**改进 1：前置条件记录**
+
+在 `PlanExecutionOrchestrator` 存储 procedural 记忆时，从计划上下文提取适用条件，写入 `metadata_json`：
+
+```json
+{
+  "applicable_to": "Spring Boot 项目",
+  "plan_name": "添加缓存层",
+  "success": true
+}
+```
+
+**改进 2：成功强化**
+
+当检索到的 procedural 记忆被再次成功使用（同一流程被重复执行且成功），自动提升 importance：
+
+```java
+if ("procedural".equals(entry.getMemoryType()) && isSuccessfulReuse) {
+    float boostedImportance = Math.min(1.0f, entry.getImportance() + 0.05f);
+    entry.setImportance(boostedImportance);
+}
+```
+
+这在 `recordAccess()` 时附带执行。需要扩展 `recordAccess()` 方法签名以支持可选的 importance boost。
+
 ### 6. 缺陷修复
 
 #### 6.1 findByUserId 多用户隔离修复
