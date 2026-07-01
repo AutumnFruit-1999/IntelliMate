@@ -50,8 +50,6 @@ public class HttpToolCallback implements ToolCallback {
             Map<String, String> headers = resolveHeaders(config.headers(), args);
             HttpMethod method = HttpMethod.valueOf(config.method().toUpperCase());
 
-            log.debug("HttpToolCallback [{}] {} {}", toolDefinition.name(), method, url);
-
             WebClient.RequestBodySpec spec = webClient.method(method).uri(url);
             headers.forEach(spec::header);
 

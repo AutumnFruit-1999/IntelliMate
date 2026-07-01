@@ -51,30 +51,16 @@ public class ToolsEngine {
      */
     public synchronized void refresh() {
         List<ToolCallback> all = new ArrayList<>(Arrays.asList(builtinCallbacks));
-        int dynamicCount = 0;
-        int mcpCount = 0;
 
         if (dynamicToolProvider != null) {
-            List<ToolCallback> dynamic = dynamicToolProvider.getDynamicCallbacks();
-            all.addAll(dynamic);
-            dynamicCount = dynamic.size();
+            all.addAll(dynamicToolProvider.getDynamicCallbacks());
         }
 
         if (mcpToolProvider != null) {
-            ToolCallback[] mcpCallbacks = mcpToolProvider.getAllCallbacks();
-            all.addAll(Arrays.asList(mcpCallbacks));
-            mcpCount = mcpCallbacks.length;
+            all.addAll(Arrays.asList(mcpToolProvider.getAllCallbacks()));
         }
 
         this.allToolCallbacks = all.toArray(new ToolCallback[0]);
-
-        log.info("ToolsEngine refreshed: {} builtin + {} dynamic + {} mcp = {} total",
-                builtinCallbacks.length, dynamicCount, mcpCount, allToolCallbacks.length);
-
-        if (log.isDebugEnabled()) {
-            log.debug("Registered tools: {}",
-                    Arrays.stream(allToolCallbacks).map(cb -> cb.getToolDefinition().name()).toList());
-        }
     }
 
     public ToolCallback[] getToolCallbacks() {
@@ -121,8 +107,6 @@ public class ToolsEngine {
             return callbacks;
         }
 
-        log.info("Bridge node '{}' active, routing tools: {}", bridgeNodeName, bridgeTools);
-
         return Arrays.stream(callbacks)
                 .map(cb -> {
                     String toolName = cb.getToolDefinition().name();
@@ -153,48 +137,31 @@ public class ToolsEngine {
     }
 
     private ToolCallback[] getMcpCallbacksFor(String mcpToolsEnabledSpec) {
-        log.debug("getMcpCallbacksFor called with spec: {}", mcpToolsEnabledSpec);
-
         if (mcpToolProvider == null) {
-            log.debug("MCP ToolProvider is null, returning empty array");
             return new ToolCallback[0];
         }
 
         ToolCallback[] allMcp = mcpToolProvider.getAllCallbacks();
-        log.debug("MCP ToolProvider returned {} callbacks", allMcp.length);
-
-        for (ToolCallback cb : allMcp) {
-            log.debug("Available MCP tool: {}", cb.getToolDefinition().name());
-        }
 
         if (allMcp.length == 0) {
-            log.debug("No MCP callbacks available, returning empty array");
             return allMcp;
         }
 
         if (mcpToolsEnabledSpec == null || mcpToolsEnabledSpec.isBlank()) {
-            log.debug("mcpToolsEnabledSpec is null or blank, returning empty array");
             return new ToolCallback[0];
         }
 
         if ("full".equalsIgnoreCase(mcpToolsEnabledSpec.trim())) {
-            log.debug("mcpToolsEnabledSpec is 'full', returning all {} callbacks", allMcp.length);
             return allMcp;
         }
 
         Set<String> names = parseToolNames(mcpToolsEnabledSpec);
-        log.debug("Parsed tool names from spec: {}", names);
 
         if (names.isEmpty()) {
-            log.debug("Parsed names is empty, returning empty array");
             return new ToolCallback[0];
         }
 
-        ToolCallback[] filtered = filterFromSource(allMcp, names);
-
-        log.debug("Filtered MCP callbacks: {} out of {} matched", filtered.length, allMcp.length);
-
-        return filtered;
+        return filterFromSource(allMcp, names);
     }
 
     private ToolCallback[] getBuiltinCustomCallbacks() {

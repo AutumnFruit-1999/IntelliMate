@@ -6,6 +6,7 @@ import com.atm.intellimate.memory.config.ResolvedMemoryConfig;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -13,22 +14,35 @@ public class MemoryConfigService implements MemoryConfigProvider {
 
     private final MemoryConfigRepository configRepo;
 
-    private static final Map<String, String> DEFAULTS = Map.ofEntries(
-            Map.entry("working.token_budget", "128000"),
-            Map.entry("working.consolidation_threshold", "0.75"),
-            Map.entry("consolidation.model", "qwen-turbo"),
-            Map.entry("consolidation.fallback_model", "qwen-lite"),
-            Map.entry("consolidation.max_summary_tokens", "1024"),
-            Map.entry("consolidation.timeout_ms", "5000"),
-            Map.entry("consolidation.max_retries", "2"),
-            Map.entry("consolidation.overflow_tolerance", "1.10"),
-            Map.entry("long_term.enabled", "false"),
-            Map.entry("long_term.max_memories_per_user", "500"),
-            Map.entry("long_term.max_injection_tokens", "2048"),
-            Map.entry("long_term.decay_lambda", "0.1"),
-            Map.entry("long_term.compaction_threshold", "300"),
-            Map.entry("long_term.archive_after_days", "30"),
-            Map.entry("long_term.min_chunks_for_episodic", "4")
+    static final List<String> ALL_CONFIG_KEYS = List.of(
+            "working.token_budget",
+            "working.consolidation_threshold",
+            "consolidation.model",
+            "consolidation.fallback_model",
+            "consolidation.max_summary_tokens",
+            "consolidation.timeout_ms",
+            "consolidation.max_retries",
+            "consolidation.overflow_tolerance",
+            "long_term.enabled",
+            "long_term.max_memories_per_user",
+            "long_term.max_injection_tokens",
+            "long_term.decay_lambda",
+            "long_term.compaction_threshold",
+            "long_term.archive_after_days",
+            "long_term.min_chunks_for_episodic",
+            "vector.enabled",
+            "embedding.definition_id",
+            "retrieval.strategy",
+            "retrieval.vector_weight",
+            "retrieval.keyword_weight",
+            "scoring.semantic_weight",
+            "scoring.episodic_weight",
+            "scoring.procedural_weight",
+            "scoring.semantic_decay_lambda",
+            "scoring.episodic_decay_lambda",
+            "scoring.procedural_decay_lambda",
+            "long_term.min_fact_importance",
+            "long_term.max_merged_content_length"
     );
 
     private static final Map<String, String> DESCRIPTIONS = Map.ofEntries(
@@ -45,7 +59,20 @@ public class MemoryConfigService implements MemoryConfigProvider {
             Map.entry("long_term.max_injection_tokens", "检索注入 token 预算"),
             Map.entry("long_term.decay_lambda", "遗忘曲线衰减速率 (约7天衰减到50%)"),
             Map.entry("long_term.compaction_threshold", "触发记忆压实的条数"),
-            Map.entry("long_term.archive_after_days", "冷记忆归档天数")
+            Map.entry("long_term.archive_after_days", "冷记忆归档天数"),
+            Map.entry("vector.enabled", "向量检索主开关"),
+            Map.entry("embedding.definition_id", "当前使用的 Embedding 模型 definition ID（空=向量功能禁用，通过页面配置）"),
+            Map.entry("retrieval.strategy", "检索策略: hybrid/vector-only/keyword-only"),
+            Map.entry("retrieval.vector_weight", "向量得分权重"),
+            Map.entry("retrieval.keyword_weight", "关键词得分权重"),
+            Map.entry("scoring.semantic_weight", "semantic 类型权重"),
+            Map.entry("scoring.episodic_weight", "episodic 类型权重"),
+            Map.entry("scoring.procedural_weight", "procedural 类型权重"),
+            Map.entry("scoring.semantic_decay_lambda", "semantic 衰减系数"),
+            Map.entry("scoring.episodic_decay_lambda", "episodic 衰减系数"),
+            Map.entry("scoring.procedural_decay_lambda", "procedural 衰减系数"),
+            Map.entry("long_term.min_fact_importance", "低于此 importance 的 fact 不存储"),
+            Map.entry("long_term.max_merged_content_length", "合并后单条记忆最大字符数")
     );
 
     private static final String GLOBAL_AGENT = "_global_";
@@ -61,16 +88,12 @@ public class MemoryConfigService implements MemoryConfigProvider {
                 .map(ResolvedMemoryConfig::fromMap);
     }
 
+    @Override
     public Mono<ResolvedMemoryConfig> resolveForAgent(String agentName) {
-        return configRepo.findByAgentName(GLOBAL_AGENT)
+        String effectiveName = (agentName != null && !agentName.isBlank()) ? agentName : GLOBAL_AGENT;
+        return configRepo.findByAgentName(effectiveName)
                 .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
-                .flatMap(globalMap -> configRepo.findByAgentName(agentName)
-                        .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
-                        .map(agentMap -> {
-                            Map<String, String> merged = new java.util.HashMap<>(globalMap);
-                            merged.putAll(agentMap);
-                            return ResolvedMemoryConfig.fromMap(merged);
-                        }));
+                .map(ResolvedMemoryConfig::fromMap);
     }
 
     public Mono<Map<String, ConfigItem>> resolveGrouped() {
@@ -78,22 +101,20 @@ public class MemoryConfigService implements MemoryConfigProvider {
     }
 
     public Mono<Map<String, ConfigItem>> resolveGroupedForAgent(String agentName) {
-        return configRepo.findByAgentName(GLOBAL_AGENT)
+        String effectiveName = (agentName != null && !agentName.isBlank()) ? agentName : GLOBAL_AGENT;
+        return configRepo.findByAgentName(effectiveName)
                 .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
-                .flatMap(globalMap -> configRepo.findByAgentName(agentName)
-                        .collectMap(e -> e.getConfigKey(), e -> e.getConfigValue())
-                        .map(agentMap -> {
-                            Map<String, ConfigItem> result = new java.util.LinkedHashMap<>();
-                            DEFAULTS.forEach((key, defVal) -> {
-                                String value = agentMap.containsKey(key) ? agentMap.get(key)
-                                        : globalMap.getOrDefault(key, defVal);
-                                result.put(key, new ConfigItem(
-                                        value, defVal,
-                                        DESCRIPTIONS.getOrDefault(key, ""),
-                                        inferType(key)));
-                            });
-                            return result;
-                        }));
+                .map(dbMap -> {
+                    Map<String, ConfigItem> result = new java.util.LinkedHashMap<>();
+                    for (String key : ALL_CONFIG_KEYS) {
+                        String value = dbMap.getOrDefault(key, "");
+                        result.put(key, new ConfigItem(
+                                value,
+                                DESCRIPTIONS.getOrDefault(key, ""),
+                                inferType(key)));
+                    }
+                    return result;
+                });
     }
 
     public Mono<Void> updateConfig(Map<String, String> updates) {
@@ -107,28 +128,18 @@ public class MemoryConfigService implements MemoryConfigProvider {
                 .then();
     }
 
-    public Mono<Void> resetToDefaults() {
-        return resetToDefaultsForAgent(GLOBAL_AGENT);
-    }
-
-    public Mono<Void> resetToDefaultsForAgent(String agentName) {
-        return configRepo.deleteByAgentName(agentName)
-                .then(reactor.core.publisher.Flux.fromIterable(DEFAULTS.entrySet())
-                        .flatMap(e -> configRepo.upsertForAgent(agentName, e.getKey(), e.getValue(),
-                                DESCRIPTIONS.getOrDefault(e.getKey(), "")))
-                        .then());
-    }
-
-    public static Map<String, String> getDefaults() {
-        return DEFAULTS;
+    public Mono<Void> deleteConfigForAgent(String agentName) {
+        return configRepo.deleteByAgentName(agentName).then();
     }
 
     private String inferType(String key) {
         if (key.contains("enabled")) return "boolean";
         if (key.contains("model")) return "string";
-        if (key.contains("threshold") || key.contains("tolerance") || key.contains("lambda")) return "number";
+        if (key.contains("strategy")) return "string";
+        if (key.contains("threshold") || key.contains("tolerance")
+                || key.contains("lambda") || key.contains("weight")) return "number";
         return "number";
     }
 
-    public record ConfigItem(String value, String defaultValue, String description, String type) {}
+    public record ConfigItem(String value, String description, String type) {}
 }

@@ -32,8 +32,6 @@ public class ChatModelFactory {
     private static final Logger log = LoggerFactory.getLogger(ChatModelFactory.class);
 
     public ChatModel create(ProviderConfig config) {
-        log.info("Creating ChatModel: provider='{}', type={}, baseUrl={}, apiKey={}",
-                config.name(), config.type(), config.baseUrl(), maskKey(config.apiKey()));
         return switch (config.type()) {
             case DASHSCOPE -> createDashScope(config);
             case OPENAI_COMPATIBLE -> createOpenAiCompatible(config);
@@ -42,13 +40,7 @@ public class ChatModelFactory {
         };
     }
 
-    private String maskKey(String key) {
-        if (key == null || key.length() <= 8) return "****";
-        return key.substring(0, 4) + "****" + key.substring(key.length() - 4);
-    }
-
     private ChatModel createDashScope(ProviderConfig config) {
-        log.info("Creating DashScope ChatModel for provider '{}'", config.name());
         DashScopeApi.Builder apiBuilder = DashScopeApi.builder()
                 .apiKey(config.apiKey());
         if (config.baseUrl() != null && !config.baseUrl().isBlank()) {
@@ -68,8 +60,6 @@ public class ChatModelFactory {
             if (hasVersionPath(config.baseUrl())) {
                 apiBuilder.completionsPath("/chat/completions");
                 apiBuilder.embeddingsPath("/embeddings");
-                log.info("BaseUrl '{}' contains version path, using /chat/completions instead of default /v1/chat/completions",
-                        config.baseUrl());
             }
         }
         OpenAiApi api = apiBuilder.build();
@@ -92,8 +82,6 @@ public class ChatModelFactory {
     }
 
     private ChatModel createDeepSeek(ProviderConfig config) {
-        log.info("Creating DeepSeek ChatModel for provider '{}', thinkingMode={}",
-                config.name(), config.thinkingMode());
         String thinkingMode = config.thinkingMode();
         DeepSeekApi.Builder apiBuilder = DeepSeekApi.builder()
                 .apiKey(config.apiKey())
@@ -156,7 +144,6 @@ public class ChatModelFactory {
     }
 
     private ChatModel createAnthropic(ProviderConfig config) {
-        log.info("Creating Anthropic ChatModel for provider '{}'", config.name());
         AnthropicApi.Builder apiBuilder = AnthropicApi.builder()
                 .apiKey(config.apiKey());
         if (config.baseUrl() != null && !config.baseUrl().isBlank()) {

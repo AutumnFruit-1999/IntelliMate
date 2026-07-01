@@ -43,7 +43,6 @@ public class ChannelsManager {
         this.objectMapper = objectMapper;
         for (ChannelAdapter adapter : adapterList) {
             adapters.put(adapter.getChannelId(), adapter);
-            log.info("Discovered channel adapter: {}", adapter.getChannelId());
         }
     }
 
@@ -58,8 +57,6 @@ public class ChannelsManager {
     public void deliverInbound(InboundEnvelope envelope) {
         if (inboundHandler != null) {
             inboundHandler.accept(envelope);
-        } else {
-            log.debug("No inbound handler registered, dropping envelope: {}", envelope.sessionKey());
         }
     }
 
@@ -72,18 +69,15 @@ public class ChannelsManager {
 
     @PostConstruct
     public void init() {
-        log.info("ChannelsManager initializing with {} adapter(s)", adapters.size());
         adapters.values().forEach(a -> a.onMessage(this::deliverInbound));
         connectEnabledChannels().subscribe(
                 null,
-                e -> log.error("Error during channel initialization", e),
-                () -> log.info("Channel initialization complete")
+                e -> log.error("Error during channel initialization", e)
         );
     }
 
     @PreDestroy
     public void shutdown() {
-        log.info("ChannelsManager shutting down");
         adapters.values().forEach(adapter -> {
             if (adapter.isConnected()) {
                 adapter.disconnect().subscribe(
@@ -113,7 +107,6 @@ public class ChannelsManager {
         }
         Map<String, Object> config = settings != null ? settings : Collections.emptyMap();
         return adapter.connect(config)
-                .doOnSuccess(v -> log.info("Channel connected: {}", channelId))
                 .doOnError(e -> log.error("Failed to connect channel: {}", channelId, e));
     }
 

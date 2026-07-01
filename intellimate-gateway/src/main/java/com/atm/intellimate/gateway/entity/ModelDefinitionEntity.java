@@ -12,6 +12,8 @@ public class ModelDefinitionEntity {
     private Long id;
     private Long providerId;
     private String modelId;
+    private String category;
+    private Integer dimensions;
     private String displayName;
     private String description;
     private Integer maxTokens;
@@ -27,6 +29,10 @@ public class ModelDefinitionEntity {
     public void setProviderId(Long providerId) { this.providerId = providerId; }
     public String getModelId() { return modelId; }
     public void setModelId(String modelId) { this.modelId = modelId; }
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+    public Integer getDimensions() { return dimensions; }
+    public void setDimensions(Integer dimensions) { this.dimensions = dimensions; }
     public String getDisplayName() { return displayName; }
     public void setDisplayName(String displayName) { this.displayName = displayName; }
     public String getDescription() { return description; }

@@ -25,7 +25,6 @@ public class BridgeNodeRegistry {
             prev.close();
         }
         wsSessionToNode.put(session.getWebSocketSessionId(), nodeName);
-        log.info("Bridge node registered: {}, tools: {}", nodeName, session.getRegisteredTools());
     }
 
     public void unregister(String nodeName) {
@@ -33,7 +32,6 @@ public class BridgeNodeRegistry {
         if (session != null) {
             wsSessionToNode.remove(session.getWebSocketSessionId());
             session.close();
-            log.info("Bridge node unregistered: {}", nodeName);
         }
     }
 

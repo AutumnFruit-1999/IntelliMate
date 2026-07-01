@@ -50,7 +50,6 @@ public class BridgeWebSocketHandler implements WebSocketHandler {
         }
 
         String tokenHash = sha256(token);
-        log.info("Bridge connection attempt: wsSessionId={}", session.getId());
 
         Sinks.Many<String> outSink = Sinks.many().unicast()
                 .onBackpressureBuffer(Queues.<String>get(256).get());
@@ -75,7 +74,6 @@ public class BridgeWebSocketHandler implements WebSocketHandler {
                 .doFinally(signal -> {
                     heartbeat.dispose();
                     cleanupSession(session);
-                    log.info("Bridge disconnected: wsSessionId={}, signal={}", session.getId(), signal);
                 });
     }
 
@@ -101,10 +99,7 @@ public class BridgeWebSocketHandler implements WebSocketHandler {
                     }
                     yield Mono.empty();
                 }
-                default -> {
-                    log.debug("Unhandled bridge message type: {}", msg.getClass().getSimpleName());
-                    yield Mono.empty();
-                }
+                default -> Mono.empty();
             };
         } catch (Exception e) {
             log.error("Failed to parse bridge message: {}", text, e);

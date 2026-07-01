@@ -2,6 +2,7 @@ package com.atm.intellimate.gateway.service;
 
 import com.atm.intellimate.gateway.channel.ChannelsManager;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
+import com.atm.intellimate.gateway.repository.ChannelIdentityRepository;
 import com.atm.intellimate.gateway.repository.SessionRepository;
 import com.atm.intellimate.gateway.session.SessionManager;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
@@ -28,12 +29,15 @@ class ChatInjectionServiceTest {
     @Mock private SessionManager sessionManager;
     @Mock private SessionRepository sessionRepository;
     @Mock private ChannelsManager channelsManager;
+    @Mock private ChannelConfigService channelConfigService;
+    @Mock private ChannelIdentityRepository identityRepository;
 
     private ChatInjectionService service;
 
     @BeforeEach
     void setUp() {
-        service = new ChatInjectionService(sessionRegistry, sessionManager, sessionRepository, channelsManager);
+        service = new ChatInjectionService(sessionRegistry, sessionManager, sessionRepository,
+                channelsManager, channelConfigService, identityRepository);
     }
 
     @Test
@@ -41,7 +45,7 @@ class ChatInjectionServiceTest {
         when(sessionManager.findOrCreateProactiveSession("agent-a")).thenReturn(Mono.just(42L));
         when(sessionManager.appendMessage(eq(42L), any(TranscriptMessageEntity.class))).thenReturn(Mono.empty());
         when(sessionRegistry.pushToAllAgentSessions(eq("agent-a"), eq("agent.proactive"), any(Map.class))).thenReturn(2);
-        when(sessionRepository.findExternalChannelSessionsByAgentName("agent-a")).thenReturn(Flux.empty());
+        when(channelConfigService.listChannels()).thenReturn(Flux.empty());
 
         StepVerifier.create(service.injectAgentMessage("agent-a", "Hello!", ChatInjectionService.ProactiveSource.HEARTBEAT))
                 .expectNext(2)
@@ -60,7 +64,7 @@ class ChatInjectionServiceTest {
     void injectAgentMessage_persistFails_stillPushes() {
         when(sessionManager.findOrCreateProactiveSession("agent-a")).thenReturn(Mono.error(new RuntimeException("DB down")));
         when(sessionRegistry.pushToAllAgentSessions(eq("agent-a"), eq("agent.proactive"), any(Map.class))).thenReturn(1);
-        when(sessionRepository.findExternalChannelSessionsByAgentName("agent-a")).thenReturn(Flux.empty());
+        when(channelConfigService.listChannels()).thenReturn(Flux.empty());
 
         StepVerifier.create(service.injectAgentMessage("agent-a", "Hi", ChatInjectionService.ProactiveSource.SCHEDULED_JOB))
                 .expectNext(1)
@@ -72,7 +76,7 @@ class ChatInjectionServiceTest {
         when(sessionManager.findOrCreateProactiveSession("agent-a")).thenReturn(Mono.just(42L));
         when(sessionManager.appendMessage(eq(42L), any())).thenReturn(Mono.empty());
         when(sessionRegistry.pushToAllAgentSessions(eq("agent-a"), eq("agent.proactive"), any(Map.class))).thenReturn(0);
-        when(sessionRepository.findExternalChannelSessionsByAgentName("agent-a")).thenReturn(Flux.empty());
+        when(channelConfigService.listChannels()).thenReturn(Flux.empty());
 
         StepVerifier.create(service.injectAgentMessage("agent-a", "Hi", ChatInjectionService.ProactiveSource.HEARTBEAT))
                 .expectNext(0)

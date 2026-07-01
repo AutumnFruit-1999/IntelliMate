@@ -40,7 +40,6 @@ public class WebSearchTool {
             @ToolParam(description = "最大结果数量（默认 5）", required = false) Integer maxResults
     ) {
         int limit = (maxResults != null && maxResults > 0) ? maxResults : 5;
-        log.info("Web search: query='{}', limit={}", query, limit);
 
         if (serpApiKey == null || serpApiKey.isBlank()) {
             return fallbackSearch(query, limit);

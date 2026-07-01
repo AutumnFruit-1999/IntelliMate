@@ -88,7 +88,7 @@ class MemoryRetrievalTest {
     }
 
     @Test
-    @DisplayName("When memory count > 1000, uses search path capped at 100 then top-20 pre-filter")
+    @DisplayName("Uses FULLTEXT search path without falling back to findByUserId")
     void retrieve_largeCorpus_usesStagedSearchNotFullScan() {
         List<MemoryEntry> many = new java.util.ArrayList<>();
         for (int i = 0; i < 30; i++) {

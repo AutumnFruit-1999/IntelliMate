@@ -10,4 +10,6 @@ public interface ChannelIdentityRepository extends ReactiveCrudRepository<Channe
     Mono<ChannelIdentityEntity> findByChannelIdAndExternalId(String channelId, String externalId);
 
     Flux<ChannelIdentityEntity> findByUserId(String userId);
+
+    Flux<ChannelIdentityEntity> findByChannelId(String channelId);
 }

@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import ChatPanel from "./components/ChatPanel";
-import PlanPanel from "./components/PlanPanel";
 import AgentCardGrid from "./components/AgentCardGrid";
 import AgentConfigModal from "./components/AgentConfigModal";
 import ToolManagerPage from "./components/ToolManagerModal";
@@ -26,7 +25,6 @@ import { useAuthStore } from "./stores/authStore";
 export default function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== "undefined") {
@@ -39,20 +37,13 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [agentConfigTarget, setAgentConfigTarget] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [planPanelOpen, setPlanPanelOpen] = useState(true);
-  const [planPanelCollapsed, setPlanPanelCollapsed] = useState(false);
-
-  const { sendMessage, sendPlanAction, sendPlanActionAndWait, cancelRequest } = useWebSocket();
+  const { sendMessage, sendPlanAction, cancelRequest } = useWebSocket();
   const activeAgent = useAgentStore((s) => s.activeAgent);
   const fetchAgentList = useAgentStore((s) => s.fetchAgentList);
   const setActiveAgent = useAgentStore((s) => s.setActiveAgent);
   const createAgent = useAgentStore((s) => s.createAgent);
 
   const pendingForcePlan = useChatStore((s) => s.pendingForcePlan);
-  const plan = usePlanStore((s) => s.plan);
-  const planHistory = usePlanStore((s) => s.planHistory);
-  const dismissed = usePlanStore((s) => s.dismissed);
-  const showPlanPanel = (plan !== null || planHistory.length > 0) && planPanelOpen && !dismissed;
 
   useEffect(() => {
     fetchAgentList().then(() => {
@@ -69,13 +60,6 @@ export default function App() {
   }, [pendingForcePlan, sendMessage]);
 
   useEffect(() => {
-    if (plan) {
-      if (!planPanelOpen) setPlanPanelOpen(true);
-      setPlanPanelCollapsed(false);
-    }
-  }, [plan?.planId]);
-
-  useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
     localStorage.setItem("intellimate-theme", darkMode ? "dark" : "light");
   }, [darkMode]);
@@ -87,7 +71,7 @@ export default function App() {
       if (name !== activeAgent) {
         setActiveAgent(name);
         useChatStore.getState().setCurrentAgent(name);
-        usePlanStore.getState().clearPlan();
+        usePlanStore.getState().clearActivePlan();
       }
       navigate("/chat");
     },
@@ -160,29 +144,6 @@ export default function App() {
             <Route path="/scheduler" element={<SchedulerDashboard />} />
             <Route path="/monitoring" element={<MonitoringPage />} />
           </Routes>
-          {showPlanPanel && location.pathname === "/chat" && (
-            planPanelCollapsed ? (
-              <div className="w-10 flex-shrink-0 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-col items-center py-3 gap-2">
-                <button
-                  onClick={() => setPlanPanelCollapsed(false)}
-                  className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  title="展开计划面板"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><polyline points="15 18 9 12 15 6" /></svg>
-                </button>
-                <span className="text-[10px] text-slate-400 writing-mode-vertical" style={{ writingMode: "vertical-rl" }}>
-                  {plan?.title}
-                </span>
-              </div>
-            ) : (
-              <PlanPanel
-                onSendAction={sendPlanAction}
-                onSendPlanActionAndWait={sendPlanActionAndWait}
-                onSendMessage={sendMessage}
-                onClose={() => setPlanPanelCollapsed(true)}
-              />
-            )
-          )}
         </div>
       </div>
       <AgentConfigModal

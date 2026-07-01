@@ -2,13 +2,19 @@ package com.atm.intellimate.gateway.service;
 
 import com.atm.intellimate.gateway.entity.AgentMemoryEntity;
 import com.atm.intellimate.gateway.repository.AgentMemoryRepository;
+import com.atm.intellimate.memory.config.ResolvedMemoryConfig;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.model.ExtractedFact;
 import com.atm.intellimate.memory.model.MemoryEntry;
 import com.atm.intellimate.memory.retrieval.KeywordExtractor;
+import com.atm.intellimate.memory.retrieval.VectorMemoryStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -17,15 +23,24 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class LongTermMemoryImpl implements LongTermMemory {
 
+    private static final Logger log = LoggerFactory.getLogger(LongTermMemoryImpl.class);
     private static final double DEDUP_SIMILARITY_THRESHOLD = 0.85;
+    private static final double V3_DEDUP_SIMILARITY_THRESHOLD = 0.95;
 
     private final AgentMemoryRepository repository;
+    private final VectorMemoryStore vectorMemoryStore;  // nullable
     private final KeywordExtractor keywordExtractor = new KeywordExtractor();
+
+    private volatile float minFactImportance = 0.3f;
+    private volatile int maxMergedContentLength = 1000;
+    private volatile boolean vectorEnabled = false;
 
     /** Hot tier: recently accessed memories keyed by (userId:agentId). LRU eviction via Caffeine. */
     private final Cache<String, List<MemoryEntry>> hotCache = Caffeine.newBuilder()
@@ -33,17 +48,30 @@ public class LongTermMemoryImpl implements LongTermMemory {
             .expireAfterWrite(Duration.ofMinutes(5))
             .build();
 
-    public LongTermMemoryImpl(AgentMemoryRepository repository) {
+    private record SimilarMatch(AgentMemoryEntity entity, double similarity) {}
+
+    public LongTermMemoryImpl(AgentMemoryRepository repository,
+                               @Autowired(required = false) VectorMemoryStore vectorMemoryStore) {
         this.repository = repository;
+        this.vectorMemoryStore = vectorMemoryStore;
     }
 
-    private String cacheKey(String agentId) {
-        return "agent:" + effectiveAgentId(agentId);
+    @Override
+    public void updateConfig(ResolvedMemoryConfig config) {
+        if (config != null) {
+            this.minFactImportance = config.minFactImportance();
+            this.maxMergedContentLength = config.maxMergedContentLength();
+            this.vectorEnabled = config.vectorEnabled();
+        }
+    }
+
+    private String cacheKey(String userId, String agentId) {
+        return effectiveUserId(userId) + ":" + effectiveAgentId(agentId);
     }
 
     /** Invalidate hot cache for a specific scope (called on write/delete). */
     private void invalidateCache(String userId, String agentId) {
-        hotCache.invalidate(cacheKey(agentId));
+        hotCache.invalidate(cacheKey(userId, agentId));
     }
 
     private static String effectiveUserId(String userId) {
@@ -56,13 +84,73 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     @Override
     public Mono<Void> store(ExtractedFact fact, String userId, String agentId) {
+        return store(fact, userId, agentId, null);
+    }
+
+    @Override
+    public Mono<Void> store(ExtractedFact fact, String userId, String agentId, String metadataJson) {
+        if (fact.topic() != null && !fact.topic().isBlank()) {
+            return storeEnriched(fact, userId, agentId, null);
+        }
+        return storeLegacy(fact, userId, agentId, metadataJson);
+    }
+
+    @Override
+    public Mono<Void> storeEnriched(ExtractedFact fact, String userId, String agentId, Long sessionId) {
+        if (fact.content() == null || fact.content().isBlank()) {
+            return Mono.empty();
+        }
+
         final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
+
+        if (fact.importance() < minFactImportance) {
+            return Mono.empty();
+        }
+
+        final String keywordsStr = joinKeywords(fact.keywords());
+
+        return findExistingByTopic(uid, aid, fact.topic(), keywordsStr)
+                .flatMap(existing -> updateExistingV3(existing, fact, keywordsStr, sessionId))
+                .switchIfEmpty(Mono.defer(() -> createNewV3(fact, uid, aid, sessionId, keywordsStr)))
+                .doOnTerminate(() -> invalidateCache(uid, aid));
+    }
+
+    private Mono<Void> storeLegacy(ExtractedFact fact, String userId, String agentId, String metadataJson) {
+        final String uid = effectiveUserId(userId);
+        final String aid = effectiveAgentId(agentId);
+
+        if (fact.importance() < minFactImportance) {
+            return Mono.empty();
+        }
+        if (fact.content() == null || fact.content().isBlank()) {
+            return Mono.empty();
+        }
+
         return repository.findByUserIdAndAgentIdAndMemoryType(uid, aid, fact.type())
-                .filter(existing -> keywordExtractor.jaccardSimilarity(
-                        existing.getContent(), fact.content()) > DEDUP_SIMILARITY_THRESHOLD)
-                .next()
                 .flatMap(existing -> {
+                    double similarity = keywordExtractor.jaccardSimilarity(
+                            existing.getContent(), fact.content());
+                    if (similarity <= DEDUP_SIMILARITY_THRESHOLD) {
+                        return Mono.empty();
+                    }
+                    return Mono.just(new SimilarMatch(existing, similarity));
+                })
+                .next()
+                .flatMap(match -> {
+                    AgentMemoryEntity existing = match.entity();
+                    double similarity = match.similarity();
+
+                    if ("semantic".equals(fact.type()) && similarity > DEDUP_SIMILARITY_THRESHOLD) {
+                        existing.setContent(fact.content());
+                        existing.setImportance(Math.max(existing.getImportance(), fact.importance()));
+                        existing.setAccessCount(existing.getAccessCount() + 1);
+                        existing.setLastAccessedAt(LocalDateTime.now());
+                        return repository.save(existing)
+                                .doOnSuccess(saved -> writeToVector(saved))
+                                .then();
+                    }
+
                     existing.setImportance(Math.max(existing.getImportance(), fact.importance()));
                     existing.setAccessCount(existing.getAccessCount() + 1);
                     existing.setLastAccessedAt(LocalDateTime.now());
@@ -70,9 +158,18 @@ public class LongTermMemoryImpl implements LongTermMemory {
                     if (!existing.getContent().contains(fact.content())
                             && fact.content().length() < 500) {
                         mergedContent = existing.getContent() + "\n---\n" + fact.content();
+                        if (mergedContent.length() > maxMergedContentLength) {
+                            mergedContent = mergedContent.substring(mergedContent.length() - maxMergedContentLength);
+                            int firstSep = mergedContent.indexOf("\n---\n");
+                            if (firstSep > 0) {
+                                mergedContent = mergedContent.substring(firstSep + 5);
+                            }
+                        }
                     }
                     existing.setContent(mergedContent);
-                    return repository.save(existing).then();
+                    return repository.save(existing)
+                            .doOnSuccess(saved -> writeToVector(saved))
+                            .then();
                 })
                 .switchIfEmpty(Mono.defer(() -> {
                     AgentMemoryEntity entity = new AgentMemoryEntity();
@@ -83,27 +180,166 @@ public class LongTermMemoryImpl implements LongTermMemory {
                     entity.setImportance(fact.importance());
                     entity.setAccessCount(0);
                     entity.setCreatedAt(LocalDateTime.now());
-                    return repository.save(entity).then();
+                    if (metadataJson != null && !metadataJson.isBlank()) {
+                        entity.setMetadataJson(metadataJson);
+                    }
+                    return repository.save(entity)
+                            .doOnSuccess(saved -> writeToVector(saved))
+                            .then();
                 }))
                 .doOnTerminate(() -> invalidateCache(uid, aid));
     }
 
+    private Mono<AgentMemoryEntity> findExistingByTopic(String userId, String agentId,
+                                                          String topic, String newKeywords) {
+        if (topic == null || topic.isBlank()) {
+            return Mono.empty();
+        }
+        return repository.findByUserIdAndAgentIdAndTopic(userId, agentId, topic)
+                .filter(existing -> {
+                    String existingKeywords = existing.getKeywords() != null ? existing.getKeywords() : "";
+                    double sim = keywordExtractor.jaccardSimilarity(existingKeywords, newKeywords);
+                    return sim > V3_DEDUP_SIMILARITY_THRESHOLD;
+                })
+                .next();
+    }
+
+    private Mono<Void> updateExistingV3(AgentMemoryEntity existing, ExtractedFact fact,
+                                        String newKeywords, Long sessionId) {
+        final String action = "更新";
+        boolean consolidated = "consolidated".equals(existing.getMemoryLevel());
+
+        existing.setContent(fact.content());
+        existing.setImportance(Math.max(
+                existing.getImportance() != null ? existing.getImportance() : 0f,
+                fact.importance()));
+        existing.setAccessCount((existing.getAccessCount() != null ? existing.getAccessCount() : 0) + 1);
+        existing.setLastAccessedAt(LocalDateTime.now());
+        if (sessionId != null) {
+            existing.setSourceSessionId(sessionId);
+        }
+
+        if (consolidated) {
+            existing.setEnrichedContent(fact.enriched());
+            existing.setKeywords(newKeywords);
+        } else {
+            existing.setEnrichedContent(appendEnrichedHistory(existing.getEnrichedContent(), fact.enriched()));
+            existing.setKeywords(mergeKeywordStrings(existing.getKeywords(), newKeywords));
+        }
+
+        return repository.save(existing)
+                .doOnSuccess(saved -> {
+                    writeToVector(saved);
+                    logStoreAudit(fact, action);
+                })
+                .then();
+    }
+
+    private Mono<Void> createNewV3(ExtractedFact fact, String uid, String aid,
+                                   Long sessionId, String keywordsStr) {
+        final String action = "新建";
+
+        AgentMemoryEntity entity = new AgentMemoryEntity();
+        entity.setUserId(uid);
+        entity.setAgentId(aid);
+        entity.setMemoryType("semantic");
+        entity.setContent(fact.content());
+        entity.setImportance(fact.importance());
+        entity.setAccessCount(0);
+        entity.setCreatedAt(LocalDateTime.now());
+        entity.setKeywords(keywordsStr);
+        entity.setTopic(fact.topic());
+        entity.setMemoryLevel("detail");
+        entity.setEnrichedContent(fact.enriched());
+        if (sessionId != null) {
+            entity.setSourceSessionId(sessionId);
+        }
+
+        return repository.save(entity)
+                .doOnSuccess(saved -> {
+                    writeToVector(saved);
+                    logStoreAudit(fact, action);
+                })
+                .then();
+    }
+
+    private static String joinKeywords(List<String> keywords) {
+        if (keywords == null || keywords.isEmpty()) {
+            return "";
+        }
+        return keywords.stream()
+                .filter(k -> k != null && !k.isBlank())
+                .collect(Collectors.joining(" "));
+    }
+
+    private static String mergeKeywordStrings(String oldKeywords, String newKeywords) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        for (String kw : splitKeywords(oldKeywords)) {
+            merged.add(kw);
+        }
+        for (String kw : splitKeywords(newKeywords)) {
+            merged.add(kw);
+        }
+        return String.join(" ", merged);
+    }
+
+    private static List<String> splitKeywords(String keywords) {
+        if (keywords == null || keywords.isBlank()) {
+            return List.of();
+        }
+        return List.of(keywords.trim().split("\\s+"));
+    }
+
+    private static String appendEnrichedHistory(String existing, String newEnriched) {
+        if (newEnriched == null || newEnriched.isBlank()) {
+            return existing;
+        }
+        if (existing == null || existing.isBlank()) {
+            return newEnriched;
+        }
+        if (existing.contains(newEnriched)) {
+            return existing;
+        }
+        return existing + "\n---\n" + newEnriched;
+    }
+
+    private void logStoreAudit(ExtractedFact fact, String action) {
+        int enrichedLen = fact.enriched() != null ? fact.enriched().length() : 0;
+        log.info("[记忆存储] 主题={}, 关键词数={}, 内容长度={}, 语义增强长度={}, 重要度={}, 向量={}, 操作={}",
+                fact.topic(),
+                fact.keywords() != null ? fact.keywords().size() : 0,
+                fact.content().length(),
+                enrichedLen,
+                fact.importance(),
+                vectorEnabled,
+                action);
+    }
+
     @Override
     public Flux<MemoryEntry> search(String cue, String userId, String agentId) {
+        final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
         List<String> keywords = keywordExtractor.extract(cue);
+        log.info("[关键词检索] cue='{}', 提取关键词={}, user={}, agent={}", cue, keywords, uid, aid);
         if (keywords.isEmpty()) {
-            return repository.findByAgentId(aid).map(this::toMemoryEntry);
+            log.info("[关键词检索] 无有效关键词，全量加载");
+            return repository.findByUserIdAndAgentId(uid, aid).map(this::toMemoryEntry);
         }
 
         String fulltextExpr = String.join(" ", keywords);
-        return repository.fulltextSearchByAgentId(aid, fulltextExpr, 100)
+        return repository.fulltextSearch(uid, aid, fulltextExpr)
                 .map(this::toMemoryEntry)
-                .switchIfEmpty(Flux.fromIterable(keywords)
-                        .flatMap(kw -> repository.findByAgentId(aid)
-                                .filter(e -> e.getContent() != null && e.getContent().contains(kw)))
-                        .distinct(AgentMemoryEntity::getId)
-                        .map(this::toMemoryEntry));
+                .doOnNext(r -> log.info("[关键词检索]   >> id={}, content='{}', keywords='{}'",
+                        r.getId(), truncate(r.getContent(), 40), r.getKeywords()))
+                .collectList()
+                .doOnNext(results -> log.info("[关键词检索] FULLTEXT(content+keywords) 命中 {} 条, expr='{}'",
+                        results.size(), fulltextExpr))
+                .flatMapMany(Flux::fromIterable);
+    }
+
+    private static String truncate(String s, int maxLen) {
+        if (s == null) return "";
+        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
     }
 
     @Override
@@ -113,14 +349,24 @@ public class LongTermMemoryImpl implements LongTermMemory {
     }
 
     @Override
+    public Mono<Void> recordAccess(MemoryEntry entry, float importanceBoost) {
+        if (entry.getId() == null) return Mono.empty();
+        if (importanceBoost > 0) {
+            return repository.incrementAccessCountWithBoost(entry.getId(), importanceBoost).then();
+        }
+        return recordAccess(entry);
+    }
+
+    @Override
     public Flux<MemoryEntry> findByUserId(String userId, String agentId) {
+        final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
-        String key = "agent:" + aid;
+        String key = cacheKey(uid, aid);
         List<MemoryEntry> cached = hotCache.getIfPresent(key);
         if (cached != null) {
             return Flux.fromIterable(cached);
         }
-        return repository.findByAgentId(aid)
+        return repository.findByUserIdAndAgentId(uid, aid)
                 .map(this::toMemoryEntry)
                 .collectList()
                 .doOnNext(list -> hotCache.put(key, list))
@@ -129,15 +375,26 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     @Override
     public Mono<Long> countByUserId(String userId, String agentId) {
+        final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
-        return repository.findByAgentId(aid).count();
+        return repository.countByUserIdAndAgentId(uid, aid);
     }
 
     @Override
     public Mono<Void> deleteById(Long id) {
         return repository.findById(id)
                 .doOnNext(entity -> invalidateCache(entity.getUserId(), entity.getAgentId()))
-                .then(repository.deleteById(id));
+                .flatMap(entity -> {
+                    Mono<Void> deleteFromDb = repository.deleteById(id);
+                    if (vectorMemoryStore != null) {
+                        return deleteFromDb.then(vectorMemoryStore.deleteById(id)
+                                .onErrorResume(e -> {
+                                    log.warn("Vector delete failed for id={}: {}", id, e.getMessage());
+                                    return Mono.empty();
+                                }));
+                    }
+                    return deleteFromDb;
+                });
     }
 
     @Override
@@ -156,13 +413,27 @@ public class LongTermMemoryImpl implements LongTermMemory {
 
     @Override
     public Mono<MemoryStats> getStats(String userId, String agentId) {
+        final String uid = effectiveUserId(userId);
         final String aid = effectiveAgentId(agentId);
         return Mono.zip(
-                repository.findByAgentIdAndMemoryType(aid, "episodic").count().defaultIfEmpty(0L),
-                repository.findByAgentIdAndMemoryType(aid, "semantic").count().defaultIfEmpty(0L),
-                repository.findByAgentIdAndMemoryType(aid, "procedural").count().defaultIfEmpty(0L)
+                repository.countByUserIdAndAgentIdAndMemoryType(uid, aid, "episodic").defaultIfEmpty(0L),
+                repository.countByUserIdAndAgentIdAndMemoryType(uid, aid, "semantic").defaultIfEmpty(0L),
+                repository.countByUserIdAndAgentIdAndMemoryType(uid, aid, "procedural").defaultIfEmpty(0L)
         ).map(t -> new MemoryStats(t.getT1(), t.getT2(), t.getT3(),
                 t.getT1() + t.getT2() + t.getT3()));
+    }
+
+    private void writeToVector(AgentMemoryEntity saved) {
+        if (vectorEnabled && vectorMemoryStore != null && saved != null && saved.getId() != null) {
+            MemoryEntry entry = toMemoryEntry(saved);
+            vectorMemoryStore.store(entry)
+                    .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)))
+                    .subscribe(
+                            null,
+                            err -> log.error("Vector store write failed after retries for mysql_id={}: {}",
+                                    saved.getId(), err.getMessage())
+                    );
+        }
     }
 
     private MemoryEntry toMemoryEntry(AgentMemoryEntity entity) {
@@ -182,6 +453,13 @@ public class LongTermMemoryImpl implements LongTermMemory {
                 : Instant.now());
         entry.setSourceSessionId(entity.getSourceSessionId());
         entry.setMetadataJson(entity.getMetadataJson());
+        entry.setEnrichedContent(entity.getEnrichedContent());
+        entry.setTopic(entity.getTopic());
+        entry.setKeywords(entity.getKeywords());
+        if (entity.getMemoryLevel() != null) {
+            entry.setMemoryLevel(entity.getMemoryLevel());
+        }
+        entry.setSourceMemoryIds(entity.getSourceMemoryIds());
         return entry;
     }
 }

@@ -76,6 +76,7 @@ export default function ModelList({ providerId }: ModelListProps) {
 
 function ModelRow({ model, onEdit, onDelete }: { model: ModelDefinitionDto; onEdit: () => void; onDelete: () => void }) {
   const [deleting, setDeleting] = useState(false);
+  const isEmbedding = model.category === "EMBEDDING";
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm(`确定删除模型「${model.displayName}」吗？`)) return;
@@ -95,9 +96,21 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelDefinitionDto; onEd
           <code className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
             {model.modelId}
           </code>
+          {isEmbedding ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+              Embedding
+            </span>
+          ) : (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              Chat
+            </span>
+          )}
         </div>
         {model.description && (
           <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 truncate">{model.description}</p>
+        )}
+        {isEmbedding && model.dimensions != null && (
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">维度: {model.dimensions}</p>
         )}
       </div>
       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -115,25 +128,44 @@ function ModelRow({ model, onEdit, onDelete }: { model: ModelDefinitionDto; onEd
 interface ModelInlineFormProps {
   providerId: number;
   initial?: ModelDefinitionDto;
-  onSave: (data: { providerId: number; modelId: string; displayName: string; description?: string | null }) => Promise<void>;
+  onSave: (data: {
+    providerId: number;
+    modelId: string;
+    displayName: string;
+    description?: string | null;
+    category?: string;
+    dimensions?: number | null;
+  }) => Promise<void>;
   onCancel: () => void;
 }
 
+const inputClass =
+  "px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/40";
+
 function ModelInlineForm({ providerId, initial, onSave, onCancel }: ModelInlineFormProps) {
   const [modelId, setModelId] = useState(initial?.modelId ?? "");
+  const [category, setCategory] = useState(initial?.category ?? "CHAT");
   const [displayName, setDisplayName] = useState(initial?.displayName ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [dimensions, setDimensions] = useState(initial?.dimensions ?? 1024);
   const [saving, setSaving] = useState(false);
 
   const handleSave = useCallback(async () => {
     if (!modelId.trim() || !displayName.trim()) return;
     setSaving(true);
     try {
-      await onSave({ providerId, modelId: modelId.trim(), displayName: displayName.trim(), description: description.trim() || null });
+      await onSave({
+        providerId,
+        modelId: modelId.trim(),
+        displayName: displayName.trim(),
+        description: description.trim() || null,
+        category,
+        dimensions: category === "EMBEDDING" ? dimensions : null,
+      });
     } finally {
       setSaving(false);
     }
-  }, [providerId, modelId, displayName, description, onSave]);
+  }, [providerId, modelId, category, displayName, description, dimensions, onSave]);
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
@@ -142,22 +174,39 @@ function ModelInlineForm({ providerId, initial, onSave, onCancel }: ModelInlineF
         value={modelId}
         onChange={(e) => setModelId(e.target.value)}
         placeholder="model-id"
-        className="w-28 px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/40"
+        className={`w-28 ${inputClass}`}
       />
+      <select
+        value={category}
+        onChange={(e) => setCategory(e.target.value)}
+        className={`w-24 ${inputClass}`}
+      >
+        <option value="CHAT">Chat</option>
+        <option value="EMBEDDING">Embedding</option>
+      </select>
       <input
         type="text"
         value={displayName}
         onChange={(e) => setDisplayName(e.target.value)}
         placeholder="显示名称"
-        className="w-28 px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/40"
+        className={`w-28 ${inputClass}`}
       />
       <input
         type="text"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="描述（选填）"
-        className="flex-1 px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500/40"
+        className={`flex-1 ${inputClass}`}
       />
+      {category === "EMBEDDING" && (
+        <input
+          type="number"
+          value={dimensions}
+          onChange={(e) => setDimensions(Number(e.target.value))}
+          placeholder="1024"
+          className={`w-20 ${inputClass}`}
+        />
+      )}
       <button onClick={handleSave} disabled={saving} className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors">
         {saving ? <Loader2 size={14} className="animate-spin text-green-500" /> : <Check size={14} className="text-green-500" />}
       </button>

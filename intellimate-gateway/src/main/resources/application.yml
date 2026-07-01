@@ -24,6 +24,7 @@ spring:
     password: ${MYSQL_PASSWORD:NyD0+oFDoOB+9cdVtnMonWFf4ZkDpTTs}
     locations: classpath:db/migration
     baseline-on-migrate: true
+    out-of-order: true
 
   ai:
     dashscope:
@@ -31,6 +32,12 @@ spring:
       chat:
         options:
           model: ${INTELLIMATE_AGENT_MODEL:qwen-plus}
+    vectorstore:
+      qdrant:
+        host: ${QDRANT_HOST:localhost}
+        port: ${QDRANT_GRPC_PORT:6334}
+        collection-name: intellimate_memories
+        initialize-schema: false
     mcp:
       client:
         enabled: false
@@ -65,8 +72,6 @@ intellimate:
     condenser-summary-length: 200
     condenser-min-turns-between: 5
     plan-max-steps: 20
-    plan-step-timeout-seconds: 120
-    plan-approval-timeout-seconds: 600
   skills:
     dir: ${INTELLIMATE_SKILLS_DIR:../skills/}
   proactive:

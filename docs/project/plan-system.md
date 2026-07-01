@@ -2,43 +2,55 @@
 
 ## 概述
 
-计划模式是 IntelliMate 的核心交互范式之一。当用户提出复杂的多步骤任务时，Agent 不会直接开始执行，而是先创建一份结构化的执行计划，经用户审批后再逐步执行。整个过程中用户可以暂停、恢复、修改步骤、跳过步骤或取消计划，保持对执行过程的完全控制。
+计划模式是 IntelliMate 的核心交互范式之一。当用户提出复杂的多步骤任务时，Agent 不会直接开始执行，而是先创建一份结构化的执行计划，经用户审批后再逐步执行。整个过程中用户可以暂停、恢复或取消计划，保持对执行过程的控制。
 
-计划模式横跨三个层：Agent 层提供创建和更新计划的工具、运行时自动追踪步骤进度；Gateway 层持久化计划数据、驱动执行生命周期、自动补全遗漏状态；前端实时呈现计划面板并提供全部操作入口。
+重构后的计划模式将计划作为对话流中的一条内联消息展示（checklist 形式），不再使用独立侧边面板或独立数据库表。计划数据存储在 `transcript_message.metadata_json` 中，由 `InlinePlanService` 管理生命周期，前端通过 `PlanMessage` 组件渲染。
 
 ## 数据模型
 
-### plan 表
+### 存储方式
 
-每一份计划对应一行记录，绑定到一个会话（session）。同一个会话中同一时间只能有一个活跃计划。
+计划作为一种特殊类型的消息存储在 `transcript_message` 表中，利用 `metadata_json` 列保存结构化数据。
 
-主要字段：
+| 字段 | 值 | 说明 |
+|------|-----|------|
+| `role` | `assistant` | 计划由 Agent 创建 |
+| `content` | 计划标题 | 如「重构用户模块」 |
+| `metadata_json` | plan 结构化数据 | 见下方 JSON 结构 |
+| `tool_call_id` | null | |
+| `tool_name` | null | |
 
-- id：主键
-- session_id：所属会话
-- title：计划标题
-- status：当前状态（draft / approved / executing / paused / completed / cancelled）
-- completion_summary：完成摘要，计划结束时由 Agent 或系统写入
-- created_at / updated_at：时间戳
+计划的唯一标识是 `transcript_message.id`，下文称 `messageId`。所有 WebSocket 操作和 Agent 工具调用均使用 `messageId`，不再使用独立的 `planId`。
 
-### plan_step 表
+### metadata_json 结构
 
-每个步骤是计划的子记录，通过 plan_id 关联。步骤按 step_index（从 1 开始）排列，支持动态增删和重排序。
+```json
+{
+  "type": "plan",
+  "plan": {
+    "status": "draft",
+    "steps": [
+      {
+        "index": 0,
+        "title": "分析现有代码结构",
+        "description": "阅读 src/models/User.java 和 UserService.java，梳理现有字段和方法依赖",
+        "verification": "输出字段清单和依赖关系图，确认无遗漏",
+        "status": "pending",
+        "resultSummary": null
+      }
+    ],
+    "completionSummary": null
+  }
+}
+```
 
-主要字段：
+每个步骤包含 `verification` 字段，描述完成该步骤后如何验证结果正确。Agent 必须在验证通过后才可调用 `plan({ action: "step_done" })` 标记步骤完成。
 
-- id：主键
-- plan_id：所属计划
-- step_index：顺序号
-- title：步骤标题
-- description：步骤描述
-- status：步骤状态（pending / in_progress / completed / failed / skipped）
-- result_summary：执行结果摘要
-- started_at / completed_at：时间戳
+### 约束
 
-### transcript_message 关联
-
-消息表中的 plan_id 字段将聊天消息关联到计划，实现计划执行期间的历史隔离——加载历史时只取计划相关的上下文，避免无关对话干扰 Agent 的执行。
+- 一个会话中同时只能有一个活跃计划（status 不是终态）
+- 计划最大步骤数：20（配置项 `plan-max-steps`）
+- 旧版 `plan` / `plan_step` 表及 `transcript_message.plan_id` 列已废弃（V39 迁移后重命名为 `_deprecated_plan` / `_deprecated_plan_step`）
 
 ## 计划的生命周期
 
@@ -48,11 +60,11 @@
                     用户审批
 [新建] → draft ──────────────→ approved
             │                      │
-            │ 用户拒绝               │ 开始执行 / Agent 标记步骤
+            │ 用户拒绝               │ 开始执行
             ↓                      ↓
          cancelled            executing
                                   │
-                        用户暂停 / 步骤失败
+                            用户暂停
                                   ↓
                                paused
                                   │
@@ -65,251 +77,179 @@
                              completed
 ```
 
-任何非终态都可以被用户取消（cancelled）。取消时所有待执行和进行中的步骤标记为 skipped。
+任何非终态都可以被用户取消（`cancelled`）。取消时所有 `pending` 和 `in_progress` 步骤标记为 `skipped`。
+
+### 步骤状态
+
+`pending` | `in_progress` | `completed` | `failed` | `skipped`
 
 ### 关键状态转换规则
 
-- draft → approved：用户审批通过，可同时提交步骤修改
-- draft/approved → executing：当 Agent 标记某步骤为 in_progress 时自动提升
-- executing → paused：用户主动暂停，或某步骤标记为 failed 时自动暂停
-- paused → executing：用户恢复执行
-- 任意状态 → cancelled：用户取消，所有未完成步骤标记为 skipped
-- executing → completed：Agent 调用 completePlan 或系统自动检测所有步骤已完成
+- `draft` → `approved`：用户点击「执行」审批通过
+- `draft` → `cancelled`：用户点击「拒绝」
+- `approved` → `executing`：审批后自动触发 Agent 执行（发送「开始执行计划」消息）
+- `executing` ⇄ `paused`：用户暂停 / 恢复
+- 任意非终态 → `cancelled`：用户取消
+- `executing` → `completed`：Agent 调用 `plan({ action: "complete" })` 或所有步骤已完成
 
-## 计划创建
+## Agent 工具：`plan`
 
-### WritePlanTool
+单一的 `plan` 工具（`PlanTool`）替代了旧版的 `writePlan` 和 `updatePlan`，支持三个 action：
 
-这是 Agent 侧的计划创建工具，直接实现 ToolCallback 接口。接受 title 和 steps 数组作为输入，每个步骤包含 title 和 description。
+| action | 必填参数 | 说明 |
+|--------|----------|------|
+| `create` | `title`, `steps[]` | 创建计划。每步需 `title`、`description`、`verification` |
+| `step_done` | `stepIndex` | 标记步骤完成，可选 `resultSummary` |
+| `complete` | — | 完成整个计划，可选 `summary` |
 
-工具内部做了大量的 JSON 容错处理，包括修复未加引号的值、提取 Markdown 代码块中的 JSON、正则回退解析等，确保 LLM 各种格式的输出都能被正确解析。
+工具内置宽松的 JSON 解析（支持未加引号字段名、单引号、Markdown 代码块提取等），应对 LLM 格式不规范的输出。
 
 创建流程：
 
-1. 从当前线程上下文获取 sessionId
-2. 解析并修复 LLM 返回的 JSON
-3. 调用 PlanOperations.createPlan 持久化
-4. 返回包含 planId、status、message 的结果
+1. 从 `AgentSessionContext` 获取 `sessionId`
+2. 解析并校验步骤（含 verification 字段）
+3. 调用 `PlanOperations.createPlan` → `InlinePlanService.createPlanMessage` 持久化
+4. 返回 `{ messageId, status, message }`
+5. AgentRuntime 发出 `PlanCreated` 事件，映射为 WebSocket `plan.created`
 
-创建完成后 AgentRuntime 会自动提取事件：PlanCreated（包含计划内容）和 PlanAwaitingApproval（等待用户审批）。这两个事件通过 WebSocket 推送到前端。
-
-### 创建后的行为
-
-Agent 在创建计划后必须停止执行并等待用户审批，这在系统提示词中有明确约束。计划面板会自动弹出，用户可以查看、修改步骤、批准或拒绝。
+创建完成后 Agent 必须停止执行并等待用户审批。步骤完成前 Agent 应先执行 `verification` 中描述的验证，验证通过后再调用 `step_done`。
 
 ## 计划执行
 
 ### 执行触发
 
-用户在前端点击"执行"按钮后：
+用户在前端 PlanMessage 组件点击「执行」后：
 
-1. 发送 plan.approve 审批计划
-2. 等待审批成功
-3. 自动发送"开始执行计划"消息触发 Agent 运行
+1. 发送 `plan.approve`（`messageId`, `approved: true`）
+2. 服务端将状态更新为 `approved`，推送 `plan.status_changed`
+3. 服务端自动发送「开始执行计划」消息，触发 Agent 运行
 
 ### MessagePipeline 的角色
 
-MessagePipeline 是计划执行的驱动中心。处理每条消息时会检查当前会话是否有活跃计划：
+`MessagePipeline` 是计划操作的唯一入口，直接处理 `plan.*` WebSocket 请求，不再经过 `PlanRequestHandler` 或 `PlanExecutionOrchestrator`。
 
-1. 查询活跃计划（状态为 executing 或 approved）
-2. 如果有，构建计划执行载荷（plan execution payload）
-3. 将计划上下文注入到 Agent 请求中
-4. Agent 执行完毕后调用同步逻辑检查并自动补全
+处理聊天消息时：
+
+1. 通过 `InlinePlanService.getActivePlan(sessionId)` 查询活跃计划
+2. 若计划处于 `executing` 或 `approved` 状态，将 `messageId` 作为 `activePlanMessageId` 传入 Agent 请求
+3. 调用 `InlinePlanService.buildPlanContext(messageId)` 构建计划上下文并注入系统提示词
+4. 通过 `MessageConverter.loadHistory` 加载对话历史（含计划消息）
 
 ### 计划上下文注入
 
-执行期间，Agent 的系统提示词中会注入两层计划信息：
+执行期间，Agent 系统提示词中注入当前计划上下文，包含：
 
-第一层是通用计划系统规则（plan_system），始终包含，说明何时应该创建计划、计划质量要求、创建后必须等待审批等。
+- 计划标题和进度（已完成步数 / 总步数）
+- 下一步的标题、描述和验证条件
+- 操作指引：完成实施后执行验证，验证通过后调用 `plan({ action: "step_done", stepIndex: N })`
 
-第二层是当前执行上下文（plan_execution），仅在计划处于 executing 或 approved 状态时注入，包含：
-
-- 计划 ID（用于 updatePlan 调用）
-- 已完成步骤及其结果摘要
-- 当前步骤（in_progress 的步骤，或第一个 pending 步骤）
-- 待执行步骤清单
-- 严格的三步执行流程：标记开始 → 执行工具 → 标记完成
-
-### 历史隔离
-
-计划执行期间加载的聊天历史会合并两部分：
-
-- 计划前的通用聊天上下文
-- 计划执行期间的消息（按 plan_id 过滤）
-
-这确保 Agent 聚焦于计划相关内容，不被其他对话干扰。
-
-## 步骤追踪
-
-### UpdatePlanTool
-
-Agent 在执行过程中通过 UpdatePlanTool 更新步骤状态，支持以下操作：
-
-- markStep：标记步骤状态（in_progress / completed / failed），可附带 resultSummary
-- addStep：在指定位置之后添加新步骤
-- removeStep：移除步骤并重新排序
-- completePlan：完成整个计划，可附带总结摘要
-
-每个操作都会生成对应的事件（PlanStepStart、PlanStepDone、PlanAdjusted、PlanCompleted），通过 WebSocket 实时推送到前端。
-
-### PlanStepTracker 自动追踪
-
-PlanStepTracker 是 AgentRuntime 中的内部组件，解决 LLM 忘记调用 updatePlan 就直接执行工具的问题。
-
-当 Agent 调用非计划工具（不是 writePlan 或 updatePlan）且当前没有活跃步骤时，PlanStepTracker 会自动找到第一个 pending 步骤并标记为 in_progress，同时发出相应事件。这样即使 LLM 不规范地跳过了步骤状态管理，前端面板仍然能正确反映进度。
-
-### 执行后自动同步
-
-每次 Agent 运行结束后，MessagePipeline 会执行 syncPlanAfterExecution：
-
-1. 查找处于 in_progress 或 pending 的步骤
-2. 将遗留的 in_progress 步骤自动标记为 completed
-3. 发出 plan.step_done 事件
-4. 检查是否所有步骤都已完成（completed / failed / skipped），如果是则自动完成计划
-5. 触发计划完成的记忆提取
-
-## 步骤管理
-
-### 添加步骤
-
-addStep 在指定位置之后插入新步骤。为避免唯一约束冲突，先以逆序更新后续步骤的索引号，再插入新步骤。
-
-### 移除步骤
-
-removeStep 删除指定步骤后，按顺序从 1 开始重新编排剩余步骤的索引号。
-
-### 重排序
-
-用户可以在前端拖拽调整步骤顺序（仅限 draft 或 paused 状态），通过 plan.reorder_steps 事件发送新的排列顺序。
-
-### 跳过步骤
-
-用户可以跳过某个 failed 步骤，步骤状态变为 skipped，结果摘要标记为"用户跳过"。
-
-### 修改步骤
-
-用户可以在审批前修改步骤的标题和描述。审批时也可以附带批量修改（edit / add / remove）。
+通用计划系统规则（`plan_system` 提示词）始终包含，说明何时创建计划、步骤质量要求、verification 字段含义、创建后必须等待审批等。
 
 ## 暂停与恢复
 
 ### 暂停
 
-用户暂停计划或步骤失败时，PlanService 将计划状态设为 paused，同时调用 AgentRuntime.signalPlanPaused 通知运行中的 Agent。Agent 在每个回合开始时检查暂停信号，如果当前计划已暂停则优雅退出，输出"计划已暂停，当前步骤完成后停止执行"。
+用户点击「暂停」时，`MessagePipeline` 调用 `InlinePlanService.updatePlanStatus(messageId, "paused")`，同时调用 `AgentRuntime.signalPlanPaused(messageId)`。Agent 在每个回合开始时检查暂停信号，若当前计划已暂停则优雅退出。
 
 ### 恢复
 
-用户恢复执行后计划状态回到 executing，下一条消息触发 Agent 继续从中断的步骤执行。
+用户点击「继续」时，状态回到 `executing`，服务端自动触发「开始执行计划」消息，Agent 从中断处继续。
+
+### 取消
+
+用户点击「取消」或审批时拒绝，状态变为 `cancelled`，未完成步骤标记为 `skipped`，同时通知 Agent 停止执行。
 
 ## 前端交互
 
-### PlanPanel
+### PlanMessage
 
-主侧边栏面板（420px 宽），是计划模式的核心交互组件，包含：
+内联计划消息组件，替代旧版 `PlanPanel` 侧边面板。当消息的 `metadata.type === "plan"` 时，在对话流中渲染 checklist 风格的计划卡片，包含：
 
-- 进度条：显示已完成 / 总步骤数
-- 步骤列表：每个步骤显示状态图标、标题、描述
-- 操作按钮：审批/拒绝、执行、暂停/恢复、取消
-- 拖拽排序：draft 和 paused 状态下可拖拽调整步骤顺序
-- 步骤编辑：可修改步骤标题和描述
-- 步骤工具调用列表：展开可查看每个步骤执行的工具调用
-- 历史分页：可浏览之前完成的计划
+- 计划标题和状态徽章
+- 步骤列表（状态图标、标题、描述、验证条件、结果摘要）
+- 操作按钮：draft 状态显示「执行」「拒绝」；executing 显示「暂停」「取消」；paused 显示「继续」「取消」
 
-### PlanStepCard
-
-步骤卡片组件，显示步骤详情和状态，支持展开查看关联的工具调用列表。工具调用在执行过程中实时追加。
-
-### PlanHistoryTab
-
-全局计划历史视图，展示所有历史计划的表格，支持按 Agent、状态筛选，可展开查看步骤详情和完成摘要，支持批量删除。
+步骤修改、添加、跳过等复杂操作通过自然语言对话完成，不再提供独立的步骤编辑 UI。
 
 ### planStore
 
-Zustand 状态管理，维护当前计划、步骤工具调用映射、当前步骤索引、待分配工具调用缓冲、计划历史等状态。处理所有 WebSocket 计划事件并更新 UI。
+Zustand 状态管理已简化为仅跟踪活跃计划：
 
-### 工具调用关联
+- `activePlanMessageId`：当前活跃计划的 messageId
+- `activePlanStatus`：当前计划状态
 
-前端负责将 Agent 执行的工具调用关联到对应步骤：
+计划的结构化数据（步骤列表、状态等）存储在 `chatStore` 消息的 `metadata` 中。WebSocket 事件处理器更新 `planStore` 的活跃指针，同时通过 `chatStore.updateMessageMetadata` 更新消息内的 plan 数据。
 
-1. 收到 agent.tool_call 事件时，如果当前有活跃步骤，将工具调用追加到该步骤
-2. 如果没有活跃步骤但计划在执行中，乐观地分配给第一个 pending 步骤
-3. 如果都不匹配，缓冲在 pendingToolCalls 中，等 plan.step_start 事件到达后刷入
-4. 收到 agent.tool_result 时更新对应工具调用的结果
+### 工具调用显示
 
-## WebSocket 事件
+`plan` 工具调用不在普通工具列表中重复显示（与旧版 writePlan/updatePlan 相同处理方式）。Agent 执行的其他工具调用在对话气泡中正常流式展示，与 checklist 独立。
 
-### 客户端请求方法
+## WebSocket 协议
+
+### 客户端请求（4 个方法）
 
 | 方法 | 参数 | 说明 |
 |------|------|------|
-| plan.approve | planId, approved, modifications | 审批或拒绝计划 |
-| plan.approve_and_execute | planId | 审批并立即开始执行 |
-| plan.pause | planId | 暂停计划 |
-| plan.resume | planId | 恢复执行 |
-| plan.cancel | planId | 取消计划 |
-| plan.skip_step | planId, stepIndex | 跳过步骤 |
-| plan.modify_step | planId, stepIndex, title, description | 修改步骤 |
-| plan.add_step | planId, afterIndex, title, description | 添加步骤 |
-| plan.reorder_steps | planId, newOrder | 重排步骤顺序 |
+| `plan.approve` | `messageId`, `approved` | 审批或拒绝计划 |
+| `plan.pause` | `messageId` | 暂停执行 |
+| `plan.resume` | `messageId` | 恢复执行 |
+| `plan.cancel` | `messageId` | 取消计划 |
 
-### 服务端推送事件
+协议辅助函数定义在 `protocol.ts`：`createPlanApprove`、`createPlanPause`、`createPlanResume`、`createPlanCancel`。
+
+已删除的方法：`plan.approve_and_execute`、`plan.skip_step`、`plan.modify_step`、`plan.add_step`、`plan.reorder_steps`。
+
+### 服务端推送事件（4 个事件）
 
 | 事件 | 载荷 | 说明 |
 |------|------|------|
-| plan.created | planId, title, steps | 计划已创建 |
-| plan.awaiting_approval | planId | 等待用户审批 |
-| plan.status_changed | planId, status | 计划状态变更 |
-| plan.step_start | planId, stepIndex, title | 步骤开始执行 |
-| plan.step_done | planId, stepIndex, status, resultSummary | 步骤执行完成 |
-| plan.adjusted | planId, adjustType, currentSteps | 步骤列表调整 |
-| plan.completed | planId, status | 计划已完成 |
+| `plan.created` | `messageId`, `title`, `status`, `steps` | 计划已创建，前端渲染 checklist |
+| `plan.step_updated` | `messageId`, `stepIndex`, `status`, `resultSummary` | 步骤状态变更 |
+| `plan.status_changed` | `messageId`, `status` | 计划整体状态变更 |
+| `plan.completed` | `messageId`, `summary` | 计划已完成 |
 
-## REST API
-
-| 端点 | 说明 |
-|------|------|
-| GET /api/plans | 分页查询计划列表，支持 agentName / status / sessionId / includeSteps 过滤 |
-| GET /api/plans/{planId} | 获取计划详情及所有步骤 |
-| GET /api/plans/{planId}/steps | 获取计划的步骤列表 |
-| DELETE /api/plans/{planId} | 删除计划及其步骤 |
-| DELETE /api/plans/batch | 批量删除计划 |
+已删除的事件：`plan.awaiting_approval`（由 `plan.created` status=draft 隐含）、`plan.step_start`、`plan.step_done`（合并为 `plan.step_updated`）、`plan.adjusted`。
 
 ## PlanOperations SPI
 
-Agent 模块定义了 PlanOperations 接口，Gateway 模块提供 PlanOperationsImpl 实现，避免循环依赖。
+Agent 模块定义 `PlanOperations` 接口，Gateway 模块提供 `InlinePlanOperationsImpl` 实现，避免循环依赖。
 
-接口定义：
+```java
+public interface PlanOperations {
+    Mono<PlanResult> createPlan(long sessionId, String title, List<StepInput> steps);
+    Mono<PlanResult> updateStep(long messageId, int stepIndex, String status, String resultSummary);
+    Mono<PlanResult> completePlan(long messageId, String summary);
+    Mono<Boolean> isPausedOrCancelled(long messageId);
+}
+```
 
-- createPlan(sessionId, title, steps)：创建计划
-- markStep(planId, stepIndex, status, summary)：更新步骤状态
-- addStep(planId, afterIndex, title, description)：添加步骤
-- removeStep(planId, stepIndex, reason)：移除步骤
-- completePlan(planId, summary)：完成计划
-- getSteps(planId)：获取步骤快照
-- isPausedOrCancelled(planId)：检查计划是否已暂停或取消
+`PlanResult` 包含 `messageId`、状态和消息文本。`InlinePlanOperationsImpl` 是 `InlinePlanService` 之上的响应式包装。
 
-PlanOperationsImpl 是响应式 PlanService 之上的同步包装，使用 .block() 调用。由于运行在响应式管道中，必须切换到 boundedElastic 调度器。
+## InlinePlanService
 
-## 记忆提取
+Gateway 层的计划服务，直接操作 `transcript_message` 表：
 
-计划完成后（无论是 Agent 主动完成还是系统自动补全），MessagePipeline 会触发记忆提取：
+- `createPlanMessage`：创建 plan 类型消息，状态为 draft
+- `updateStepStatus`：更新步骤状态和结果摘要
+- `updatePlanStatus`：更新计划状态（审批、暂停、恢复、取消）
+- `completePlan`：标记计划完成并写入摘要
+- `getActivePlan`：查询会话中的活跃计划
+- `buildPlanContext`：构建注入 Agent 的计划执行上下文
 
-- 过程记忆：提取"问题 + 解决步骤 + 结果"形式的经验
-- 情景记忆：生成简短的执行摘要
-
-这些记忆写入长期记忆存储，帮助 Agent 在未来遇到类似任务时借鉴历史经验。
+不再有独立的 `PlanService`、`PlanController` REST API 或 `plan` / `plan_step` 数据库表。
 
 ## forcePlan 模式
 
-当用户发送 /plan 命令或消息带有 forcePlan 参数时，Agent 的系统提示词中会注入强制要求："你必须先调用 writePlan 创建计划，等待用户审批后再执行"。这确保即使是简单任务也走计划流程。
+当用户发送 `/plan` 命令或消息带有 `forcePlan` 参数时，Agent 系统提示词中会注入强制要求：「你必须先调用 plan 工具创建计划，等待用户审批后再执行」。
 
 ## 设计要点
 
-活跃计划唯一性：每个会话同一时间只能有一个活跃计划（状态为 draft / approved / executing / paused）。新计划创建时如有前序计划，前序计划进入历史。
+**计划即消息**：计划是对话的一部分，不是独立实体。历史加载、持久化和 UI 渲染都基于 transcript_message。
 
-乐观 UI 更新：前端在收到确认前不会预设状态，所有状态更新都基于 WebSocket 事件驱动。
+**验证驱动完成**：每个步骤必须定义 verification 条件，Agent 完成实施后须验证通过才标记 step_done，避免跳过质量检查。
 
-自动容错：PlanStepTracker 处理 LLM 忘记标记步骤的情况，syncPlanAfterExecution 处理 LLM 忘记完成计划的情况，多层兜底确保计划状态最终一致。
+**精简协议**：WebSocket 方法从 9 个减至 4 个，事件从 7 个减至 4 个，所有标识统一为 messageId。
 
-工具关联前端化：工具调用与步骤的关联在前端完成而非后端，减少了后端复杂度，同时保持了实时性。
+**活跃计划唯一性**：每个会话同一时间只能有一个活跃计划。新计划创建时若已有活跃计划，创建操作会失败。
 
-历史隔离保证聚焦：计划执行期间的 Agent 上下文仅包含计划相关消息和必要的前置聊天，避免无关内容稀释上下文。
+**内联交互**：审批和控制按钮内嵌在对话流中，不打断聊天节奏。复杂步骤调整通过自然语言完成。

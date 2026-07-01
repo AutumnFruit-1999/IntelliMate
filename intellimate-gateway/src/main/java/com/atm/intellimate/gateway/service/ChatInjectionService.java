@@ -3,7 +3,10 @@ package com.atm.intellimate.gateway.service;
 import com.atm.intellimate.core.model.OutboundMessage;
 import com.atm.intellimate.core.model.SessionKey;
 import com.atm.intellimate.gateway.channel.ChannelsManager;
+import com.atm.intellimate.gateway.dto.ChannelInfoDto;
+import com.atm.intellimate.gateway.entity.ChannelIdentityEntity;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
+import com.atm.intellimate.gateway.repository.ChannelIdentityRepository;
 import com.atm.intellimate.gateway.repository.SessionRepository;
 import com.atm.intellimate.gateway.session.SessionManager;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
@@ -14,6 +17,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -26,20 +30,24 @@ public class ChatInjectionService {
     private final SessionManager sessionManager;
     private final SessionRepository sessionRepository;
     private final ChannelsManager channelsManager;
+    private final ChannelConfigService channelConfigService;
+    private final ChannelIdentityRepository identityRepository;
 
     public ChatInjectionService(SessionRegistry sessionRegistry,
                                 SessionManager sessionManager,
                                 SessionRepository sessionRepository,
-                                ChannelsManager channelsManager) {
+                                ChannelsManager channelsManager,
+                                ChannelConfigService channelConfigService,
+                                ChannelIdentityRepository identityRepository) {
         this.sessionRegistry = sessionRegistry;
         this.sessionManager = sessionManager;
         this.sessionRepository = sessionRepository;
         this.channelsManager = channelsManager;
+        this.channelConfigService = channelConfigService;
+        this.identityRepository = identityRepository;
     }
 
     public Mono<Integer> injectAgentMessage(String agentName, String content, ProactiveSource source) {
-        log.info("injectAgentMessage called: agent='{}', source={}, contentLength={}",
-                agentName, source, content != null ? content.length() : 0);
         if (content == null || content.isBlank()) {
             log.warn("Skipping empty proactive message for agent '{}'", agentName);
             return Mono.just(0);
@@ -69,9 +77,6 @@ public class ChatInjectionService {
                     "source", source.name().toLowerCase(),
                     "timestamp", System.currentTimeMillis()
             ));
-            if (delivered > 0) {
-                log.info("Proactive message pushed to {} WebSocket session(s) for agent '{}'", delivered, agentName);
-            }
             return delivered;
         });
 
@@ -89,28 +94,27 @@ public class ChatInjectionService {
     }
 
     private Mono<Integer> pushToExternalChannels(String agentName, String content) {
-        return sessionRepository.findExternalChannelSessionsByAgentName(agentName)
-                .filter(session -> {
-                    var adapter = channelsManager.getAdapter(session.getChannelId());
+        return channelConfigService.listChannels()
+                .filter(ch -> {
+                    Object agent = ch.config() != null ? ch.config().get("defaultAgent") : null;
+                    return agentName.equals(agent);
+                })
+                .filter(ch -> {
+                    var adapter = channelsManager.getAdapter(ch.channelId());
                     return adapter != null && adapter.isConnected();
                 })
-                .flatMap(session -> {
-                    SessionKey key = new SessionKey(
-                            session.getChannelId(),
-                            session.getContextType(),
-                            session.getContextId()
-                    );
-                    OutboundMessage outbound = new OutboundMessage(key, content, Collections.emptyList(), null);
-                    return channelsManager.send(outbound)
-                            .thenReturn(1)
-                            .doOnSuccess(v -> log.info("Proactive message pushed to channel={}, contextId={}",
-                                    session.getChannelId(), session.getContextId()))
-                            .onErrorResume(e -> {
-                                log.warn("Failed to push proactive message to channel={}: {}",
-                                        session.getChannelId(), e.getMessage());
-                                return Mono.just(0);
-                            });
-                })
+                .flatMap(ch -> identityRepository.findByChannelId(ch.channelId())
+                        .flatMap(identity -> {
+                            SessionKey key = new SessionKey(ch.channelId(), "dm", identity.getExternalId());
+                            OutboundMessage outbound = new OutboundMessage(key, content, Collections.emptyList(), null);
+                            return channelsManager.send(outbound)
+                                    .thenReturn(1)
+                                    .onErrorResume(e -> {
+                                        log.warn("Failed to push proactive message to channel={}: {}",
+                                                ch.channelId(), e.getMessage());
+                                        return Mono.just(0);
+                                    });
+                        }))
                 .reduce(0, Integer::sum);
     }
 
@@ -122,9 +126,11 @@ public class ChatInjectionService {
         if (sessionRegistry.isAgentOnline(agentName)) {
             return Mono.just(true);
         }
-        return sessionRepository.findExternalChannelSessionsByAgentName(agentName)
-                .any(session -> {
-                    var adapter = channelsManager.getAdapter(session.getChannelId());
+        return channelConfigService.listChannels()
+                .any(ch -> {
+                    Object agent = ch.config() != null ? ch.config().get("defaultAgent") : null;
+                    if (!agentName.equals(agent)) return false;
+                    var adapter = channelsManager.getAdapter(ch.channelId());
                     return adapter != null && adapter.isConnected();
                 });
     }

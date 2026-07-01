@@ -143,14 +143,10 @@ public class ModelProviderController {
                                 "success", false, "error", "模型创建失败: " + e.getMessage())));
                     }
 
-                    log.info("Testing connection for provider '{}' (type={})", entity.getName(), entity.getType());
                     return Mono.fromCallable(() -> tempModel.call(new Prompt("hi")))
                             .subscribeOn(Schedulers.boundedElastic())
                             .timeout(Duration.ofSeconds(15))
-                            .map(resp -> {
-                                log.info("Connection test succeeded for provider '{}'", entity.getName());
-                                return ApiResponse.ok(Map.<String, Object>of("success", true, "message", "连接成功"));
-                            })
+                            .map(resp -> ApiResponse.ok(Map.<String, Object>of("success", true, "message", "连接成功")))
                             .onErrorResume(e -> {
                                 String errMsg = extractErrorMessage(e);
                                 log.warn("Connection test failed for provider '{}': {}", entity.getName(), errMsg);

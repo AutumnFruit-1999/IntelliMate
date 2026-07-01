@@ -3,8 +3,6 @@ package com.atm.intellimate.gateway.websocket;
 import com.atm.intellimate.core.protocol.EventFrame;
 import com.atm.intellimate.core.protocol.GatewayFrame;
 import io.micrometer.core.instrument.MeterRegistry;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Sinks;
@@ -18,8 +16,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class SessionRegistry {
-
-    private static final Logger log = LoggerFactory.getLogger(SessionRegistry.class);
 
     private final AtomicLong seqGenerator = new AtomicLong(0);
     private final ConcurrentHashMap<String, Sinks.Many<GatewayFrame>> sessionSinks = new ConcurrentHashMap<>();
@@ -39,12 +35,10 @@ public class SessionRegistry {
         if (meterRegistry != null) {
             meterRegistry.counter("ws.connections.opened").increment();
         }
-        log.debug("Session registered: {}", wsSessionId);
     }
 
     public void bindUserId(String wsSessionId, Long userId) {
         sessionUserIds.put(wsSessionId, userId);
-        log.debug("User {} bound to session {}", userId, wsSessionId);
     }
 
     public Long getUserId(String wsSessionId) {
@@ -55,7 +49,6 @@ public class SessionRegistry {
         agentSessions
                 .computeIfAbsent(agentName, k -> ConcurrentHashMap.newKeySet())
                 .add(wsSessionId);
-        log.debug("Agent '{}' bound to session {}", agentName, wsSessionId);
     }
 
     public void unregister(String wsSessionId) {
@@ -66,7 +59,6 @@ public class SessionRegistry {
         if (meterRegistry != null) {
             meterRegistry.counter("ws.connections.closed").increment();
         }
-        log.debug("Session unregistered: {}", wsSessionId);
     }
 
     public boolean isAgentOnline(String agentName) {

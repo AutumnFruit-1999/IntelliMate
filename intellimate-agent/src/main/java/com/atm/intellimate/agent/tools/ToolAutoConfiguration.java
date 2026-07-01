@@ -35,18 +35,14 @@ public class ToolAutoConfiguration {
                 delegateAgentTool, handoffTool, delegateParallelTool));
         if (getSkillContentTool != null) {
             tools.add(getSkillContentTool);
-            log.info("Skill tool registered: getSkillContent");
         } else {
             log.warn("GetSkillContentTool not available — SkillContentProvider bean may be missing");
         }
         if (listSkillsByGroupTool != null) {
             tools.add(listSkillsByGroupTool);
-            log.info("Skill tool registered: listSkillsByGroup");
         } else {
             log.warn("ListSkillsByGroupTool not available — SkillContentProvider bean may be missing");
         }
-        log.info("ToolAutoConfiguration: {} tools registered (builtin=9, skill={})",
-                tools.size(), tools.size() - 9);
         return MethodToolCallbackProvider.builder()
                 .toolObjects(tools.toArray())
                 .build();

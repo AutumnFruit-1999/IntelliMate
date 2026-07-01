@@ -43,6 +43,6 @@ class ConsolidationPromptBuilderTest {
         List<MemoryChunk> chunks = List.of(MemoryChunk.user("test", 5));
         String prompt = builder.build(chunks, 512);
         assertTrue(prompt.contains("\"summary\""));
-        assertTrue(prompt.contains("\"facts\""));
+        assertTrue(prompt.contains("\"memories\""));
     }
 }

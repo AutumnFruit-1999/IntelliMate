@@ -1,5 +1,6 @@
 package com.atm.intellimate.memory.longterm;
 
+import com.atm.intellimate.memory.config.ResolvedMemoryConfig;
 import com.atm.intellimate.memory.model.ExtractedFact;
 import com.atm.intellimate.memory.model.MemoryEntry;
 import reactor.core.publisher.Flux;
@@ -17,6 +18,13 @@ public interface LongTermMemory {
     Mono<Void> store(ExtractedFact fact, String userId, String agentId);
 
     /**
+     * Store a v3 enriched fact with topic-based dedup and dual-channel storage (MySQL + optional Qdrant).
+     */
+    default Mono<Void> storeEnriched(ExtractedFact fact, String userId, String agentId, Long sessionId) {
+        return store(fact, userId, agentId);
+    }
+
+    /**
      * Search all sub-systems for memories matching the cue.
      */
     Flux<MemoryEntry> search(String cue, String userId, String agentId);
@@ -25,6 +33,20 @@ public interface LongTermMemory {
      * Record that a memory was accessed (retrieval practice effect).
      */
     Mono<Void> recordAccess(MemoryEntry entry);
+
+    /**
+     * Record access and optionally boost importance (retrieval practice effect).
+     */
+    default Mono<Void> recordAccess(MemoryEntry entry, float importanceBoost) {
+        return recordAccess(entry);
+    }
+
+    /**
+     * Store with optional metadata JSON (e.g. episodic topics/outcome).
+     */
+    default Mono<Void> store(ExtractedFact fact, String userId, String agentId, String metadataJson) {
+        return store(fact, userId, agentId);
+    }
 
     /**
      * Find all memories for a user within an agent scope.
@@ -55,6 +77,8 @@ public interface LongTermMemory {
      * Get stats for all memory types for a user within an agent scope.
      */
     Mono<MemoryStats> getStats(String userId, String agentId);
+
+    default void updateConfig(ResolvedMemoryConfig config) {}
 
     record MemoryStats(
             long episodicCount,

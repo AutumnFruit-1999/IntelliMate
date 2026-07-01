@@ -31,9 +31,7 @@ public record AgentLoopContext(
     Duration toolTimeout,
     int maxParallel,
     Set<String> nonRetryableTools,
-    Long activePlanId,
-    PlanStepTracker planStepTracker,
-    PlanExecutionAssessment planAssessment,
+    Long activePlanMessageId,
     AgentRunRequest originalRequest,
     Map<String, ToolCallback> toolCallbackMap
 ) {}

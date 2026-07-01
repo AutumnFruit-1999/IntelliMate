@@ -54,30 +54,21 @@ public sealed interface AgentEvent {
 
     // ───── Plan Mode events ─────
 
-    record PlanStepInfo(int index, String title, String description) {}
+    record PlanStepInfo(int index, String title, String description, String verification) {}
 
     record PlanCreated(
-            Long planId, String title, List<PlanStepInfo> steps
+            long messageId, String title, List<PlanStepInfo> steps
     ) implements AgentEvent {}
 
-    record PlanAwaitingApproval(Long planId) implements AgentEvent {}
+    record PlanStepUpdated(
+            long messageId, int stepIndex, String status, String resultSummary
+    ) implements AgentEvent {}
 
     record PlanStatusChanged(
-            Long planId, String status
+            long messageId, String status
     ) implements AgentEvent {}
 
-    record PlanStepStart(Long planId, int stepIndex, String title) implements AgentEvent {}
-
-    record PlanStepDone(
-            Long planId, int stepIndex, String status, String resultSummary
-    ) implements AgentEvent {}
-
-    record PlanAdjusted(
-            Long planId, String adjustType,
-            List<PlanStepInfo> currentSteps
-    ) implements AgentEvent {}
-
-    record PlanCompleted(Long planId, String status) implements AgentEvent {}
+    record PlanCompleted(long messageId, String summary) implements AgentEvent {}
 
     // ───── Delegation events ─────
 

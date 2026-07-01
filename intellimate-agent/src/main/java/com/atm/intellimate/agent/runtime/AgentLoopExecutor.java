@@ -3,7 +3,6 @@ package com.atm.intellimate.agent.runtime;
 import com.atm.intellimate.agent.model.ChatModelRegistry;
 import com.atm.intellimate.agent.model.ProviderType;
 import com.atm.intellimate.agent.model.ResolvedModel;
-import com.atm.intellimate.agent.plan.PlanOperations;
 import com.atm.intellimate.agent.skills.SkillContentProvider;
 import com.atm.intellimate.agent.skills.SkillGroupContext;
 import com.atm.intellimate.agent.tools.ToolsEngine;
@@ -18,7 +17,6 @@ import com.atm.intellimate.memory.perception.ImportanceAssessor;
 import com.atm.intellimate.memory.retrieval.MemoryRetrieval;
 import com.atm.intellimate.memory.working.TokenEstimator;
 import com.atm.intellimate.memory.working.WorkingMemory;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -63,41 +61,32 @@ public class AgentLoopExecutor {
 
     private final ChatModelRegistry chatModelRegistry;
     private final ToolsEngine toolsEngine;
-    private final ObjectMapper objectMapper;
     private final SkillContentProvider skillContentProvider;
-    private final PlanOperations planOperations;
     private final LongTermMemory longTermMemory;
     private final MemorySystem memorySystem;
     private final AgentPromptBuilder agentPromptBuilder;
     private final AgentMemoryLifecycle agentMemoryLifecycle;
-    private final PlanEventExtractor planEventExtractor;
     private final ToolExecutionPipeline toolExecutionPipeline;
     private final DelegationExecutor delegationExecutor;
     private final MeterRegistry meterRegistry;
 
     public AgentLoopExecutor(ChatModelRegistry chatModelRegistry,
                              ToolsEngine toolsEngine,
-                             ObjectMapper objectMapper,
                              @Autowired(required = false) SkillContentProvider skillContentProvider,
-                             @Autowired(required = false) PlanOperations planOperations,
                              @Autowired(required = false) LongTermMemory longTermMemory,
                              @Autowired(required = false) MemorySystem memorySystem,
                              AgentPromptBuilder agentPromptBuilder,
                              AgentMemoryLifecycle agentMemoryLifecycle,
-                             PlanEventExtractor planEventExtractor,
                              ToolExecutionPipeline toolExecutionPipeline,
                              DelegationExecutor delegationExecutor,
                              @Autowired(required = false) MeterRegistry meterRegistry) {
         this.chatModelRegistry = chatModelRegistry;
         this.toolsEngine = toolsEngine;
-        this.objectMapper = objectMapper;
         this.skillContentProvider = skillContentProvider;
-        this.planOperations = planOperations;
         this.longTermMemory = longTermMemory;
         this.memorySystem = memorySystem;
         this.agentPromptBuilder = agentPromptBuilder;
         this.agentMemoryLifecycle = agentMemoryLifecycle;
-        this.planEventExtractor = planEventExtractor;
         this.toolExecutionPipeline = toolExecutionPipeline;
         this.delegationExecutor = delegationExecutor;
         this.meterRegistry = meterRegistry;
@@ -133,11 +122,6 @@ public class AgentLoopExecutor {
             Duration timeout = Duration.ofSeconds(agentConfig.getTimeoutSeconds());
 
             ResolvedModel resolved = resolveModel(agentConfig.getModel());
-            log.info("Agent '{}' model='{}' (resolved modelId='{}'), tools: {} total ({} builtin, {} custom, {} mcp), toolsSpec='{}', mcpSpec='{}', skills={}",
-                    agentConfig.getName(), agentConfig.getModel(), resolved.modelId(),
-                    tools.length,
-                    toolsEngine.getBuiltinCount(), toolsEngine.getDynamicCount(), toolsEngine.getMcpCount(),
-                    request.toolsEnabled(), request.mcpToolsEnabled(), skillSummaries.size());
 
             String skillsBasePath = skillContentProvider != null ? skillContentProvider.getSkillsBasePath() : null;
 
@@ -154,8 +138,6 @@ public class AgentLoopExecutor {
             }
 
             ChatOptions chatOptions = buildChatOptions(tools, resolved, parallelEnabled);
-
-            logRequestParams(request, systemPrompt, tools);
 
             ToolCallLoopDetector loopDetector = new ToolCallLoopDetector(
                     agentConfig.getLoopDetectorWindowSize(),
@@ -183,23 +165,25 @@ public class AgentLoopExecutor {
             int maxParallel = agentConfig.getMaxParallelToolCalls();
             Set<String> nonRetryable = new HashSet<>(agentConfig.getNonRetryableTools());
 
-            PlanStepTracker planStepTracker = request.activePlanId() != null && planOperations != null
-                    ? new PlanStepTracker(request.activePlanId(), planOperations) : null;
-
-            return agentMemoryLifecycle.loadMemoryInitReactive(tokenEstimator)
+            return agentMemoryLifecycle.loadMemoryInitReactive(tokenEstimator, agentId)
                     .flatMapMany(memoryInit -> {
                         MemoryConsolidator consolidator = memoryInit.consolidator() != null
                                 ? memoryInit.consolidator()
                                 : (memorySystem != null ? memorySystem.getConsolidator() : null);
                         ResolvedMemoryConfig resolvedMem = memoryInit.resolved();
+                        if (resolvedMem != null && longTermMemory != null) {
+                            longTermMemory.updateConfig(resolvedMem);
+                        }
 
-                        float consolidationThreshold = 0.75f;
-                        float overflowTolerance = 1.1f;
-                        int tokenBudget = agentConfig.getMaxContextTokens();
-                        if (resolvedMem != null) {
-                            tokenBudget = resolvedMem.tokenBudget();
-                            consolidationThreshold = resolvedMem.consolidationThreshold();
-                            overflowTolerance = resolvedMem.overflowTolerance();
+                        int tokenBudget = resolvedMem != null
+                                ? resolvedMem.tokenBudget() : agentConfig.getMaxContextTokens();
+                        float consolidationThreshold = resolvedMem != null
+                                ? resolvedMem.consolidationThreshold() : 1.0f;
+                        float overflowTolerance = resolvedMem != null
+                                ? resolvedMem.overflowTolerance() : 1.0f;
+                        if (resolvedMem == null) {
+                            log.warn("[记忆配置] agent='{}' 未在页面配置记忆参数，使用 agentConfig.maxContextTokens={} 且禁用巩固",
+                                    agentId, tokenBudget);
                         }
 
                         WorkingMemory workingMemory = new WorkingMemory(
@@ -211,9 +195,8 @@ public class AgentLoopExecutor {
                                 agentId
                         );
                         workingMemory.setUserId(request.userId());
-                        if (request.planExecutionAssessment() != null
-                                && request.planExecutionAssessment().currentStepDescription() != null) {
-                            workingMemory.setTaskContext(request.planExecutionAssessment().currentStepDescription());
+                        if (request.planContext() != null && !request.planContext().isBlank()) {
+                            workingMemory.setTaskContext(request.planContext());
                         } else if (request.userMessage() != null) {
                             workingMemory.setTaskContext(request.userMessage());
                         }
@@ -233,40 +216,41 @@ public class AgentLoopExecutor {
 
                         Mono<Void> retrievalMono;
                         if (longTermMemory != null && ltEnabled) {
-                            MemoryRetrieval retrieval = memorySystem != null
-                                    ? memorySystem.getMemoryRetrieval()
-                                    : new MemoryRetrieval(longTermMemory, tokenEstimator);
                             int maxInjectionTokens = resolvedMem.maxInjectionTokens();
                             double lambda = resolvedMem.decayLambda();
 
                             String cue = request.userMessage() != null ? request.userMessage() : "";
-                            if (request.planExecutionAssessment() != null
-                                    && request.planExecutionAssessment().currentStepDescription() != null) {
-                                cue = cue + " " + request.planExecutionAssessment().currentStepDescription();
+                            if (request.planContext() != null && !request.planContext().isBlank()) {
+                                cue = cue + " " + request.planContext();
+                            }
+
+                            Mono<List<MemoryChunk>> retrievalResult;
+                            if (memorySystem != null) {
+                                retrievalResult = memorySystem.retrieveMemories(cue, sessionUserId, agentId, resolvedMem);
+                            } else {
+                                MemoryRetrieval retrieval = new MemoryRetrieval(longTermMemory, tokenEstimator);
+                                retrievalResult = retrieval.retrieve(cue, sessionUserId, agentId, maxInjectionTokens, lambda);
                             }
 
                             long retrievalStart = System.currentTimeMillis();
-                            retrievalMono = retrieval.retrieve(cue, sessionUserId, agentId, maxInjectionTokens, lambda)
-                                    .timeout(Duration.ofSeconds(3))
+                            retrievalMono = retrievalResult
+                                    .timeout(Duration.ofSeconds(5))
                                     .doOnNext(recalledChunks -> {
-                                        agentMemoryLifecycle.recordLongTermRetrievalLatency(
-                                                agentId, System.currentTimeMillis() - retrievalStart);
+                                        long elapsed = System.currentTimeMillis() - retrievalStart;
+                                        agentMemoryLifecycle.recordLongTermRetrievalLatency(agentId, elapsed);
                                         if (!recalledChunks.isEmpty()) {
+                                            log.info("[记忆注入] agent='{}', 共召回 {} 条记忆, 耗时 {}ms:",
+                                                    agentId, recalledChunks.size(), elapsed);
                                             for (MemoryChunk chunk : recalledChunks) {
-                                                String prefixed = "[历史记忆] " + chunk.content();
-                                                MemoryChunk recalledWithPrefix = MemoryChunk.recalled(
-                                                        prefixed, chunk.estimatedTokens(), chunk.importance());
-                                                workingMemory.accept(recalledWithPrefix);
+                                                log.info("[记忆注入] >> type={}, tokens={}, content='{}'",
+                                                        chunk.type(), chunk.estimatedTokens(), chunk.content());
+                                                workingMemory.accept(chunk);
                                             }
-                                            int injectedTokens = recalledChunks.stream()
-                                                    .mapToInt(MemoryChunk::estimatedTokens)
-                                                    .sum();
-                                            log.info("Injected {} recalled memories ({} tokens) for agent '{}' session {}",
-                                                    recalledChunks.size(), injectedTokens, agentId, request.sessionId());
                                         }
                                     })
                                     .onErrorResume(e -> {
-                                        log.warn("Failed to retrieve long-term memories, continuing without: {}", e.getMessage());
+                                        log.warn("[记忆检索-异常] agent='{}', session={}, 记忆检索失败: {}",
+                                                agentId, request.sessionId(), e.getMessage());
                                         return Mono.empty();
                                     })
                                     .then();
@@ -281,25 +265,25 @@ public class AgentLoopExecutor {
                                             log.warn("Pre-loop consolidation await failed, continuing: {}", e.getMessage());
                                             return Mono.empty();
                                         }))
-                                .thenMany(executeLoopTurn(resolved.chatModel(), conversationHistory, chatOptions, maxTurns, timeout, 1, new StringBuilder(),
+                                .thenMany(Flux.defer(() -> executeLoopTurn(resolved.chatModel(), conversationHistory, chatOptions, maxTurns, timeout, 1, new StringBuilder(),
                                         agentConfig.getName(), request.sessionId(), skillsBasePath,
                                         loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
                                         toolTimeout, maxParallel, nonRetryable,
-                                        request.activePlanId(), planStepTracker, request.planExecutionAssessment(), request, toolCallbackMap,
+                                        request.activePlanMessageId(), request, toolCallbackMap,
                                         callbacks)
                                         .doFinally(signal -> {
                                             callbacks.sessionApprovalGates().remove(request.sessionId());
                                             agentPromptBuilder.removeSessionSkillGroups(request.sessionId());
                                             SkillGroupContext.clear();
                                             callbacks.latestSnapshots().remove(request.sessionId());
-                                            if (request.activePlanId() != null) {
-                                                callbacks.pausedPlanIds().remove(request.activePlanId());
+                                            if (request.activePlanMessageId() != null) {
+                                                callbacks.pausedPlanIds().remove(request.activePlanMessageId());
                                             }
-                                            if (longTermMemory != null && ltEnabled && request.activePlanId() == null) {
-                                                int minChunks = resolvedMem != null ? resolvedMem.minChunksForEpisodic() : 4;
+                                            if (longTermMemory != null && ltEnabled && resolvedMem != null && request.activePlanMessageId() == null) {
+                                                int minChunks = resolvedMem.minChunksForEpisodic();
                                                 agentMemoryLifecycle.deferEpisodicStore(workingMemory, longTermMemory, sessionUserId, agentId, request.sessionId(), minChunks);
                                             }
-                                        }));
+                                        })));
                     });
         });
     }
@@ -324,15 +308,12 @@ public class AgentLoopExecutor {
             Duration toolTimeout,
             int maxParallel,
             Set<String> nonRetryableTools,
-            Long activePlanId,
-            PlanStepTracker planStepTracker,
-            PlanExecutionAssessment planExecutionAssessment,
+            Long activePlanMessageId,
             AgentRunRequest request,
             Map<String, ToolCallback> toolCallbackMap,
             AgentLoopCallbacks callbacks) {
 
-        if (activePlanId != null && callbacks.pausedPlanIds().contains(activePlanId)) {
-            log.info("Plan {} is paused/cancelled, stopping agent loop at turn {}", activePlanId, turn);
+        if (activePlanMessageId != null && callbacks.pausedPlanIds().contains(activePlanMessageId)) {
             String text = fullText.toString();
             if (text.isEmpty()) {
                 text = "[计划已暂停，当前步骤完成后停止执行]";
@@ -359,14 +340,34 @@ public class AgentLoopExecutor {
             return Flux.just(new AgentEvent.Done(text, turn));
         }
 
-        log.debug("Agent loop turn={}/{}", turn, maxTurns);
-
         history.clear();
         history.addAll(workingMemory.buildLLMInputSync());
 
         Prompt prompt = new Prompt(new ArrayList<>(history), options);
         List<ChatResponse> allChunks = new ArrayList<>();
         String modelId = extractModelId(options);
+
+        try {
+            List<Map<String, Object>> messagesJson = new ArrayList<>();
+            for (Message msg : history) {
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("role", msg.getClass().getSimpleName().replace("Message", "").toLowerCase());
+                m.put("content", msg.getText() != null ? msg.getText() : "");
+                messagesJson.add(m);
+            }
+            Map<String, Object> requestJson = new java.util.LinkedHashMap<>();
+            requestJson.put("model", modelId);
+            requestJson.put("agent", agentName);
+            requestJson.put("turn", turn);
+            requestJson.put("maxTurns", maxTurns);
+            requestJson.put("tokenUsage", workingMemory.getTokenUsage());
+            requestJson.put("messages", messagesJson);
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            log.info("[LLM请求-详细参数]\n{}", om.writerWithDefaultPrettyPrinter().writeValueAsString(requestJson));
+        } catch (Exception e) {
+            log.warn("[LLM请求] 参数序列化失败: {}", e.getMessage());
+        }
+
         Timer.Sample llmSample = meterRegistry != null ? Timer.start(meterRegistry) : null;
 
         Flux<AgentEvent> turnStart = Flux.just(new AgentEvent.TurnStart(turn, maxTurns));
@@ -401,7 +402,6 @@ public class AgentLoopExecutor {
                     Usage usage = chunk.getMetadata().getUsage();
                     if (usage != null && usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
                         workingMemory.setActualTokenUsage(usage.getPromptTokens().intValue());
-                        log.debug("Actual prompt tokens from API: {}", usage.getPromptTokens());
                     }
                     if (meterRegistry != null && usage != null) {
                         if (usage.getPromptTokens() != null) {
@@ -428,7 +428,7 @@ public class AgentLoopExecutor {
                         agentName, sessionId, skillsBasePath,
                         loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
                         toolTimeout, maxParallel, nonRetryableTools,
-                        activePlanId, planStepTracker, planExecutionAssessment, request, toolCallbackMap, callbacks);
+                        activePlanMessageId, request, toolCallbackMap, callbacks);
             }
 
             String finalText = fullText.toString();
@@ -511,9 +511,7 @@ public class AgentLoopExecutor {
             Duration toolTimeout,
             int maxParallel,
             Set<String> nonRetryableTools,
-            Long activePlanId,
-            PlanStepTracker planStepTracker,
-            PlanExecutionAssessment planExecutionAssessment,
+            Long activePlanMessageId,
             AgentRunRequest request,
             Map<String, ToolCallback> toolCallbackMap,
             AgentLoopCallbacks callbacks) {
@@ -529,14 +527,6 @@ public class AgentLoopExecutor {
         Map<String, String> toolCallArgs = new LinkedHashMap<>();
         for (AssistantMessage.ToolCall tc : toolCalls) {
             toolCallArgs.put(tc.id(), tc.arguments());
-        }
-
-        if (toolCalls.size() > 1) {
-            log.info("Turn {} has {} tool calls, executing in parallel (maxParallel={}): {}",
-                    turn, toolCalls.size(), maxParallel,
-                    toolCalls.stream().map(AssistantMessage.ToolCall::name).toList());
-        } else {
-            log.debug("Turn {} has {} tool call(s)", turn, toolCalls.size());
         }
 
         List<AssistantMessage.ToolCall> directCalls = new ArrayList<>();
@@ -556,11 +546,6 @@ public class AgentLoopExecutor {
                 directCalls.add(tc);
             }
         }
-
-        Flux<AgentEvent> autoStartFlux = planStepTracker != null
-                ? Flux.defer(() -> Flux.fromIterable(planStepTracker.ensureStepActive(toolCalls)))
-                      .subscribeOn(Schedulers.boundedElastic())
-                : Flux.empty();
 
         Flux<AgentEvent> callEvents = Flux.fromIterable(toolCalls)
                 .map(tc -> {
@@ -594,45 +579,14 @@ public class AgentLoopExecutor {
 
                     return Flux.concat(
                             Flux.just(approvalEvent),
-                            afterApproval.flatMapMany(r -> {
-                                AgentEvent toolResult = new AgentEvent.ToolResult(r.id(), r.name(), r.result(), r.success(), turn);
-                                if (r.success()) {
-                                    List<AgentEvent> planEvents = planEventExtractor.extractPlanEvents(r.name(), toolCallArgs.get(tc.id()), r.result());
-                                    if (!planEvents.isEmpty()) {
-                                        if (planStepTracker != null) {
-                                            planEvents = PlanEventExtractor.filterDuplicatePlanEvents(planEvents, planStepTracker);
-                                        }
-                                        if (!planEvents.isEmpty()) {
-                                            return Flux.concat(Flux.just(toolResult), Flux.fromIterable(planEvents));
-                                        }
-                                    }
-                                }
-                                return Flux.just(toolResult);
-                            })
+                            afterApproval.flatMapMany(r ->
+                                    Flux.just(new AgentEvent.ToolResult(r.id(), r.name(), r.result(), r.success(), turn)))
                     );
                 });
 
-        Flux<AgentEvent> directResultEvents = directResultsMono.flatMapMany(results -> {
-            return Flux.fromIterable(results)
-                    .concatMap(r -> {
-                        AgentEvent toolResult = new AgentEvent.ToolResult(r.id(), r.name(), r.result(), r.success(), turn);
-                        if (r.success()) {
-                            log.debug("Phase3: checking plan events for tool={}, id={}, hasArgs={}",
-                                    r.name(), r.id(), toolCallArgs.containsKey(r.id()));
-                            List<AgentEvent> planEvents = planEventExtractor.extractPlanEvents(r.name(), toolCallArgs.get(r.id()), r.result());
-                            if (!planEvents.isEmpty()) {
-                                if (planStepTracker != null) {
-                                    planEvents = PlanEventExtractor.filterDuplicatePlanEvents(planEvents, planStepTracker);
-                                }
-                                if (!planEvents.isEmpty()) {
-                                    log.info("Phase3: injecting {} plan events after tool={}", planEvents.size(), r.name());
-                                    return Flux.concat(Flux.just(toolResult), Flux.fromIterable(planEvents));
-                                }
-                            }
-                        }
-                        return Flux.just(toolResult);
-                    });
-        });
+        Flux<AgentEvent> directResultEvents = directResultsMono.flatMapMany(results ->
+                Flux.fromIterable(results)
+                        .map(r -> new AgentEvent.ToolResult(r.id(), r.name(), r.result(), r.success(), turn)));
 
         DelegationContext parentDelegCtx = request.delegationContext();
         Flux<AgentEvent> delegationFlow = Flux.fromIterable(delegationCalls)
@@ -656,19 +610,7 @@ public class AgentLoopExecutor {
                     int tokens = tokenEstimator.estimateForToolInteraction(resultText);
                     workingMemory.addIncrementalTokens(tokens);
                     Map<String, String> toolMeta = Map.of("toolName", tr.name());
-                    float importance;
-                    if (activePlanId != null && planExecutionAssessment != null) {
-                        String currentStep = planExecutionAssessment.currentStepDescription();
-                        List<String> completed = planExecutionAssessment.completedStepDescriptions() != null
-                                ? planExecutionAssessment.completedStepDescriptions() : List.of();
-                        List<String> pending = planExecutionAssessment.pendingStepDescriptions() != null
-                                ? planExecutionAssessment.pendingStepDescriptions() : List.of();
-                        importance = importanceAssessor.assessWithPlanContext(
-                                resultText, ContentCategory.COMMAND_OUTPUT, toolMeta,
-                                currentStep != null ? currentStep : "", completed, pending);
-                    } else {
-                        importance = importanceAssessor.assess(resultText, ContentCategory.COMMAND_OUTPUT, toolMeta);
-                    }
+                    float importance = importanceAssessor.assess(resultText, ContentCategory.COMMAND_OUTPUT, toolMeta);
                     MemoryChunk chunk = MemoryChunk.toolInteraction(
                             resultText, ContentCategory.COMMAND_OUTPUT, importance, tokens,
                             Map.of("toolName", tr.name(), "toolCallId", tr.toolCallId(),
@@ -728,10 +670,10 @@ public class AgentLoopExecutor {
                             agentName, sessionId, skillsBasePath,
                             loopDetector, workingMemory, importanceAssessor, tokenEstimator, cache, approvalGate,
                             toolTimeout, maxParallel, nonRetryableTools,
-                            activePlanId, planStepTracker, planExecutionAssessment, request, toolCallbackMap, callbacks));
+                            activePlanMessageId, request, toolCallbackMap, callbacks));
         }
 
-        return Flux.concat(autoStartFlux, callEvents, withHistory, memorySnapshot, nextTurn);
+        return Flux.concat(callEvents, withHistory, memorySnapshot, nextTurn);
     }
 
     private String extractModelId(ChatOptions options) {
@@ -785,44 +727,5 @@ public class AgentLoopExecutor {
                 .model(resolved.modelId())
                 .internalToolExecutionEnabled(false)
                 .build();
-    }
-
-    private void logRequestParams(AgentRunRequest request, String systemPrompt, ToolCallback[] tools) {
-        if (!log.isInfoEnabled()) {
-            return;
-        }
-        try {
-            Map<String, Object> params = new LinkedHashMap<>();
-            params.put("sessionId", request.sessionId());
-            params.put("userId", request.userId());
-            params.put("model", request.agent().getModel());
-            params.put("maxTurns", request.agent().getMaxTurns());
-            params.put("timeoutSeconds", request.agent().getTimeoutSeconds());
-            params.put("toolsEnabled", request.toolsEnabled());
-            params.put("mcpToolsEnabled", request.mcpToolsEnabled());
-            params.put("skillsEnabled", request.skillsEnabled());
-            params.put("skillGroupsEnabled", request.skillGroupsEnabled());
-            params.put("forcePlan", request.forcePlan());
-            params.put("activePlanId", request.activePlanId());
-            params.put("systemPromptLength", systemPrompt != null ? systemPrompt.length() : 0);
-            params.put("systemPrompt", systemPrompt);
-            params.put("userMessage", request.userMessage());
-            params.put("historySize", request.history() != null ? request.history().size() : 0);
-            params.put("history", request.history() != null
-                    ? request.history().stream().map(msg -> {
-                Map<String, String> m = new LinkedHashMap<>();
-                m.put("role", msg.getMessageType().getValue());
-                m.put("content", msg.getText());
-                return m;
-            }).toList()
-                    : List.of());
-            params.put("tools", Arrays.stream(tools)
-                    .map(cb -> cb.getToolDefinition().name())
-                    .toList());
-            params.put("planContext", request.planContext());
-            log.info("LLM request params:\n{}", objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(params));
-        } catch (Exception e) {
-            log.warn("Failed to serialize LLM request params", e);
-        }
     }
 }

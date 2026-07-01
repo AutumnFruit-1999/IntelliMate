@@ -105,7 +105,7 @@ class HeartbeatEngineTest {
         agentEntity.setId(1L);
         agentEntity.setName("小助手");
         when(agentRepository.findById(1L)).thenReturn(Mono.just(agentEntity));
-        when(chatInjectionService.isAgentOnline("小助手")).thenReturn(true);
+        when(chatInjectionService.isAgentReachable("小助手")).thenReturn(Mono.just(true));
 
         IntelliMateProperties.Agent agentProps = new IntelliMateProperties.Agent();
         agentProps.setName("小助手");
@@ -205,7 +205,7 @@ class HeartbeatEngineTest {
         HeartbeatConfigEntity config = configForState(LifecycleState.WAKING);
 
         when(agentRepository.findById(1L)).thenReturn(Mono.empty());
-        when(chatInjectionService.isAgentOnline("Agent#1")).thenReturn(true);
+        when(chatInjectionService.isAgentReachable("Agent#1")).thenReturn(Mono.just(true));
         when(logRepo.findTodayByAgentIdAndState(eq(1L), eq("WAKING"), any())).thenReturn(Mono.empty());
         when(taskRepo.findUpcomingTasks(eq(1L), any())).thenReturn(Flux.empty());
         when(taskRepo.findDueReminders(eq(1L), any())).thenReturn(Flux.empty());

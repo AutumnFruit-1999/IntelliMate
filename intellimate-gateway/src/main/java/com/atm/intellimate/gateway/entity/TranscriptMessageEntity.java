@@ -17,7 +17,6 @@ public class TranscriptMessageEntity {
     private String toolCallId;
     private String toolName;
     private String metadataJson;
-    private Long planId;
     private String sourceChannel;
     private LocalDateTime createdAt;
 
@@ -35,8 +34,6 @@ public class TranscriptMessageEntity {
     public void setToolName(String toolName) { this.toolName = toolName; }
     public String getMetadataJson() { return metadataJson; }
     public void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
-    public Long getPlanId() { return planId; }
-    public void setPlanId(Long planId) { this.planId = planId; }
     public String getSourceChannel() { return sourceChannel; }
     public void setSourceChannel(String sourceChannel) { this.sourceChannel = sourceChannel; }
     public LocalDateTime getCreatedAt() { return createdAt; }

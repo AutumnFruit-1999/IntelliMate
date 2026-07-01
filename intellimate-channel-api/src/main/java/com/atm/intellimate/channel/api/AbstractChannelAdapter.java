@@ -74,7 +74,6 @@ public abstract class AbstractChannelAdapter implements ChannelAdapter {
     public WebhookResponse handleWebhook(WebhookRequest request) {
         if (isVerificationRequest(request)) {
             String challenge = handleVerification(request);
-            log.info("[{}] verification request handled", getChannelId());
             return WebhookResponse.ok(challenge);
         }
 

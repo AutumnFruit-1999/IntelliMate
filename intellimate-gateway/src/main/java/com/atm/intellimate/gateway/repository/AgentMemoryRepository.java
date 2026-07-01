@@ -23,20 +23,50 @@ public interface AgentMemoryRepository extends ReactiveCrudRepository<AgentMemor
 
     Flux<AgentMemoryEntity> findByUserIdAndAgentIdAndMemoryType(String userId, String agentId, String memoryType);
 
+    Flux<AgentMemoryEntity> findByUserIdAndAgentIdAndTopic(String userId, String agentId, String topic);
+
     Mono<Long> countByUserIdAndAgentId(String userId, String agentId);
 
     @Query("SELECT * FROM agent_memory WHERE user_id = :userId AND agent_id = :agentId AND content LIKE CONCAT('%', :keyword, '%') LIMIT 100")
     Flux<AgentMemoryEntity> findByUserIdAndAgentIdAndContentContaining(String userId, String agentId, String keyword);
 
-    @Query("SELECT * FROM agent_memory WHERE user_id = :userId AND agent_id = :agentId AND MATCH(content) AGAINST(:searchExpr IN BOOLEAN MODE) LIMIT :maxResults")
-    Flux<AgentMemoryEntity> fulltextSearch(String userId, String agentId, String searchExpr, int maxResults);
+    @Query("""
+        SELECT *,
+               (MATCH(content) AGAINST(:searchExpr IN BOOLEAN MODE)
+                + CASE WHEN keywords IS NOT NULL
+                       THEN MATCH(keywords) AGAINST(:searchExpr IN BOOLEAN MODE)
+                       ELSE 0 END) AS ft_score
+        FROM agent_memory
+        WHERE user_id = :userId AND agent_id = :agentId
+          AND (MATCH(content) AGAINST(:searchExpr IN BOOLEAN MODE)
+               OR (keywords IS NOT NULL AND MATCH(keywords) AGAINST(:searchExpr IN BOOLEAN MODE)))
+        ORDER BY ft_score DESC
+        LIMIT 10
+        """)
+    Flux<AgentMemoryEntity> fulltextSearch(String userId, String agentId, String searchExpr);
 
-    @Query("SELECT * FROM agent_memory WHERE agent_id = :agentId AND MATCH(content) AGAINST(:searchExpr IN BOOLEAN MODE) LIMIT :maxResults")
-    Flux<AgentMemoryEntity> fulltextSearchByAgentId(String agentId, String searchExpr, int maxResults);
+    @Query("""
+        SELECT *,
+               (MATCH(content) AGAINST(:searchExpr IN BOOLEAN MODE)
+                + CASE WHEN keywords IS NOT NULL
+                       THEN MATCH(keywords) AGAINST(:searchExpr IN BOOLEAN MODE)
+                       ELSE 0 END) AS ft_score
+        FROM agent_memory
+        WHERE agent_id = :agentId
+          AND (MATCH(content) AGAINST(:searchExpr IN BOOLEAN MODE)
+               OR (keywords IS NOT NULL AND MATCH(keywords) AGAINST(:searchExpr IN BOOLEAN MODE)))
+        ORDER BY ft_score DESC
+        LIMIT 10
+        """)
+    Flux<AgentMemoryEntity> fulltextSearchByAgentId(String agentId, String searchExpr);
 
     @Modifying
     @Query("UPDATE agent_memory SET access_count = access_count + 1, last_accessed_at = NOW() WHERE id = :id")
     Mono<Integer> incrementAccessCount(Long id);
+
+    @Modifying
+    @Query("UPDATE agent_memory SET access_count = access_count + 1, last_accessed_at = NOW(), importance = LEAST(importance + :boost, 1.0) WHERE id = :id")
+    Mono<Integer> incrementAccessCountWithBoost(Long id, float boost);
 
     @Query("""
         SELECT * FROM agent_memory
@@ -65,4 +95,19 @@ public interface AgentMemoryRepository extends ReactiveCrudRepository<AgentMemor
     Flux<AgentMemoryEntity> findByUserIdAndContentContaining(String userId, String keyword);
 
     Mono<Long> countByUserIdAndMemoryType(String userId, String memoryType);
+
+    @Query("""
+        SELECT DISTINCT CONCAT(user_id, CHAR(31), COALESCE(NULLIF(agent_id, ''), 'default'))
+        FROM agent_memory
+        WHERE memory_level = 'detail' AND DATE(created_at) = CURDATE()
+        """)
+    Flux<String> findDistinctUserAgentPairsWithTodayDetails();
+
+    @Query("""
+        SELECT * FROM agent_memory
+        WHERE user_id = :userId AND agent_id = :agentId
+          AND memory_level = 'detail' AND DATE(created_at) = CURDATE()
+        ORDER BY created_at
+        """)
+    Flux<AgentMemoryEntity> findTodayDetailMemories(String userId, String agentId);
 }

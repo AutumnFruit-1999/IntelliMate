@@ -20,7 +20,22 @@ public record ResolvedMemoryConfig(
         float decayLambda,
         int compactionThreshold,
         int archiveAfterDays,
-        int minChunksForEpisodic
+        int minChunksForEpisodic,
+        boolean vectorEnabled,
+        String embeddingDefinitionId,
+        String retrievalStrategy,
+        float vectorWeight,
+        float keywordWeight,
+        float semanticWeight,
+        float episodicWeight,
+        float proceduralWeight,
+        float semanticDecayLambda,
+        float episodicDecayLambda,
+        float proceduralDecayLambda,
+        float minFactImportance,
+        int maxMergedContentLength,
+        float similarityThreshold,
+        float topicSimilarityThreshold
 ) {
 
     public static ResolvedMemoryConfig fromMap(Map<String, String> map) {
@@ -39,7 +54,22 @@ public record ResolvedMemoryConfig(
                 parseFloat(map, "long_term.decay_lambda"),
                 parseInt(map, "long_term.compaction_threshold"),
                 parseInt(map, "long_term.archive_after_days"),
-                parseIntOrDefault(map, "long_term.min_chunks_for_episodic", 4)
+                parseInt(map, "long_term.min_chunks_for_episodic"),
+                parseBoolean(map, "vector.enabled"),
+                getOrEmpty(map, "embedding.definition_id"),
+                getOrDefault(map, "retrieval.strategy", "keyword_only"),
+                parseFloatOrDefault(map, "retrieval.vector_weight", 0.6f),
+                parseFloatOrDefault(map, "retrieval.keyword_weight", 0.4f),
+                parseFloatOrDefault(map, "scoring.semantic_weight", 1.2f),
+                parseFloatOrDefault(map, "scoring.episodic_weight", 0.8f),
+                parseFloatOrDefault(map, "scoring.procedural_weight", 1.0f),
+                parseFloatOrDefault(map, "scoring.semantic_decay_lambda", 0.03f),
+                parseFloatOrDefault(map, "scoring.episodic_decay_lambda", 0.10f),
+                parseFloatOrDefault(map, "scoring.procedural_decay_lambda", 0.05f),
+                parseFloat(map, "long_term.min_fact_importance"),
+                parseInt(map, "long_term.max_merged_content_length"),
+                parseFloatOrDefault(map, "vector.similarity_threshold", 0.35f),
+                parseFloatOrDefault(map, "consolidation.topic_similarity_threshold", 0.7f)
         );
     }
 
@@ -76,11 +106,21 @@ public record ResolvedMemoryConfig(
         return Boolean.parseBoolean(val);
     }
 
-    private static int parseIntOrDefault(Map<String, String> map, String key, int defaultValue) {
+    private static String getOrEmpty(Map<String, String> map, String key) {
+        String val = map.get(key);
+        return val != null ? val : "";
+    }
+
+    private static String getOrDefault(Map<String, String> map, String key, String defaultValue) {
+        String val = map.get(key);
+        return (val != null && !val.isBlank()) ? val : defaultValue;
+    }
+
+    private static float parseFloatOrDefault(Map<String, String> map, String key, float defaultValue) {
         String val = map.get(key);
         if (val == null || val.isBlank()) return defaultValue;
         try {
-            return Integer.parseInt(val);
+            return Float.parseFloat(val);
         } catch (NumberFormatException e) {
             return defaultValue;
         }

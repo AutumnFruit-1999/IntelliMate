@@ -137,7 +137,6 @@ public class ToolExecutionPipeline {
                                 ? toolCallbackMap.getOrDefault(toolName, toolsEngine.getCallbackByName(toolName))
                                 : toolsEngine.getCallbackByName(toolName);
                         String result = callback.call(arguments);
-                        log.debug("Tool {} executed, result length={}", toolName, result != null ? result.length() : 0);
 
                         recordSkillActivationIfApplicable(toolName, arguments, agentName, sessionId, skillsBasePath);
 
@@ -160,7 +159,6 @@ public class ToolExecutionPipeline {
             execution = execution.retryWhen(Retry.backoff(MAX_RETRIES, RETRY_DELAY)
                     .filter(this::isRetryableError)
                     .doBeforeRetry(signal -> {
-                        log.info("Retrying tool {} (attempt {})", toolName, signal.totalRetries() + 1);
                         if (meterRegistry != null) {
                             meterRegistry.counter("agent.tool.retries", "tool", toolName).increment();
                         }
@@ -227,7 +225,7 @@ public class ToolExecutionPipeline {
                 }
             }
         } catch (Exception e) {
-            log.debug("Failed to record skill activation: {}", e.getMessage());
+            // ignore skill activation recording failures
         }
     }
 

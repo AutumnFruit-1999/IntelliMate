@@ -57,7 +57,7 @@ class MemoryControllerTest {
     void setUp() {
         MemoryController controller = new MemoryController(
                 configService, longTermMemory, agentMemoryRepository, agentMemoryArchiveRepository,
-                sessionRepository, transcriptRepository);
+                sessionRepository, transcriptRepository, null);
         client = WebTestClient.bindToController(controller)
                 .controllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -66,8 +66,10 @@ class MemoryControllerTest {
     @Test
     @DisplayName("GET /api/memory/config returns grouped config")
     void getConfig_returnsGroupedConfig() {
-        when(configService.resolveGrouped()).thenReturn(Mono.just(Map.of(
-                "working.token_budget", new MemoryConfigService.ConfigItem("128000", "128000", "Token budget", "number")
+        when(configService.resolveGroupedForAgent("_global_")).thenReturn(Mono.just(Map.of(
+                "working.token_budget", new MemoryConfigService.ConfigItem("128000", "Token budget", "number"),
+                "vector.enabled", new MemoryConfigService.ConfigItem("true", "Enable vector DB", "boolean"),
+                "retrieval.strategy", new MemoryConfigService.ConfigItem("hybrid", "Retrieval strategy", "string")
         )));
 
         client.get().uri("/api/memory/config")
@@ -76,13 +78,15 @@ class MemoryControllerTest {
                 .expectBody()
                 .jsonPath("$.success").isEqualTo(true)
                 .jsonPath("$.data.working.token_budget.value").isEqualTo("128000")
-                .jsonPath("$.data.working.token_budget.type").isEqualTo("number");
+                .jsonPath("$.data.working.token_budget.type").isEqualTo("number")
+                .jsonPath("$.data.vector.enabled.value").isEqualTo("true")
+                .jsonPath("$.data.retrieval.strategy.value").isEqualTo("hybrid");
     }
 
     @Test
     @DisplayName("PUT /api/memory/config updates and returns success")
     void updateConfig_returnsSuccess() {
-        when(configService.updateConfig(anyMap())).thenReturn(Mono.empty());
+        when(configService.updateConfigForAgent(anyString(), anyMap())).thenReturn(Mono.empty());
 
         client.put().uri("/api/memory/config")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -93,22 +97,22 @@ class MemoryControllerTest {
                 .jsonPath("$.success").isEqualTo(true)
                 .jsonPath("$.data.success").isEqualTo("true");
 
-        verify(configService).updateConfig(anyMap());
+        verify(configService).updateConfigForAgent(eq("_global_"), anyMap());
     }
 
     @Test
-    @DisplayName("POST /api/memory/config/reset resets to defaults")
-    void resetConfig_returnsSuccess() {
-        when(configService.resetToDefaults()).thenReturn(Mono.empty());
+    @DisplayName("DELETE /api/memory/config deletes agent config")
+    void deleteConfig_returnsSuccess() {
+        when(configService.deleteConfigForAgent("GroupChat")).thenReturn(Mono.empty());
 
-        client.post().uri("/api/memory/config/reset")
+        client.delete().uri("/api/memory/config?agentName=GroupChat")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.success").isEqualTo(true)
                 .jsonPath("$.data.success").isEqualTo("true");
 
-        verify(configService).resetToDefaults();
+        verify(configService).deleteConfigForAgent("GroupChat");
     }
 
     @Test
@@ -224,6 +228,32 @@ class MemoryControllerTest {
                 .jsonPath("$.data.totalCount").isEqualTo(1);
 
         verify(longTermMemory).getStats("default", "beta");
+    }
+
+    @Test
+    @DisplayName("GET /api/memory/long-term returns v3 fields (enrichedContent, keywords, topic, memoryLevel, sourceMemoryIds)")
+    void getLongTermMemories_returnsV3Fields() {
+        AgentMemoryEntity entity = memoryEntity(5L, "default", "semantic",
+                "用户助手名称设定为张三", 0.9f, 1);
+        entity.setEnrichedContent("用户在对话开始时明确指示助手名称为'张三'，助手确认接受该设定。");
+        entity.setKeywords("张三 助手名称 设定");
+        entity.setTopic("助手身份设定");
+        entity.setMemoryLevel("detail");
+        entity.setSourceMemoryIds("[10,20]");
+
+        when(agentMemoryRepository.findByUserIdAndAgentId("default", "default"))
+                .thenReturn(Flux.just(entity));
+
+        client.get().uri("/api/memory/long-term?userId=default")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.data[0].enrichedContent").isEqualTo("用户在对话开始时明确指示助手名称为'张三'，助手确认接受该设定。")
+                .jsonPath("$.data[0].keywords").isEqualTo("张三 助手名称 设定")
+                .jsonPath("$.data[0].topic").isEqualTo("助手身份设定")
+                .jsonPath("$.data[0].memoryLevel").isEqualTo("detail")
+                .jsonPath("$.data[0].sourceMemoryIds[0]").isEqualTo(10)
+                .jsonPath("$.data[0].sourceMemoryIds[1]").isEqualTo(20);
     }
 
     @Test

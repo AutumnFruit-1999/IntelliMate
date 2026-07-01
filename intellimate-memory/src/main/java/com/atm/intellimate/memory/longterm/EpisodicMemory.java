@@ -17,7 +17,7 @@ public class EpisodicMemory {
     }
 
     public Mono<Void> store(ExtractedFact fact, String userId, String agentId) {
-        return delegate.store(new ExtractedFact("episodic", fact.content(), fact.importance()), userId, agentId);
+        return delegate.store(ExtractedFact.legacy("episodic", fact.content(), fact.importance()), userId, agentId);
     }
 
     public Flux<MemoryEntry> search(String cue, String userId, String agentId) {

@@ -22,17 +22,14 @@ public class AgentEventMapper {
     private final AgentConfigService agentConfigService;
     private final AgentRuntime agentRuntime;
     private final IntelliMateProperties properties;
-    private final PlanExecutionOrchestrator planExecutionOrchestrator;
     private final AtomicLong seqGenerator = new AtomicLong(0);
 
     public AgentEventMapper(AgentConfigService agentConfigService,
                             AgentRuntime agentRuntime,
-                            IntelliMateProperties properties,
-                            PlanExecutionOrchestrator planExecutionOrchestrator) {
+                            IntelliMateProperties properties) {
         this.agentConfigService = agentConfigService;
         this.agentRuntime = agentRuntime;
         this.properties = properties;
-        this.planExecutionOrchestrator = planExecutionOrchestrator;
     }
 
     public Flux<GatewayFrame> mapAgentEvent(
@@ -110,67 +107,41 @@ public class AgentEventMapper {
 
             case AgentEvent.PlanCreated pc -> Flux.just(new EventFrame(
                     "plan.created",
-                    Map.of("planId", pc.planId(),
+                    Map.of("messageId", pc.messageId(),
                            "title", pc.title(),
+                           "status", "draft",
                            "steps", pc.steps().stream()
                                    .map(s -> Map.of("index", s.index(), "title", s.title(),
-                                           "description", s.description() != null ? s.description() : ""))
+                                           "description", s.description() != null ? s.description() : "",
+                                           "verification", s.verification() != null ? s.verification() : ""))
                                    .toList(),
                            "requestId", requestId),
                     seqGenerator.incrementAndGet()
             ));
 
-            case AgentEvent.PlanAwaitingApproval pa -> Flux.just(new EventFrame(
-                    "plan.awaiting_approval",
-                    Map.of("planId", pa.planId(), "requestId", requestId),
+            case AgentEvent.PlanStepUpdated psu -> Flux.just(new EventFrame(
+                    "plan.step_updated",
+                    Map.of("messageId", psu.messageId(),
+                           "stepIndex", psu.stepIndex(),
+                           "status", psu.status(),
+                           "resultSummary", psu.resultSummary() != null ? psu.resultSummary() : "",
+                           "requestId", requestId),
                     seqGenerator.incrementAndGet()
             ));
 
             case AgentEvent.PlanStatusChanged psc -> Flux.just(new EventFrame(
                     "plan.status_changed",
-                    Map.of("planId", psc.planId(), "status", psc.status(), "requestId", requestId),
+                    Map.of("messageId", psc.messageId(), "status", psc.status(), "requestId", requestId),
                     seqGenerator.incrementAndGet()
             ));
 
-            case AgentEvent.PlanStepStart pss -> Flux.just(new EventFrame(
-                    "plan.step_start",
-                    Map.of("planId", pss.planId(), "stepIndex", pss.stepIndex(),
-                           "title", pss.title(), "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.PlanStepDone psd -> Flux.just(new EventFrame(
-                    "plan.step_done",
-                    Map.of("planId", psd.planId(), "stepIndex", psd.stepIndex(),
-                           "status", psd.status(),
-                           "resultSummary", psd.resultSummary() != null ? psd.resultSummary() : "",
+            case AgentEvent.PlanCompleted pcomp -> Flux.just(new EventFrame(
+                    "plan.completed",
+                    Map.of("messageId", pcomp.messageId(),
+                           "summary", pcomp.summary() != null ? pcomp.summary() : "",
                            "requestId", requestId),
                     seqGenerator.incrementAndGet()
             ));
-
-            case AgentEvent.PlanAdjusted pa -> Flux.just(new EventFrame(
-                    "plan.adjusted",
-                    Map.of("planId", pa.planId(), "adjustType", pa.adjustType(),
-                           "currentSteps", pa.currentSteps().stream()
-                                   .map(s -> Map.of("index", s.index(), "title", s.title(),
-                                           "description", s.description() != null ? s.description() : ""))
-                                   .toList(),
-                           "requestId", requestId),
-                    seqGenerator.incrementAndGet()
-            ));
-
-            case AgentEvent.PlanCompleted pcomp -> {
-                planExecutionOrchestrator.schedulePlanCompletionMemoryExtraction(
-                        session.getId(),
-                        pcomp.planId(),
-                        resolveAgentId(session),
-                        resolveUserId(session));
-                yield Flux.just(new EventFrame(
-                        "plan.completed",
-                        Map.of("planId", pcomp.planId(), "status", pcomp.status(), "requestId", requestId),
-                        seqGenerator.incrementAndGet()
-                ));
-            }
 
             case AgentEvent.DelegationStart ds -> Flux.just(new EventFrame(
                     "workflow.delegation_start",
@@ -355,25 +326,12 @@ public class AgentEventMapper {
                             resolved.mcpToolsEnabled(),
                             resolved.skillsEnabled(),
                             resolved.skillGroupsEnabled(),
-                            null, false, null, null, null,
+                            null, false, null, null,
                             resolved.bridgeNode());
                     return agentRuntime.dispatch(handoffRequest)
                             .concatMap(event -> mapAgentEvent(event, requestId, fullResponse, session));
                 });
 
         return Flux.concat(Flux.just(handoffEvent), handoffExecution);
-    }
-
-    private String resolveAgentId(SessionEntity session) {
-        String name = session.getAgentName();
-        if (name == null || name.isBlank()) {
-            return properties.getAgent().getName();
-        }
-        return name;
-    }
-
-    private String resolveUserId(SessionEntity session) {
-        String contextId = session.getContextId();
-        return contextId != null && !contextId.isBlank() ? contextId : "default";
     }
 }

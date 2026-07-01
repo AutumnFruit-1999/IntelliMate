@@ -1,7 +1,5 @@
 package com.atm.intellimate.agent.runtime;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -19,8 +17,6 @@ import java.util.function.Supplier;
 @Component
 public class RunQueueManager {
 
-    private static final Logger log = LoggerFactory.getLogger(RunQueueManager.class);
-
     private final ConcurrentMap<Long, Mono<Void>> sessionChains = new ConcurrentHashMap<>();
 
     public synchronized Flux<AgentEvent> enqueue(Long sessionId, Supplier<Flux<AgentEvent>> runSupplier) {
@@ -30,14 +26,11 @@ public class RunQueueManager {
 
         Mono<Void> run = previous
                 .onErrorComplete()
-                .then(Mono.defer(() -> {
-                    log.debug("Starting agent run for session={}", sessionId);
-                    return runSupplier.get()
+                .then(Mono.defer(() -> runSupplier.get()
                             .doOnNext(event -> replaySink.tryEmitNext(event))
                             .doOnComplete(() -> replaySink.tryEmitComplete())
                             .doOnError(e -> replaySink.tryEmitError(e))
-                            .then();
-                }));
+                            .then()));
 
         Mono<Void> cached = run.cache();
         sessionChains.put(sessionId, cached);

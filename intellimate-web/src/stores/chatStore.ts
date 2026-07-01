@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { ConnectionState } from "../lib/wsClient";
 import type { ResponseFrame } from "../lib/protocol";
 import { generateId } from "../lib/protocol";
-import { usePlanStore } from "./planStore";
+import { usePlanStore, type PlanStepData } from "./planStore";
 import { useAgentStore } from "./agentStore";
 import { useMemoryStore } from "./memoryStore";
 import { toFriendlyError } from "../lib/errorMessages";
@@ -34,18 +34,30 @@ export interface ToolCallInfo {
   duration?: number;
 }
 
+export interface StepToolCall {
+  toolCallId: string;
+  name: string;
+  description?: string;
+  arguments: string;
+  result?: string;
+  success?: boolean;
+  status: "calling" | "done" | "error";
+}
+
 export interface StepGroupSnapshot {
   steps: Array<{ index: number; title: string; status: string; resultSummary?: string }>;
-  stepToolCalls: Record<number, import("./planStore").StepToolCall[]>;
+  stepToolCalls: Record<number, StepToolCall[]>;
 }
 
 export interface ChatMessage {
-  id: string;
+  id: string | number;
+  messageId?: number;
   role: "user" | "assistant" | "system";
   content: string;
   streaming: boolean;
   timestamp: number;
   requestId?: string;
+  metadata?: Record<string, unknown>;
   toolCalls?: ToolCallInfo[];
   currentTurn?: number;
   maxTurns?: number;
@@ -124,6 +136,16 @@ interface ChatState {
   prependHistory: (messages: ChatMessage[]) => void;
   loadMoreHistory: (agentName: string) => Promise<void>;
   setHistoryLoaded: (loaded: boolean) => void;
+  updateMessageMetadata(
+    messageId: number,
+    updater: (metadata: Record<string, unknown>) => Record<string, unknown>,
+  ): void;
+  addPlanMessage(data: {
+    messageId: number;
+    title: string;
+    status: string;
+    steps: PlanStepData[];
+  }): void;
 }
 
 function getAgentMessages(state: ChatState): ChatMessage[] {
@@ -174,6 +196,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: state.messagesByAgent[agent] ?? [],
       isWaiting: false,
       historyLoaded: false,
+      historyHasMore: false,
+      loadingHistory: false,
     });
   },
 
@@ -314,7 +338,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const command = payload.command as string | undefined;
 
       if (command === "clear" || command === "reset") {
-        usePlanStore.getState().clearPlan();
+        usePlanStore.getState().clearActivePlan();
         useMemoryStore.setState({ workingMemory: null, consolidationLog: [] });
         set((state) => ({
           isWaiting: false,
@@ -620,42 +644,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     ));
   },
 
-  snapshotStepGroup: (skipStreaming?: boolean) => {
-    const planState = usePlanStore.getState();
-    if (!planState.plan || planState.plan.steps.length === 0) return;
-    const hasAnyTools = Object.values(planState.stepToolCalls).some(
-      (calls) => calls.length > 0,
-    );
-    if (!hasAnyTools) return;
-
-    const snapshot: StepGroupSnapshot = {
-      steps: planState.plan.steps.map((s) => ({
-        index: s.index,
-        title: s.title,
-        status: s.status,
-        resultSummary: s.resultSummary,
-      })),
-      stepToolCalls: { ...planState.stepToolCalls },
-    };
-
-    set((state) => {
-      const msgs = getAgentMessages(state);
-      let targetId: string | null = null;
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const m = msgs[i];
-        if (skipStreaming && m.streaming) continue;
-        if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
-          targetId = m.id;
-          break;
-        }
-      }
-      if (!targetId) return {};
-      return updateAgentMessages(state, (ms) =>
-        ms.map((m) =>
-          m.id === targetId ? { ...m, stepGroupSnapshot: snapshot } : m,
-        ),
-      );
-    });
+  snapshotStepGroup: (_skipStreaming?: boolean) => {
+    // Legacy no-op: plan data now lives in message metadata (PlanMessage).
   },
 
   addProactiveMessage: (agentName, text, requestId, source) => {
@@ -810,9 +800,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const currentMessages = get().messagesByAgent[agentName] ?? [];
     if (currentMessages.length === 0) return;
     const firstMsg = currentMessages[0];
-    const beforeId = firstMsg.id.startsWith("hist-")
-      ? parseInt(firstMsg.id.replace("hist-", ""), 10)
-      : undefined;
+    const beforeId =
+      typeof firstMsg.id === "string" && firstMsg.id.startsWith("hist-")
+        ? parseInt(firstMsg.id.replace("hist-", ""), 10)
+        : undefined;
     if (!beforeId) return;
     set({ loadingHistory: true });
     try {
@@ -836,4 +827,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setHistoryLoaded: (loaded: boolean) => set({ historyLoaded: loaded }),
+
+  updateMessageMetadata(messageId, updater) {
+    set((state) => {
+      const agent = state.currentAgent;
+      if (!agent) return {};
+      const msgs = state.messagesByAgent[agent];
+      if (!msgs) return {};
+      const idx = msgs.findIndex(
+        (m) =>
+          m.messageId === messageId ||
+          m.id === messageId ||
+          m.id === `hist-${messageId}`,
+      );
+      if (idx === -1) return {};
+      const msg = msgs[idx];
+      const updated = { ...msg, metadata: updater(msg.metadata || {}) };
+      const newMsgs = [...msgs];
+      newMsgs[idx] = updated;
+      return { messagesByAgent: { ...state.messagesByAgent, [agent]: newMsgs }, messages: newMsgs };
+    });
+  },
+
+  addPlanMessage(data) {
+    set((state) =>
+      updateAgentMessages(state, (msgs) => [
+        ...msgs,
+        {
+          id: `hist-${data.messageId}`,
+          messageId: data.messageId,
+          role: "assistant" as const,
+          content: data.title,
+          streaming: false,
+          timestamp: Date.now(),
+          metadata: {
+            type: "plan",
+            plan: {
+              status: data.status,
+              steps: data.steps,
+              completionSummary: null,
+            },
+          },
+        },
+      ]),
+    );
+  },
 }));

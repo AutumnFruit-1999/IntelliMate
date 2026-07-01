@@ -17,7 +17,7 @@ public class ProceduralMemory {
     }
 
     public Mono<Void> store(ExtractedFact fact, String userId, String agentId) {
-        return delegate.store(new ExtractedFact("procedural", fact.content(), fact.importance()), userId, agentId);
+        return delegate.store(ExtractedFact.legacy("procedural", fact.content(), fact.importance()), userId, agentId);
     }
 
     public Flux<MemoryEntry> search(String cue, String userId, String agentId) {

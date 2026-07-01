@@ -7,15 +7,20 @@ import com.atm.intellimate.core.exception.IntelliMateException;
 import com.atm.intellimate.gateway.dto.ApiResponse;
 import com.atm.intellimate.gateway.entity.AgentMemoryArchiveEntity;
 import com.atm.intellimate.gateway.entity.AgentMemoryEntity;
+import com.atm.intellimate.gateway.migration.MemoryVectorMigrator;
 import com.atm.intellimate.gateway.repository.AgentMemoryArchiveRepository;
 import com.atm.intellimate.gateway.repository.AgentMemoryRepository;
 import com.atm.intellimate.gateway.repository.SessionRepository;
 import com.atm.intellimate.gateway.repository.TranscriptMessageRepository;
 import com.atm.intellimate.gateway.service.MemoryConfigService;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,25 +30,30 @@ import java.util.Map;
 @RequestMapping("/api/memory")
 public class MemoryController {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private final MemoryConfigService configService;
     private final LongTermMemory longTermMemory;
     private final AgentMemoryRepository agentMemoryRepository;
     private final AgentMemoryArchiveRepository agentMemoryArchiveRepository;
     private final SessionRepository sessionRepository;
     private final TranscriptMessageRepository transcriptRepository;
+    private final MemoryVectorMigrator memoryVectorMigrator;
 
     public MemoryController(MemoryConfigService configService,
                             LongTermMemory longTermMemory,
                             AgentMemoryRepository agentMemoryRepository,
                             AgentMemoryArchiveRepository agentMemoryArchiveRepository,
                             SessionRepository sessionRepository,
-                            TranscriptMessageRepository transcriptRepository) {
+                            TranscriptMessageRepository transcriptRepository,
+                            @Autowired(required = false) MemoryVectorMigrator memoryVectorMigrator) {
         this.configService = configService;
         this.longTermMemory = longTermMemory;
         this.agentMemoryRepository = agentMemoryRepository;
         this.agentMemoryArchiveRepository = agentMemoryArchiveRepository;
         this.sessionRepository = sessionRepository;
         this.transcriptRepository = transcriptRepository;
+        this.memoryVectorMigrator = memoryVectorMigrator;
     }
 
     @GetMapping("/config")
@@ -54,11 +64,14 @@ public class MemoryController {
             Map<String, Object> working = new LinkedHashMap<>();
             Map<String, Object> consolidation = new LinkedHashMap<>();
             Map<String, Object> longTerm = new LinkedHashMap<>();
+            Map<String, Object> vector = new LinkedHashMap<>();
+            Map<String, Object> embedding = new LinkedHashMap<>();
+            Map<String, Object> retrieval = new LinkedHashMap<>();
+            Map<String, Object> scoring = new LinkedHashMap<>();
 
             items.forEach((key, item) -> {
                 Map<String, Object> entry = Map.of(
                         "value", item.value(),
-                        "default", item.defaultValue(),
                         "description", item.description(),
                         "type", item.type()
                 );
@@ -68,12 +81,24 @@ public class MemoryController {
                     consolidation.put(key.substring("consolidation.".length()), entry);
                 } else if (key.startsWith("long_term.")) {
                     longTerm.put(key.substring("long_term.".length()), entry);
+                } else if (key.startsWith("vector.")) {
+                    vector.put(key.substring("vector.".length()), entry);
+                } else if (key.startsWith("embedding.")) {
+                    embedding.put(key.substring("embedding.".length()), entry);
+                } else if (key.startsWith("retrieval.")) {
+                    retrieval.put(key.substring("retrieval.".length()), entry);
+                } else if (key.startsWith("scoring.")) {
+                    scoring.put(key.substring("scoring.".length()), entry);
                 }
             });
 
             grouped.put("working", working);
             grouped.put("consolidation", consolidation);
             grouped.put("longTerm", longTerm);
+            grouped.put("vector", vector);
+            grouped.put("embedding", embedding);
+            grouped.put("retrieval", retrieval);
+            grouped.put("scoring", scoring);
             return ApiResponse.ok(grouped);
         });
     }
@@ -82,14 +107,21 @@ public class MemoryController {
     public Mono<ApiResponse<Map<String, String>>> updateConfig(
             @RequestParam(defaultValue = "_global_") String agentName,
             @RequestBody Map<String, String> updates) {
+        boolean vectorJustEnabled = "true".equals(updates.get("vector.enabled"));
         return configService.updateConfigForAgent(agentName, updates)
-                .then(Mono.just(ApiResponse.ok(Map.of("success", "true"))));
+                .then(Mono.defer(() -> {
+                    if (vectorJustEnabled && memoryVectorMigrator != null) {
+                        memoryVectorMigrator.migrate()
+                                .subscribe();
+                    }
+                    return Mono.just(ApiResponse.ok(Map.of("success", "true")));
+                }));
     }
 
-    @PostMapping("/config/reset")
-    public Mono<ApiResponse<Map<String, String>>> resetConfig(
-            @RequestParam(defaultValue = "_global_") String agentName) {
-        return configService.resetToDefaultsForAgent(agentName)
+    @DeleteMapping("/config")
+    public Mono<ApiResponse<Map<String, String>>> deleteConfig(
+            @RequestParam String agentName) {
+        return configService.deleteConfigForAgent(agentName)
                 .then(Mono.just(ApiResponse.ok(Map.of("success", "true"))));
     }
 
@@ -99,19 +131,7 @@ public class MemoryController {
             @RequestParam(required = false) String type,
             @RequestParam(defaultValue = "default") String agentId) {
         var flux = resolveMemoryQuery(userId, agentId, type);
-        return flux.map(e -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", e.getId());
-            m.put("userId", e.getUserId());
-            m.put("agentId", e.getAgentId());
-            m.put("memoryType", e.getMemoryType());
-            m.put("content", e.getContent());
-            m.put("importance", e.getImportance());
-            m.put("accessCount", e.getAccessCount());
-            m.put("lastAccessedAt", e.getLastAccessedAt());
-            m.put("createdAt", e.getCreatedAt());
-            return m;
-        }).collectList().map(ApiResponse::ok);
+        return flux.map(this::toLongTermMap).collectList().map(ApiResponse::ok);
     }
 
     private Flux<AgentMemoryEntity> resolveMemoryQuery(String userId, String agentId, String type) {
@@ -170,6 +190,22 @@ public class MemoryController {
         });
     }
 
+    @PostMapping("/migrate-vectors")
+    public Mono<ApiResponse<Map<String, Object>>> migrateVectors() {
+        if (memoryVectorMigrator == null) {
+            return Mono.just(ApiResponse.ok(Map.of("message", "Vector migrator not available")));
+        }
+        return memoryVectorMigrator.migrate()
+                .map(stats -> {
+                    Map<String, Object> result = new LinkedHashMap<>();
+                    result.put("total", stats.total());
+                    result.put("migrated", stats.migrated());
+                    result.put("skipped", stats.skipped());
+                    result.put("failed", stats.failed());
+                    return ApiResponse.ok(result);
+                });
+    }
+
     @GetMapping("/working/{sessionId}")
     public Mono<ApiResponse<Map<String, Object>>> getWorkingMemory(@PathVariable Long sessionId) {
         return Mono.just(buildSnapshotResponse(AgentRuntime.getLatestSnapshot(sessionId)));
@@ -211,12 +247,9 @@ public class MemoryController {
                         row.put("createdAt", msg.getCreatedAt() != null ? msg.getCreatedAt().toString() : "");
                         chunks.add(row);
                     }
-                    int tokenBudget = 128000;
                     Map<String, Object> body = new LinkedHashMap<>();
-                    body.put("tokenBudget", tokenBudget);
                     body.put("tokenUsed", totalTokens);
                     body.put("tokenEstimated", totalTokens);
-                    body.put("usageRatio", tokenBudget > 0 ? (float) totalTokens / tokenBudget : 0f);
                     body.put("chunkCount", chunks.size());
                     body.put("chunks", chunks);
                     body.put("source", "transcript");
@@ -262,7 +295,21 @@ public class MemoryController {
         m.put("accessCount", e.getAccessCount());
         m.put("lastAccessedAt", e.getLastAccessedAt());
         m.put("createdAt", e.getCreatedAt());
+        m.put("keywords", e.getKeywords());
+        m.put("topic", e.getTopic());
+        m.put("memoryLevel", e.getMemoryLevel());
+        m.put("sourceMemoryIds", parseSourceMemoryIds(e.getSourceMemoryIds()));
+        m.put("enrichedContent", e.getEnrichedContent());
         return m;
+    }
+
+    private List<Long> parseSourceMemoryIds(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return OBJECT_MAPPER.readValue(raw, new TypeReference<List<Long>>() {});
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private Map<String, Object> toArchiveMap(AgentMemoryArchiveEntity e) {

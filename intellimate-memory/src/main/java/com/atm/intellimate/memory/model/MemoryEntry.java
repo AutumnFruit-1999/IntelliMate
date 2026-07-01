@@ -1,6 +1,8 @@
 package com.atm.intellimate.memory.model;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * A long-term memory entry (episodic / semantic / procedural).
@@ -18,6 +20,11 @@ public class MemoryEntry {
     private Instant createdAt;
     private Long sourceSessionId;
     private String metadataJson;
+    private String enrichedContent;
+    private String topic;
+    private String keywords;
+    private String memoryLevel = "detail";
+    private String sourceMemoryIds;
 
     public MemoryEntry() {}
 
@@ -31,6 +38,19 @@ public class MemoryEntry {
         this.accessCount = 0;
         this.createdAt = Instant.now();
         this.sourceSessionId = sourceSessionId;
+    }
+
+    public static MemoryEntry v3(String userId, String agentId, String memoryType, String content,
+                               float importance, Long sourceSessionId,
+                               String enrichedContent, String topic, String keywords,
+                               String memoryLevel, String sourceMemoryIds) {
+        MemoryEntry entry = new MemoryEntry(userId, agentId, memoryType, content, importance, sourceSessionId);
+        entry.setEnrichedContent(enrichedContent);
+        entry.setTopic(topic);
+        entry.setKeywords(keywords);
+        entry.setMemoryLevel(memoryLevel != null ? memoryLevel : "detail");
+        entry.setSourceMemoryIds(sourceMemoryIds);
+        return entry;
     }
 
     public Long getId() { return id; }
@@ -55,8 +75,42 @@ public class MemoryEntry {
     public void setSourceSessionId(Long sourceSessionId) { this.sourceSessionId = sourceSessionId; }
     public String getMetadataJson() { return metadataJson; }
     public void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
+    public String getEnrichedContent() { return enrichedContent; }
+    public void setEnrichedContent(String enrichedContent) { this.enrichedContent = enrichedContent; }
+    public String getTopic() { return topic; }
+    public void setTopic(String topic) { this.topic = topic; }
+    public String getKeywords() { return keywords; }
+    public void setKeywords(String keywords) { this.keywords = keywords; }
+    public String getMemoryLevel() { return memoryLevel; }
+    public void setMemoryLevel(String memoryLevel) { this.memoryLevel = memoryLevel; }
+    public String getSourceMemoryIds() { return sourceMemoryIds; }
+    public void setSourceMemoryIds(String sourceMemoryIds) { this.sourceMemoryIds = sourceMemoryIds; }
 
     public MemoryChunk toRecalledChunk(int estimatedTokens) {
-        return MemoryChunk.recalled(content, estimatedTokens, importance);
+        return MemoryChunk.recalled(content, estimatedTokens, importance, id, recalledMetadata());
+    }
+
+    public MemoryChunk toRecalledChunk(int estimatedTokens, double relevanceScore) {
+        String typeLabel = switch (memoryType) {
+            case "semantic" -> "知识";
+            case "episodic" -> "事件";
+            case "procedural" -> "流程";
+            default -> memoryType;
+        };
+        String dateStr = createdAt != null
+                ? createdAt.atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+                : "未知";
+        String relevanceStr = relevanceScore < 0 ? "N/A" : String.format("%.2f", relevanceScore);
+        String prefix = String.format("[历史记忆 | %s | %s | 相关度:%s] ",
+                typeLabel, dateStr, relevanceStr);
+        return MemoryChunk.recalled(prefix + content, estimatedTokens, importance, id, recalledMetadata());
+    }
+
+    private Map<String, String> recalledMetadata() {
+        Map<String, String> meta = new HashMap<>();
+        if (memoryLevel != null) {
+            meta.put("memory_level", memoryLevel);
+        }
+        return meta;
     }
 }

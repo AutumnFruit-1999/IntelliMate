@@ -2,8 +2,6 @@ package com.atm.intellimate.agent.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -16,7 +14,6 @@ import java.util.Set;
  */
 public class ToolResultCache {
 
-    private static final Logger log = LoggerFactory.getLogger(ToolResultCache.class);
     private static final int MAX_ENTRIES = 50;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -40,7 +37,6 @@ public class ToolResultCache {
         String key = toolName + "::" + arguments;
         CachedResult cached = cache.get(key);
         if (cached != null) {
-            log.debug("Cache hit: {}({})", toolName, arguments.length() > 80 ? arguments.substring(0, 80) + "..." : arguments);
             return cached.result();
         }
         return null;
@@ -70,7 +66,6 @@ public class ToolResultCache {
 
         if ("exec".equals(toolName)) {
             if (!cache.isEmpty()) {
-                log.debug("exec detected, clearing entire tool result cache ({} entries)", cache.size());
                 cache.clear();
             }
             return;
@@ -85,7 +80,6 @@ public class ToolResultCache {
         while (it.hasNext()) {
             Map.Entry<String, CachedResult> entry = it.next();
             if (entry.getKey().startsWith("readFile::") && entry.getKey().contains(path)) {
-                log.debug("Invalidating cache entry for path: {}", path);
                 it.remove();
             }
         }

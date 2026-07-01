@@ -118,20 +118,6 @@ public class MemoryConsolidator {
             return null;
         }
 
-        int totalTokens = workingMemory.getTokenUsage();
-        int candidateTokens = candidates.stream().mapToInt(MemoryChunk::estimatedTokens).sum();
-        log.info("[Consolidation] agent={} | trigger: {}/{} tokens ({}%) | candidates: {} chunks, {} tokens",
-                agentId, totalTokens, workingMemory.getTokenBudget(),
-                (int) (workingMemory.usageRatio() * 100), candidates.size(), candidateTokens);
-        for (int i = 0; i < candidates.size(); i++) {
-            MemoryChunk c = candidates.get(i);
-            String preview = c.content().length() > 80
-                    ? c.content().substring(0, 80) + "..."
-                    : c.content();
-            log.info("[Consolidation]   chunk[{}] type={} tokens={} importance={} | {}",
-                    i, c.type(), c.estimatedTokens(), String.format("%.2f", c.importance()), preview);
-        }
-
         ConsolidationResult result = doLLMConsolidate(candidates);
         if (result == null) {
             log.warn("[Consolidation] All attempts failed for agent={}; deferring", agentId);
@@ -144,7 +130,6 @@ public class MemoryConsolidator {
         boolean factsStored = false;
         if (longTermMemory != null && !result.facts().isEmpty()) {
             factsStored = true;
-            log.info("[Consolidation] Storing {} facts to long-term memory for agent={}", result.facts().size(), agentId);
             Flux.fromIterable(result.facts())
                     .concatMap(fact -> longTermMemory.store(fact, userId, agentId)
                             .onErrorResume(e -> {
@@ -152,8 +137,6 @@ public class MemoryConsolidator {
                                 return Mono.empty();
                             }))
                     .subscribe();
-        } else if (longTermMemory == null && !result.facts().isEmpty()) {
-            log.info("[Consolidation] {} facts extracted but long-term memory disabled, skipping storage", result.facts().size());
         }
 
         List<ConsolidationResult.SourceChunkPreview> previews = candidates.stream()
@@ -167,8 +150,6 @@ public class MemoryConsolidator {
                 .toList();
 
         int tokensAfter = workingMemory.getTokenUsage();
-        log.info("[Consolidation] Done: {} chunks → 1 summary | tokens: {} → {} (saved {})",
-                candidates.size(), tokensBefore, tokensAfter, tokensBefore - tokensAfter);
         return new ConsolidationResult(
                 result.summaryChunk(),
                 result.facts(),
@@ -241,13 +222,26 @@ public class MemoryConsolidator {
             MemoryChunk summaryChunk = MemoryChunk.consolidated(summary, summaryTokens, avgImportance);
 
             List<ExtractedFact> facts = new ArrayList<>();
+            JsonNode memoriesNode = root.path("memories");
+            if (memoriesNode.isArray()) {
+                for (JsonNode mem : memoriesNode) {
+                    String topic = mem.path("topic").asText("");
+                    List<String> keywords = new ArrayList<>();
+                    mem.path("keywords").forEach(k -> keywords.add(k.asText()));
+                    String content = mem.path("content").asText("");
+                    String enriched = mem.path("enriched").asText("");
+                    float importance = (float) mem.path("importance").asDouble(0.5);
+                    facts.add(new ExtractedFact(topic, keywords, content, enriched, importance));
+                }
+            }
+
             JsonNode factsNode = root.path("facts");
-            if (factsNode.isArray()) {
-                for (JsonNode fn : factsNode) {
-                    facts.add(new ExtractedFact(
-                            fn.path("type").asText("semantic"),
-                            fn.path("content").asText(),
-                            (float) fn.path("importance").asDouble(0.5)
+            if (facts.isEmpty() && factsNode.isArray()) {
+                for (JsonNode f : factsNode) {
+                    facts.add(ExtractedFact.legacy(
+                            f.path("type").asText("semantic"),
+                            f.path("content").asText(""),
+                            (float) f.path("importance").asDouble(0.5)
                     ));
                 }
             }

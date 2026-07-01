@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { X, Loader2, Check } from "lucide-react";
+import { X, Loader2, Check, Trash2 } from "lucide-react";
 import { useAgentStore } from "../stores/agentStore";
 import AgentContextEditor from "./AgentContextEditor";
 import ToolsTab from "./ToolsTab";
@@ -94,7 +94,11 @@ export default function AgentConfigModal({
   const saveSkillGroupsEnabled = useAgentStore((s) => s.saveSkillGroupsEnabled);
   const resetConfig = useAgentStore((s) => s.resetConfig);
 
+  const removeAgent = useAgentStore((s) => s.removeAgent);
+  const [deleting, setDeleting] = useState(false);
+
   const agentName = initialAgent ?? activeAgent ?? null;
+  const isDefault = agents.find((a) => a.name === agentName)?.isDefault ?? false;
 
   useEffect(() => {
     if (open && agentName) {
@@ -262,9 +266,28 @@ export default function AgentConfigModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3 border-t border-slate-200 dark:border-slate-700">
-          <div className="text-xs text-slate-400 dark:text-slate-500">
+          <div className="flex items-center gap-2">
+            {!isDefault && agentName && (
+              <button
+                onClick={async () => {
+                  if (!window.confirm(`确定要删除智能体「${agentName}」吗？此操作不可恢复。`)) return;
+                  setDeleting(true);
+                  try {
+                    await removeAgent(agentName);
+                    onClose();
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+                disabled={deleting}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+              >
+                <Trash2 size={14} />
+                {deleting ? "删除中..." : "删除智能体"}
+              </button>
+            )}
             {error && config && (
-              <span className="text-red-500">{error}</span>
+              <span className="text-xs text-red-500">{error}</span>
             )}
           </div>
           <div className="flex gap-2">

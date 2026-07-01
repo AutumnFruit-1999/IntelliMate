@@ -42,7 +42,8 @@ public class SessionManagerImpl implements SessionManager {
 
     @Override
     public Mono<SessionEntity> getOrCreate(SessionKey key, SessionMetadata metadata) {
-        return sessionRepository.findBySessionKey(key.channelId(), key.contextType(), key.contextId())
+        return sessionRepository.findBySessionKeyAndAgent(
+                        key.channelId(), key.contextType(), key.contextId(), metadata.agentName())
                 .flatMap(existing -> {
                     existing.setLastActiveAt(LocalDateTime.now());
                     if (existing.getStatus() == null) {
@@ -61,8 +62,11 @@ public class SessionManagerImpl implements SessionManager {
                     session.setCreatedAt(LocalDateTime.now());
                     session.setDeleted(0);
                     return sessionRepository.save(session)
-                            .doOnSuccess(s -> log.info("Created new session: id={}, key={}",
-                                    s.getId(), key.toCompositeKey()));
+                            .onErrorResume(org.springframework.dao.DuplicateKeyException.class, e -> {
+                                log.warn("Duplicate session key for agent '{}', fetching existing", metadata.agentName());
+                                return sessionRepository.findBySessionKeyAndAgent(
+                                        key.channelId(), key.contextType(), key.contextId(), metadata.agentName());
+                            });
                 }));
     }
 
@@ -79,21 +83,13 @@ public class SessionManagerImpl implements SessionManager {
     }
 
     @Override
-    public Flux<TranscriptMessageEntity> getPlanHistory(Long sessionId, Long planId, int limit) {
-        return transcriptRepository.findRecentBySessionIdAndPlanId(sessionId, planId, limit)
-                .sort(Comparator.comparing(TranscriptMessageEntity::getCreatedAt));
-    }
-
-    @Override
     public Flux<TranscriptMessageEntity> getChatHistory(Long sessionId, int limit) {
-        return transcriptRepository.findRecentBySessionIdNoPlan(sessionId, limit)
-                .sort(Comparator.comparing(TranscriptMessageEntity::getCreatedAt));
+        return getHistory(sessionId, limit);
     }
 
     @Override
     public Mono<Void> resetSession(Long sessionId) {
-        return transcriptRepository.deleteBySessionId(sessionId)
-                .doOnSuccess(v -> log.info("Reset session: id={}", sessionId));
+        return transcriptRepository.deleteBySessionId(sessionId);
     }
 
     @Override
@@ -111,8 +107,6 @@ public class SessionManagerImpl implements SessionManager {
                     newSession.setCreatedAt(LocalDateTime.now());
                     newSession.setDeleted(0);
                     return sessionRepository.save(newSession)
-                            .doOnSuccess(s -> log.info("Created active session for proactive message: id={}, agent={}",
-                                    s.getId(), agentName))
                             .map(SessionEntity::getId);
                 }));
     }
@@ -134,7 +128,7 @@ public class SessionManagerImpl implements SessionManager {
     public Mono<SessionEntity> archiveAndCreateNew(String agentName) {
         return findActiveSession(agentName)
                 .flatMap(activeSession ->
-                    transcriptRepository.findRecentBySessionIdNoPlanAfter(
+                    transcriptRepository.findRecentBySessionIdAfter(
                             activeSession.getId(),
                             activeSession.getCreatedAt(),
                             50
@@ -177,8 +171,7 @@ public class SessionManagerImpl implements SessionManager {
                     session.setDeleted(1);
                     return sessionRepository.save(session);
                 })
-                .then(transcriptRepository.deleteBySessionId(sessionId))
-                .doOnSuccess(v -> log.info("Deleted archived session: id={}", sessionId));
+                .then(transcriptRepository.deleteBySessionId(sessionId));
     }
 
     private Mono<SessionEntity> createNewActiveSession(String agentName) {
@@ -192,7 +185,6 @@ public class SessionManagerImpl implements SessionManager {
         newSession.setCreatedAt(LocalDateTime.now());
         newSession.setDeleted(0);
         return sessionRepository.save(newSession)
-                .doOnSuccess(s -> log.info("Created new active session: id={}, agent={}", s.getId(), agentName))
                 .onErrorResume(org.springframework.dao.DuplicateKeyException.class, e -> {
                     log.warn("Duplicate session key for agent '{}', fetching existing", agentName);
                     return sessionRepository.findActiveByAgentName(agentName);

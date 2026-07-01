@@ -26,8 +26,16 @@ public record MemoryChunk(
         int estimatedTokens,
         long originalSize,
         Instant createdAt,
-        Map<String, String> metadata
+        Map<String, String> metadata,
+        Long sourceId
 ) {
+
+    public MemoryChunk(String id, ChunkType type, String content, ContentCategory category,
+                       float importance, int estimatedTokens, long originalSize,
+                       Instant createdAt, Map<String, String> metadata) {
+        this(id, type, content, category, importance, estimatedTokens, originalSize,
+                createdAt, metadata, null);
+    }
 
     public static MemoryChunk system(String content, int estimatedTokens) {
         return new MemoryChunk(
@@ -72,10 +80,15 @@ public record MemoryChunk(
     }
 
     public static MemoryChunk recalled(String content, int estimatedTokens, float importance) {
+        return recalled(content, estimatedTokens, importance, null, Map.of());
+    }
+
+    public static MemoryChunk recalled(String content, int estimatedTokens, float importance,
+                                       Long sourceId, Map<String, String> metadata) {
         return new MemoryChunk(
                 UUID.randomUUID().toString(), ChunkType.RECALLED, content,
                 ContentCategory.TEXT, importance, estimatedTokens, content.length(),
-                Instant.now(), Map.of()
+                Instant.now(), metadata != null ? metadata : Map.of(), sourceId
         );
     }
 

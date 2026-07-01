@@ -11,8 +11,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -25,7 +23,6 @@ import java.util.UUID;
 @Component
 public class ScheduledJobManagementTool {
 
-    private static final Logger log = LoggerFactory.getLogger(ScheduledJobManagementTool.class);
     private static final ObjectMapper om = new ObjectMapper();
     private static final Set<String> PROTECTED_JOBS = Set.of(
             "heartbeat-tick", "memory-nightly-maintenance", "data-cleanup");
@@ -111,7 +108,6 @@ public class ScheduledJobManagementTool {
         registry.registerJobBean(saved.getJobName(), registry.getJobBean(jobType));
         engine.emitConfigChange(new ConfigChangeEvent(jobName, ConfigChangeEvent.ChangeType.UPDATED));
 
-        log.info("Scheduled job created via chat: name={}, type={}, agent={}", jobName, jobType, agentName);
         return jobToJson("created", saved);
     }
 
@@ -190,7 +186,6 @@ public class ScheduledJobManagementTool {
 
         jobRepo.deleteById(job.getId()).block();
         engine.emitConfigChange(new ConfigChangeEvent(jobName, ConfigChangeEvent.ChangeType.UPDATED));
-        log.info("Scheduled job deleted via chat: {}", jobName);
 
         ObjectNode root = om.createObjectNode();
         root.put("success", true);

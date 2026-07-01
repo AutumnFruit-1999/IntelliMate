@@ -298,6 +298,8 @@ export interface ModelDefinitionDto {
   modelId: string;
   displayName: string;
   description: string | null;
+  category: string;
+  dimensions: number | null;
   maxTokens: number | null;
   enabled: number;
   sortOrder: number;
@@ -308,6 +310,8 @@ export interface ModelDefinitionCreate {
   modelId: string;
   displayName: string;
   description?: string | null;
+  category?: string;
+  dimensions?: number | null;
   maxTokens?: number | null;
 }
 
@@ -357,6 +361,32 @@ export function updateModelDefinition(id: number, data: Partial<ModelDefinitionC
 
 export function deleteModelDefinition(id: number): Promise<{ success: boolean }> {
   return apiFetch(`/api/model-definitions/${id}`, { method: "DELETE" });
+}
+
+export interface EmbeddingModelGroup {
+  providerId: number;
+  providerName: string;
+  providerType: string;
+  models: ModelDefinitionDto[];
+}
+
+export function fetchEmbeddingModels(): Promise<EmbeddingModelGroup[]> {
+  return apiFetch<EmbeddingModelGroup[]>("/api/embedding-models");
+}
+
+export function getActiveEmbeddingModel(): Promise<{ definitionId: number | null; active: boolean }> {
+  return apiFetch("/api/embedding-models/active");
+}
+
+export function activateEmbeddingModel(definitionId: number): Promise<{ success: boolean; definitionId: number; modelId: string; dimensions: number }> {
+  return apiFetch("/api/embedding-models/activate", {
+    method: "POST",
+    body: JSON.stringify({ definitionId }),
+  });
+}
+
+export function deactivateEmbeddingModel(): Promise<{ success: boolean }> {
+  return apiFetch("/api/embedding-models/deactivate", { method: "POST" });
 }
 
 // ─── Skill Definitions ───
@@ -610,7 +640,6 @@ export function setSkillGroupMembers(id: number, skillIds: number[]): Promise<vo
 
 export interface MemoryConfigItem {
   value: string;
-  default: string;
   description: string;
   type: string;
 }
@@ -619,6 +648,10 @@ export interface MemoryConfigResponse {
   working: Record<string, MemoryConfigItem>;
   consolidation: Record<string, MemoryConfigItem>;
   longTerm: Record<string, MemoryConfigItem>;
+  vector?: Record<string, MemoryConfigItem>;
+  embedding?: Record<string, MemoryConfigItem>;
+  retrieval?: Record<string, MemoryConfigItem>;
+  scoring?: Record<string, MemoryConfigItem>;
 }
 
 export interface MemoryStatsResponse {
@@ -638,6 +671,11 @@ export interface LongTermMemoryItem {
   accessCount: number;
   lastAccessedAt: string | null;
   createdAt: string;
+  keywords?: string;
+  topic?: string;
+  memoryLevel?: "detail" | "consolidated";
+  sourceMemoryIds?: number[];
+  enrichedContent?: string;
 }
 
 /** Row from `agent_memory_archive` (cold-archived long-term memories). */
@@ -658,9 +696,8 @@ export function updateMemoryConfig(updates: Record<string, string>, agentName?: 
   });
 }
 
-export function resetMemoryConfig(agentName?: string): Promise<{ success: string }> {
-  const params = agentName ? `?agentName=${encodeURIComponent(agentName)}` : "";
-  return apiFetch(`/api/memory/config/reset${params}`, { method: "POST" });
+export function deleteMemoryConfig(agentName: string): Promise<{ success: string }> {
+  return apiFetch(`/api/memory/config?agentName=${encodeURIComponent(agentName)}`, { method: "DELETE" });
 }
 
 export function fetchMemoryStats(userId = "default", agentId = "default"): Promise<MemoryStatsResponse> {
@@ -672,10 +709,16 @@ export function fetchWorkingMemoryByAgent(agentName: string): Promise<Record<str
   return apiFetch(`/api/memory/working/by-agent/${encodeURIComponent(agentName)}`);
 }
 
-export function fetchLongTermMemories(userId?: string, type?: string, agentId = "default"): Promise<LongTermMemoryItem[]> {
+export function fetchLongTermMemories(
+  userId?: string,
+  type?: string,
+  agentId = "default",
+  level?: "detail" | "consolidated"
+): Promise<LongTermMemoryItem[]> {
   const params = new URLSearchParams({ agentId });
   if (userId) params.set("userId", userId);
   if (type) params.set("type", type);
+  if (level) params.set("level", level);
   return apiFetch<LongTermMemoryItem[]>(`/api/memory/long-term?${params}`);
 }
 

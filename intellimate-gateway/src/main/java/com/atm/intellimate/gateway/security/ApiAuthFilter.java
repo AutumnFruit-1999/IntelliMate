@@ -1,8 +1,6 @@
 package com.atm.intellimate.gateway.security;
 
 import com.atm.intellimate.core.config.IntelliMateProperties;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -14,8 +12,6 @@ import reactor.core.publisher.Mono;
 @Component
 @Order(1)
 public class ApiAuthFilter implements WebFilter {
-
-    private static final Logger log = LoggerFactory.getLogger(ApiAuthFilter.class);
 
     private final IntelliMateProperties properties;
     private final JwtService jwtService;
@@ -58,8 +54,6 @@ public class ApiAuthFilter implements WebFilter {
             return chain.filter(exchange);
         }
 
-        log.debug("Unauthorized API request to {} from {}",
-                path, exchange.getRequest().getRemoteAddress());
         exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
         return exchange.getResponse().setComplete();
     }

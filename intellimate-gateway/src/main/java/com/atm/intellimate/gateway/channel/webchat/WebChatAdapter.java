@@ -4,8 +4,6 @@ import com.atm.intellimate.channel.api.ChannelAdapter;
 import com.atm.intellimate.channel.api.ChannelStatus;
 import com.atm.intellimate.core.model.InboundEnvelope;
 import com.atm.intellimate.core.model.OutboundMessage;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -23,7 +21,6 @@ import java.util.function.Consumer;
 @Component
 public class WebChatAdapter implements ChannelAdapter {
 
-    private static final Logger log = LoggerFactory.getLogger(WebChatAdapter.class);
     private static final String CHANNEL_ID = "webchat";
 
     private volatile ChannelStatus status = ChannelStatus.DISCONNECTED;
@@ -37,14 +34,12 @@ public class WebChatAdapter implements ChannelAdapter {
     @Override
     public Mono<Void> connect(Map<String, Object> config) {
         status = ChannelStatus.CONNECTED;
-        log.info("WebChat adapter connected (passthrough mode)");
         return Mono.empty();
     }
 
     @Override
     public Mono<Void> disconnect() {
         status = ChannelStatus.DISCONNECTED;
-        log.info("WebChat adapter disconnected");
         return Mono.empty();
     }
 
@@ -52,7 +47,6 @@ public class WebChatAdapter implements ChannelAdapter {
     public Mono<Void> send(OutboundMessage message) {
         // WebChat outbound is handled directly by the WebSocket handler,
         // not through this adapter's send(). This is a no-op for webchat.
-        log.debug("WebChat send called (no-op, handled by WS handler): sessionKey={}", message.sessionKey());
         return Mono.empty();
     }
 

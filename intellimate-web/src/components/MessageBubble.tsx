@@ -1,8 +1,5 @@
 import { useMemo, useState, useEffect, memo } from "react";
-import { useShallow } from "zustand/react/shallow";
-import type { ChatMessage } from "../stores/chatStore";
-import { usePlanStore } from "../stores/planStore";
-import type { StepToolCall } from "../stores/planStore";
+import type { ChatMessage, StepToolCall } from "../stores/chatStore";
 import StreamingText from "./StreamingText";
 import ActivityStrip from "./ActivityStrip";
 import ErrorBubble from "./ErrorBubble";
@@ -85,44 +82,23 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools, 
 
   const hasToolCalls = !isUser && message.toolCalls && message.toolCalls.length > 0;
 
-  const { plan, stepToolCalls, currentStepIndex } = usePlanStore(
-    useShallow((s) => ({
-      plan: s.plan,
-      stepToolCalls: s.stepToolCalls,
-      currentStepIndex: s.currentStepIndex,
-    }))
-  );
-  const planWithSteps = !!(plan && plan.steps.length > 0);
-  const planActive =
-    plan &&
-    plan.status !== "draft" &&
-    plan.status !== "cancelled" &&
-    plan.status !== "completed" &&
-    plan.status !== "failed";
   const hasPlanTools = hasToolCalls && message.toolCalls!.some(
-    (tc) => tc.name === "updatePlan" || tc.name === "writePlan",
+    (tc) => tc.name === "updatePlan" || tc.name === "writePlan" || tc.name === "plan",
   );
-
-  const showLiveStepView =
-    hasToolCalls &&
-    planWithSteps &&
-    planActive &&
-    !!isLastAssistantWithTools;
 
   const hasSnapshot = !!(message.stepGroupSnapshot && message.stepGroupSnapshot.steps.length > 0);
-  const showSnapshotStepView = hasToolCalls && !showLiveStepView && hasSnapshot;
-  const showStepView = showLiveStepView || showSnapshotStepView;
+  const showSnapshotStepView = hasToolCalls && hasSnapshot;
 
   const filteredToolCalls = useMemo(() => {
     if (!hasToolCalls) return [];
-    if (showStepView) return [];
+    if (showSnapshotStepView) return [];
     const calls = hasPlanTools
-      ? message.toolCalls!.filter(tc => tc.name !== "writePlan" && tc.name !== "updatePlan")
+      ? message.toolCalls!.filter(tc => tc.name !== "writePlan" && tc.name !== "updatePlan" && tc.name !== "plan")
       : message.toolCalls!;
     return calls;
   }, [
     hasToolCalls,
-    showStepView,
+    showSnapshotStepView,
     hasPlanTools,
     message.toolCalls,
   ]);
@@ -144,16 +120,6 @@ export default memo(function MessageBubble({ message, isLastAssistantWithTools, 
           </div>
         )}
         {!isUser && message.streaming && <ActivityStrip />}
-
-        {showLiveStepView && (
-          <div className="mb-2">
-            <StepGroupedTools
-              steps={plan!.steps}
-              stepToolCalls={stepToolCalls}
-              currentStepIndex={currentStepIndex}
-            />
-          </div>
-        )}
 
         {showSnapshotStepView && (
           <div className="mb-2">

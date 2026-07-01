@@ -5,8 +5,6 @@ import com.atm.intellimate.channel.api.model.WebhookRequest;
 import com.atm.intellimate.channel.api.model.WebhookResponse;
 import com.atm.intellimate.gateway.audit.AuditService;
 import com.atm.intellimate.gateway.channel.ChannelsManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,8 +21,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/webhook")
 public class WebhookController {
-
-    private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final ChannelsManager channelsManager;
     private final AuditService auditService;
@@ -43,7 +39,6 @@ public class WebhookController {
             @RequestHeader(required = false) Map<String, String> headers,
             @RequestParam Map<String, String> params
     ) {
-        log.info("Webhook verification: channelId={}, params={}", channelId, params);
         WebhookRequest request = new WebhookRequest(
                 "GET",
                 normalizeHeaders(headers),
@@ -64,7 +59,6 @@ public class WebhookController {
             @RequestParam(required = false) Map<String, String> params,
             @RequestBody String body
     ) {
-        log.info("Webhook JSON callback: channelId={}, bodyLength={}", channelId, body != null ? body.length() : 0);
         WebhookRequest request = new WebhookRequest(
                 "POST",
                 normalizeHeaders(headers),
@@ -85,7 +79,6 @@ public class WebhookController {
             @RequestParam(required = false) Map<String, String> params,
             @RequestBody String body
     ) {
-        log.info("Webhook XML callback: channelId={}, bodyLength={}", channelId, body != null ? body.length() : 0);
         WebhookRequest request = new WebhookRequest(
                 "POST",
                 normalizeHeaders(headers),

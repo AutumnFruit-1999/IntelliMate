@@ -3,8 +3,6 @@ package com.atm.intellimate.gateway.scheduler.jobs;
 import com.atm.intellimate.gateway.scheduler.ScheduledJob;
 import com.atm.intellimate.gateway.scheduler.model.JobExecutionContext;
 import com.atm.intellimate.gateway.scheduler.model.JobResult;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -14,8 +12,6 @@ import java.util.Map;
 
 @Component
 public class HttpCallbackJob implements ScheduledJob {
-
-    private static final Logger log = LoggerFactory.getLogger(HttpCallbackJob.class);
 
     private final WebClient webClient;
 
@@ -44,8 +40,6 @@ public class HttpCallbackJob implements ScheduledJob {
         if (url == null || url.isBlank()) {
             return Mono.just(JobResult.fail("Missing 'url' parameter"));
         }
-
-        log.info("HttpCallbackJob executing: {} {}", method, url);
 
         WebClient.RequestHeadersSpec<?> request;
         if ("POST".equalsIgnoreCase(method)) {

@@ -2,8 +2,6 @@ package com.atm.intellimate.gateway.scheduler;
 
 import com.atm.intellimate.gateway.entity.ScheduledJobConfigEntity;
 import com.atm.intellimate.gateway.repository.ScheduledJobConfigRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -15,8 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class TaskRegistry {
-
-    private static final Logger log = LoggerFactory.getLogger(TaskRegistry.class);
 
     private final ScheduledJobConfigRepository configRepo;
     private final CronCalculator cronCalculator;
@@ -30,7 +26,6 @@ public class TaskRegistry {
 
     public void registerJobBean(String jobName, ScheduledJob job) {
         jobBeans.put(jobName, job);
-        log.info("Registered job bean: {}", jobName);
     }
 
     public ScheduledJob getJobBean(String jobName) {
@@ -59,15 +54,13 @@ public class TaskRegistry {
                         }
                     }
                 })
-                .then()
-                .doOnSuccess(v -> log.info("Loaded {} job configs into cache", cache.size()));
+                .then();
     }
 
     public Mono<Void> reloadJob(String jobName) {
         return configRepo.findByJobName(jobName)
                 .doOnNext(config -> {
                     cache.put(config.getJobName(), config);
-                    log.debug("Reloaded config for job: {}", jobName);
                 })
                 .then();
     }

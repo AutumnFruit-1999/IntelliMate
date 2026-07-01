@@ -65,10 +65,7 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
 
         securityService.extractJwtClaims(token).ifPresent(claims -> {
             sessionRegistry.bindUserId(session.getId(), claims.userId());
-            log.info("WebSocket authenticated: user={} ({})", claims.username(), claims.userId());
         });
-
-        log.info("WebSocket connected: sessionId={}", session.getId());
 
         Sinks.Many<GatewayFrame> outSink = Sinks.many().unicast()
                 .onBackpressureBuffer(Queues.<GatewayFrame>get(1024).get());
@@ -133,7 +130,6 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
                     heartbeat.dispose();
                     sessionRegistry.unregister(session.getId());
                     messagePipeline.onWebSocketDisconnect(session.getId());
-                    log.info("WebSocket disconnected: sessionId={}, signal={}", session.getId(), signal);
                 });
     }
 
@@ -155,7 +151,6 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
 
     private Flux<GatewayFrame> handleRequest(RequestFrame request, WebSocketSession session) {
         String traceId = UUID.randomUUID().toString().substring(0, 8);
-        log.debug("Handling request: method={}, id={}, traceId={}", request.method(), request.id(), traceId);
         return messagePipeline.processRequest(request, session.getId())
                 .contextWrite(Context.of("traceId", traceId));
     }
@@ -168,11 +163,9 @@ public class GatewayWebSocketHandler implements WebSocketHandler {
             }
             if (agentNameObj instanceof String agentName && !agentName.isBlank()) {
                 sessionRegistry.bindAgent(session.getId(), agentName);
-                log.info("Agent bind: agent='{}', session={}", agentName, session.getId());
             }
             return Flux.empty();
         }
-        log.debug("Unhandled client event: {}", event.event());
         return Flux.empty();
     }
 

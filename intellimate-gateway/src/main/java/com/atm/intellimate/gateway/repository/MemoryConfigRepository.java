@@ -11,6 +11,8 @@ public interface MemoryConfigRepository extends ReactiveCrudRepository<MemoryCon
 
     Mono<MemoryConfigEntity> findByConfigKey(String configKey);
 
+    Mono<MemoryConfigEntity> findByAgentNameAndConfigKey(String agentName, String configKey);
+
     Flux<MemoryConfigEntity> findByAgentName(String agentName);
 
     @Modifying

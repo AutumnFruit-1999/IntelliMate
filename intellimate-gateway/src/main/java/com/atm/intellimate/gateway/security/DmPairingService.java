@@ -4,8 +4,6 @@ import com.atm.intellimate.gateway.entity.AllowlistEntryEntity;
 import com.atm.intellimate.gateway.entity.PairingRequestEntity;
 import com.atm.intellimate.gateway.repository.AllowlistEntryRepository;
 import com.atm.intellimate.gateway.repository.PairingRequestRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -21,7 +19,6 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class DmPairingService {
 
-    private static final Logger log = LoggerFactory.getLogger(DmPairingService.class);
     private static final int CODE_EXPIRY_MINUTES = 10;
 
     private final PairingRequestRepository pairingRepository;
@@ -51,7 +48,6 @@ public class DmPairingService {
                     request.setCreatedAt(LocalDateTime.now());
 
                     return pairingRepository.save(request)
-                            .doOnSuccess(r -> log.info("Pairing request created: channel={}, sender={}, code={}", channelId, senderId, code))
                             .map(PairingRequestEntity::getPairingCode);
                 }));
     }
@@ -81,7 +77,6 @@ public class DmPairingService {
 
                     return pairingRepository.save(request)
                             .then(allowlistRepository.save(entry))
-                            .doOnSuccess(e -> log.info("Pairing approved: channel={}, sender={}", request.getChannelId(), request.getSenderId()))
                             .map(e -> "Approved: " + request.getSenderId() + " on channel " + request.getChannelId());
                 });
     }

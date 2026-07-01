@@ -39,6 +39,21 @@ public class AgentMemoryEntity {
     @Column("metadata_json")
     private String metadataJson;
 
+    @Column("keywords")
+    private String keywords;
+
+    @Column("topic")
+    private String topic;
+
+    @Column("memory_level")
+    private String memoryLevel;
+
+    @Column("source_memory_ids")
+    private String sourceMemoryIds;
+
+    @Column("enriched_content")
+    private String enrichedContent;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getUserId() { return userId; }
@@ -61,4 +76,14 @@ public class AgentMemoryEntity {
     public void setSourceSessionId(Long sourceSessionId) { this.sourceSessionId = sourceSessionId; }
     public String getMetadataJson() { return metadataJson; }
     public void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
+    public String getKeywords() { return keywords; }
+    public void setKeywords(String keywords) { this.keywords = keywords; }
+    public String getTopic() { return topic; }
+    public void setTopic(String topic) { this.topic = topic; }
+    public String getMemoryLevel() { return memoryLevel; }
+    public void setMemoryLevel(String memoryLevel) { this.memoryLevel = memoryLevel; }
+    public String getSourceMemoryIds() { return sourceMemoryIds; }
+    public void setSourceMemoryIds(String sourceMemoryIds) { this.sourceMemoryIds = sourceMemoryIds; }
+    public String getEnrichedContent() { return enrichedContent; }
+    public void setEnrichedContent(String enrichedContent) { this.enrichedContent = enrichedContent; }
 }

@@ -146,7 +146,6 @@ public class HeartbeatEngine {
                                                             .flatMap(task -> taskRepo.clearRemindAt(task.getId(), LocalDateTime.now()))
                                                             .then();
                                             if (SILENT_MARKER.equals(response.trim())) {
-                                                log.debug("Heartbeat for agent {} decided to stay silent", agentId);
                                                 return saveLog(config, state, prompt, response)
                                                         .then(clearReminders);
                                             }
@@ -174,7 +173,7 @@ public class HeartbeatEngine {
                             prompt,
                             Collections.emptyList(),
                             null, null, null, null, null,
-                            false, null, null, null,
+                            false, null, null,
                             resolved.bridgeNode()
                     );
 

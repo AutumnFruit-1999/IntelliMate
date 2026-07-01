@@ -42,7 +42,6 @@ public class DynamicToolProviderImpl implements DynamicToolProvider {
         try {
             reload().block();
             toolsEngine.refresh();
-            log.info("Dynamic tools loaded and ToolsEngine refreshed on startup");
         } catch (Exception e) {
             log.warn("Failed to load dynamic tools on startup (table may not exist yet): {}", e.getMessage());
         }
@@ -71,7 +70,6 @@ public class DynamicToolProviderImpl implements DynamicToolProvider {
                         }
                     }
                     this.dynamicCallbacks = List.copyOf(callbacks);
-                    log.info("DynamicToolProvider reloaded: {} tool(s)", callbacks.size());
                 })
                 .then();
     }

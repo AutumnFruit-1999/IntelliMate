@@ -11,8 +11,6 @@ import com.atm.intellimate.gateway.entity.AgentEntity;
 import com.atm.intellimate.gateway.repository.AgentRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -25,8 +23,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api")
 public class AgentController {
-
-    private static final Logger log = LoggerFactory.getLogger(AgentController.class);
 
     private final AgentRepository agentRepository;
     private final IntelliMateProperties properties;
@@ -111,8 +107,7 @@ public class AgentController {
                     entity.setCreatedAt(LocalDateTime.now());
                     entity.setUpdatedAt(LocalDateTime.now());
 
-                    return agentRepository.save(entity)
-                            .doOnNext(saved -> log.info("Created agent: name={}, id={}", saved.getName(), saved.getId()));
+                    return agentRepository.save(entity);
                 }))
                 .map(entity -> AgentDTO.fromEntitySummary(entity, resolveModelDisplayName(entity.getModel())))
                 .map(ApiResponse::ok);
@@ -179,7 +174,6 @@ public class AgentController {
         entity.setDeleted(0);
         entity.setCreatedAt(LocalDateTime.now());
         entity.setUpdatedAt(LocalDateTime.now());
-        log.info("Auto-creating agent record for update: name={}", name);
         return agentRepository.save(entity);
     }
 
@@ -188,11 +182,6 @@ public class AgentController {
                                                     @RequestBody Map<String, String> body) {
         String soulMd = body.get("soulMd");
         String agentsMd = body.get("agentsMd");
-
-        log.info("Updating context for agent={}: soul={}chars, agents={}chars",
-                name,
-                soulMd != null ? soulMd.length() : 0,
-                agentsMd != null ? agentsMd.length() : 0);
 
         return agentRepository.updateContextByName(name, soulMd, agentsMd)
                 .flatMap(rows -> {
@@ -214,7 +203,6 @@ public class AgentController {
                     if (rows == 0) {
                         return Mono.error(new IntelliMateException(ErrorCode.AGENT_NOT_FOUND, "Agent not found: " + name));
                     }
-                    log.info("Deleted agent: name={}", name);
                     return Mono.just(ApiResponse.ok(Map.<String, Object>of("success", true)));
                 });
     }
@@ -233,7 +221,6 @@ public class AgentController {
         entity.setUpdatedAt(LocalDateTime.now());
 
         return agentRepository.save(entity)
-                .doOnNext(saved -> log.info("Auto-created agent record: name={}, id={}", saved.getName(), saved.getId()))
                 .thenReturn(ApiResponse.ok(Map.<String, Object>of("success", true)));
     }
 

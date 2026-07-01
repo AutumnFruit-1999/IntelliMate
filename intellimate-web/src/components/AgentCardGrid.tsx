@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Plus, ArrowLeft } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, ArrowLeft, Trash2 } from "lucide-react";
 import { useAgentStore } from "../stores/agentStore";
 
 interface AgentCardGridProps {
@@ -15,10 +15,23 @@ export default function AgentCardGrid({
 }: AgentCardGridProps) {
   const agents = useAgentStore((s) => s.agents);
   const fetchAgentList = useAgentStore((s) => s.fetchAgentList);
+  const removeAgent = useAgentStore((s) => s.removeAgent);
+  const [deletingAgent, setDeletingAgent] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAgentList();
   }, [fetchAgentList]);
+
+  const handleDelete = async (e: React.MouseEvent, name: string) => {
+    e.stopPropagation();
+    if (!window.confirm(`确定要删除智能体「${name}」吗？此操作不可恢复。`)) return;
+    setDeletingAgent(name);
+    try {
+      await removeAgent(name);
+    } finally {
+      setDeletingAgent(null);
+    }
+  };
 
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-y-auto">
@@ -60,21 +73,33 @@ export default function AgentCardGrid({
                 {agent.modelDisplayName || agent.model}
               </p>
 
-              <div className="flex flex-wrap gap-1.5">
-                {agent.hasSoul && (
-                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                    SOUL
-                  </span>
-                )}
-                {agent.hasUser && (
-                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                    USER
-                  </span>
-                )}
-                {agent.hasAgents && (
-                  <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                    AGENTS
-                  </span>
+              <div className="flex items-end justify-between">
+                <div className="flex flex-wrap gap-1.5">
+                  {agent.hasSoul && (
+                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                      SOUL
+                    </span>
+                  )}
+                  {agent.hasUser && (
+                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                      USER
+                    </span>
+                  )}
+                  {agent.hasAgents && (
+                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                      AGENTS
+                    </span>
+                  )}
+                </div>
+                {!agent.isDefault && (
+                  <button
+                    onClick={(e) => handleDelete(e, agent.name)}
+                    disabled={deletingAgent === agent.name}
+                    className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-300 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 transition-all disabled:opacity-50"
+                    title="删除智能体"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 )}
               </div>
             </div>

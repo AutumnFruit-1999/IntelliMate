@@ -218,7 +218,6 @@ public class McpServerController {
                         mcpToolProvider.getServerToolNames().getOrDefault(entity.getName(), List.of()));
                 entity.setToolsDiscovered(toolsJson);
                 entity.setLastConnectedAt(LocalDateTime.now());
-                log.info("MCP server '{}' connected successfully", entity.getName());
             } catch (Exception e) {
                 log.warn("MCP server '{}' 连接失败（已保存配置，状态为断开）: {}", entity.getName(), e.getMessage());
                 entity.setToolsDiscovered(null);

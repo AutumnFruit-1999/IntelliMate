@@ -3,8 +3,11 @@ package com.atm.intellimate.gateway.config;
 import com.atm.intellimate.memory.MemorySystem;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
 import com.atm.intellimate.memory.perception.ImportanceAssessor;
+import com.atm.intellimate.memory.retrieval.HybridMemoryRetrieval;
 import com.atm.intellimate.memory.retrieval.MemoryRetrieval;
+import com.atm.intellimate.memory.retrieval.VectorMemoryStore;
 import com.atm.intellimate.memory.working.TokenEstimator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,14 +23,21 @@ public class MemorySystemConfig {
 
     @Bean
     @ConditionalOnBean(LongTermMemory.class)
-    public MemorySystem memorySystem(LongTermMemory longTermMemory) {
+    public MemorySystem memorySystem(LongTermMemory longTermMemory,
+                                      @Autowired(required = false) VectorMemoryStore vectorStore) {
         TokenEstimator tokenEstimator = new TokenEstimator();
         MemoryRetrieval memoryRetrieval = new MemoryRetrieval(longTermMemory, tokenEstimator);
+        HybridMemoryRetrieval hybridRetrieval = null;
+        if (vectorStore != null) {
+            hybridRetrieval = new HybridMemoryRetrieval(
+                    memoryRetrieval, vectorStore, 0.6f, 0.4f);
+        }
         return new MemorySystem(
                 new ImportanceAssessor(),
                 tokenEstimator,
                 null,
                 longTermMemory,
-                memoryRetrieval);
+                memoryRetrieval,
+                hybridRetrieval);
     }
 }

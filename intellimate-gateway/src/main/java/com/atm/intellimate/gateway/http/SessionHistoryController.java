@@ -1,11 +1,14 @@
 package com.atm.intellimate.gateway.http;
 
+import com.atm.intellimate.agent.runtime.AgentMemoryLifecycle;
 import com.atm.intellimate.gateway.entity.SessionEntity;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
 import com.atm.intellimate.gateway.repository.TranscriptMessageRepository;
 import com.atm.intellimate.gateway.session.SessionManager;
+import com.atm.intellimate.memory.config.MemoryConfigProvider;
 import com.atm.intellimate.memory.longterm.LongTermMemory;
-import com.atm.intellimate.memory.model.ExtractedFact;
+import com.atm.intellimate.memory.model.MemoryChunk;
+import com.atm.intellimate.memory.working.TokenEstimator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
@@ -23,14 +26,21 @@ public class SessionHistoryController {
     private final SessionManager sessionManager;
     private final TranscriptMessageRepository transcriptRepository;
     private final LongTermMemory longTermMemory;
+    private final MemoryConfigProvider memoryConfigProvider;
+    private final AgentMemoryLifecycle agentMemoryLifecycle;
 
     public SessionHistoryController(SessionManager sessionManager,
                                      TranscriptMessageRepository transcriptRepository,
                                      @org.springframework.beans.factory.annotation.Autowired(required = false)
-                                     LongTermMemory longTermMemory) {
+                                     LongTermMemory longTermMemory,
+                                     @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                     MemoryConfigProvider memoryConfigProvider,
+                                     AgentMemoryLifecycle agentMemoryLifecycle) {
         this.sessionManager = sessionManager;
         this.transcriptRepository = transcriptRepository;
         this.longTermMemory = longTermMemory;
+        this.memoryConfigProvider = memoryConfigProvider;
+        this.agentMemoryLifecycle = agentMemoryLifecycle;
     }
 
     @GetMapping("/{agentName}/messages")
@@ -73,43 +83,58 @@ public class SessionHistoryController {
             log.warn("persistFromTranscript: longTermMemory is null, skip");
             return Mono.empty();
         }
-        log.info("persistFromTranscript: reading transcript for session {}", session.getId());
+        if (memoryConfigProvider != null) {
+            String agentName = session.getAgentName();
+            return memoryConfigProvider.resolveForAgent(agentName)
+                    .flatMap(config -> {
+                        if (!config.longTermEnabled()) {
+                            return Mono.empty();
+                        }
+                        return doActualPersist(session);
+                    })
+                    .onErrorResume(e -> {
+                        log.warn("persistFromTranscript: config check failed for agent '{}', proceeding with persist: {}",
+                                agentName, e.getMessage());
+                        return doActualPersist(session);
+                    });
+        }
+        return doActualPersist(session);
+    }
+
+    private Mono<Void> doActualPersist(SessionEntity session) {
         return transcriptRepository.findRecentBySessionId(session.getId(), 200)
                 .collectList()
                 .flatMap(messages -> {
-                    log.info("persistFromTranscript: session {} has {} messages in transcript", session.getId(), messages.size());
                     if (messages.isEmpty()) {
-                        log.info("persistFromTranscript: no messages, skip");
                         return Mono.<Void>empty();
                     }
                     Collections.reverse(messages);
-                    StringBuilder summary = new StringBuilder();
-                    int userCount = 0;
-                    for (var msg : messages) {
-                        if ("user".equals(msg.getRole())) {
-                            userCount++;
-                            if (summary.length() < 500 && msg.getContent() != null) {
-                                if (!summary.isEmpty()) summary.append("; ");
-                                String content = msg.getContent().length() > 100
-                                        ? msg.getContent().substring(0, 100) : msg.getContent();
-                                summary.append(content);
-                            }
-                        }
-                    }
+                    long userCount = messages.stream()
+                            .filter(m -> "user".equals(m.getRole()))
+                            .count();
                     if (userCount == 0) {
-                        log.info("persistFromTranscript: no user messages, skip");
                         return Mono.<Void>empty();
                     }
-                    String episodicContent = String.format("Session %d: %d messages, topics: %s",
-                            session.getId(), messages.size(), summary);
                     String userId = session.getContextId() != null ? session.getContextId() : "default";
                     String agentId = session.getAgentName() != null ? session.getAgentName() : "default";
-                    ExtractedFact fact = new ExtractedFact("episodic", episodicContent, 0.5f);
-                    log.info("persistFromTranscript: storing episodic memory for session {} (userId={}, agentId={}, {} user msgs)",
-                            session.getId(), userId, agentId, userCount);
-                    return longTermMemory.store(fact, userId, agentId)
-                            .doOnSuccess(v -> log.info("persistFromTranscript: store SUCCESS for session {}", session.getId()))
-                            .doOnError(e -> log.error("persistFromTranscript: store FAILED for session {}: {}", session.getId(), e.getMessage()));
+
+                    TokenEstimator tokenEstimator = new TokenEstimator();
+                    List<MemoryChunk> chunks = new ArrayList<>();
+                    for (var msg : messages) {
+                        if (msg.getContent() == null || msg.getContent().isBlank()) continue;
+                        int tokens = tokenEstimator.estimateForMessage(msg.getContent());
+                        MemoryChunk chunk = switch (msg.getRole()) {
+                            case "user" -> MemoryChunk.user(msg.getContent(), tokens);
+                            case "assistant" -> MemoryChunk.assistant(msg.getContent(), tokens);
+                            default -> null;
+                        };
+                        if (chunk != null) {
+                            chunks.add(chunk);
+                        }
+                    }
+
+                    agentMemoryLifecycle.storeEpisodicFromChunks(chunks, userId, agentId, session.getId());
+                    return Mono.<Void>empty();
                 });
     }
 

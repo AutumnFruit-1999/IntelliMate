@@ -79,7 +79,6 @@ public class ChatModelRegistry {
                 ChatModel model = factory.create(pc);
                 newProviderModels.put(pc.id(), model);
                 newProviderTypes.put(pc.id(), pc.type());
-                log.info("Registered provider '{}' (id={}, type={})", pc.name(), pc.id(), pc.type());
             } catch (Exception e) {
                 log.error("Failed to register provider '{}': {}", pc.name(), e.getMessage(), e);
             }
@@ -101,7 +100,6 @@ public class ChatModelRegistry {
                 Map.copyOf(newDefinitionIndex),
                 Map.copyOf(newLegacyNameIndex)
         );
-        log.info("Registry refreshed: {} providers, {} definitions", providers.size(), definitions.size());
     }
 
     public boolean hasProvider(Long providerId) {
