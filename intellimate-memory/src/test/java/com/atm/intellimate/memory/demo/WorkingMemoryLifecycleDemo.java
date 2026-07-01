@@ -40,7 +40,7 @@ class WorkingMemoryLifecycleDemo {
                 wm.replaceWithConsolidated(toConsolidate, summary);
                 int tokensAfter = wm.estimateTokenUsage();
                 return new ConsolidationResult(summary, List.of(
-                        new ExtractedFact("semantic", "AuthService.java 第42行有 NPE", 0.8f)
+                        ExtractedFact.legacy("semantic", "AuthService.java 第42行有 NPE", 0.8f)
                 ), toConsolidate.size(), tokensBefore, tokensAfter);
             }
         };

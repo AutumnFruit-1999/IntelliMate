@@ -1,8 +1,6 @@
 package com.atm.intellimate.agent.tools;
 
 import com.atm.intellimate.core.exception.ToolExecutionException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -13,8 +11,6 @@ import java.nio.file.Path;
 @Component
 public class FileReadTool {
 
-    private static final Logger log = LoggerFactory.getLogger(FileReadTool.class);
-
     @Tool(description = """
             读取指定路径的文件内容；未指定 startLine/lineCount 时返回全文。
             可通过 startLine 和 lineCount 参数读取特定区间。
@@ -24,8 +20,6 @@ public class FileReadTool {
             @ToolParam(description = "起始行号（从 1 开始，可选）", required = false) Integer startLine,
             @ToolParam(description = "读取的行数（可选）", required = false) Integer lineCount
     ) {
-        log.info("Reading file: {}", path);
-
         try {
             Path filePath = Path.of(path);
             if (!Files.exists(filePath)) {

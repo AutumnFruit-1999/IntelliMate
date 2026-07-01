@@ -2,12 +2,9 @@ package com.atm.intellimate.gateway.security;
 
 import com.atm.intellimate.core.config.IntelliMateProperties;
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
-import io.jsonwebtoken.security.SignatureException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -58,18 +55,11 @@ public class JwtService {
             Long userId = Long.parseLong(claims.getSubject());
             String username = claims.get("username", String.class);
             if (username == null || username.isBlank()) {
-                log.debug("JWT missing username claim");
                 return Optional.empty();
             }
             return Optional.of(new JwtClaims(userId, username));
-        } catch (ExpiredJwtException e) {
-            log.debug("JWT expired: {}", e.getMessage());
-        } catch (MalformedJwtException e) {
-            log.debug("Malformed JWT: {}", e.getMessage());
-        } catch (SignatureException e) {
-            log.debug("Invalid JWT signature: {}", e.getMessage());
         } catch (JwtException | IllegalArgumentException e) {
-            log.debug("JWT validation failed: {}", e.getMessage());
+            // invalid token
         }
         return Optional.empty();
     }

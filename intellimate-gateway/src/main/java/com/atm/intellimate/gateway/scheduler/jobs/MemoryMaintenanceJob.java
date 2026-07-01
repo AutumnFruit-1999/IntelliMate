@@ -34,8 +34,6 @@ public class MemoryMaintenanceJob implements ScheduledJob {
 
     @Override
     public Mono<JobResult> execute(JobExecutionContext context) {
-        log.info("Starting nightly memory maintenance (retry: {})", context.retryCount());
-
         return forgettingJobs.runMaintenanceReactive()
                 .map(stats -> JobResult.ok(
                         "Memory maintenance completed",

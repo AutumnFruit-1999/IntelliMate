@@ -9,4 +9,8 @@ import reactor.core.publisher.Mono;
 public interface MemoryConfigProvider {
 
     Mono<ResolvedMemoryConfig> resolve();
+
+    default Mono<ResolvedMemoryConfig> resolveForAgent(String agentName) {
+        return resolve();
+    }
 }

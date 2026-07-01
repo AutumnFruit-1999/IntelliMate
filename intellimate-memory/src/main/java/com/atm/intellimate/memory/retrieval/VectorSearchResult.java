@@ -1,8 +1,11 @@
 package com.atm.intellimate.memory.retrieval;
 
 import com.atm.intellimate.memory.model.MemoryChunk;
+
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.HashMap;
+import java.util.Map;
 
 public record VectorSearchResult(
         Long mysqlId,
@@ -10,8 +13,15 @@ public record VectorSearchResult(
         String memoryType,
         float importance,
         double similarity,
-        Instant createdAt
+        Instant createdAt,
+        String topic,
+        String memoryLevel
 ) {
+    public VectorSearchResult(Long mysqlId, String content, String memoryType,
+                              float importance, double similarity, Instant createdAt) {
+        this(mysqlId, content, memoryType, importance, similarity, createdAt, null, null);
+    }
+
     public MemoryChunk toRecalledChunk(int estimatedTokens) {
         String typeLabel = switch (memoryType) {
             case "semantic" -> "知识";
@@ -24,6 +34,10 @@ public record VectorSearchResult(
                 : "未知";
         String prefix = String.format("[历史记忆 | %s | %s | 相关度:%.2f] ",
                 typeLabel, dateStr, similarity);
-        return MemoryChunk.recalled(prefix + content, estimatedTokens, importance);
+        Map<String, String> metadata = new HashMap<>();
+        if (memoryLevel != null) {
+            metadata.put("memory_level", memoryLevel);
+        }
+        return MemoryChunk.recalled(prefix + content, estimatedTokens, importance, mysqlId, metadata);
     }
 }

@@ -66,65 +66,20 @@ export function createConversationCancel(requestId: string): RequestFrame {
   return createRequest("conversation.cancel", { requestId });
 }
 
-export function createPlanApprove(
-  planId: number,
-  approved: boolean,
-  modifications?: Array<{
-    type: "edit" | "add" | "remove";
-    stepIndex?: number;
-    title?: string;
-    description?: string;
-  }>,
-): RequestFrame {
-  return createRequest("plan.approve", { planId, approved, modifications });
+export function createPlanApprove(messageId: number, approved: boolean): RequestFrame {
+  return createRequest("plan.approve", { messageId, approved });
 }
 
-export function createPlanPause(planId: number): RequestFrame {
-  return createRequest("plan.pause", { planId });
+export function createPlanPause(messageId: number): RequestFrame {
+  return createRequest("plan.pause", { messageId });
 }
 
-export function createPlanResume(planId: number): RequestFrame {
-  return createRequest("plan.resume", { planId });
+export function createPlanResume(messageId: number): RequestFrame {
+  return createRequest("plan.resume", { messageId });
 }
 
-export function createPlanCancel(planId: number): RequestFrame {
-  return createRequest("plan.cancel", { planId });
-}
-
-export function createPlanSkipStep(
-  planId: number,
-  stepIndex: number,
-): RequestFrame {
-  return createRequest("plan.skip_step", { planId, stepIndex });
-}
-
-export function createPlanModifyStep(
-  planId: number,
-  stepIndex: number,
-  title?: string,
-  description?: string,
-): RequestFrame {
-  return createRequest("plan.modify_step", { planId, stepIndex, title, description });
-}
-
-export function createPlanAddStep(
-  planId: number,
-  afterIndex: number,
-  title: string,
-  description: string,
-): RequestFrame {
-  return createRequest("plan.add_step", { planId, afterIndex, title, description });
-}
-
-export function createPlanApproveAndExecute(planId: number): RequestFrame {
-  return createRequest("plan.approve_and_execute", { planId });
-}
-
-export function createPlanReorderSteps(
-  planId: number,
-  newOrder: number[],
-): RequestFrame {
-  return createRequest("plan.reorder_steps", { planId, newOrder });
+export function createPlanCancel(messageId: number): RequestFrame {
+  return createRequest("plan.cancel", { messageId });
 }
 
 // Memory types

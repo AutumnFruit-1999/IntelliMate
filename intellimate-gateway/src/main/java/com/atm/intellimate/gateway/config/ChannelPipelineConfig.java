@@ -75,7 +75,6 @@ public class ChannelPipelineConfig {
                             err -> { /* logged in doOnError */ }
                     );
         });
-        log.info("Channel inbound pipeline wired");
     }
 
     /**
@@ -105,7 +104,6 @@ public class ChannelPipelineConfig {
                                 envelope.timestamp(),
                                 envelope.rawPayload()
                         );
-                        log.debug("Unified session: {} {} -> userId={}", channelId, envelope.senderId(), userId);
                     } else {
                         effectiveEnvelope = envelope;
                     }

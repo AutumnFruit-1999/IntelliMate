@@ -47,8 +47,6 @@ public class WeChatOfficialAdapter extends AbstractWeChatAdapter {
                             this.accessToken = node.get("access_token").asText();
                             int expires = node.path("expires_in").asInt(7200);
                             this.tokenExpiresAt = System.currentTimeMillis() + expires * 1000L;
-                            log.info("[{}] access_token refreshed, expires in {}s",
-                                    getChannelId(), expires);
                             return this.accessToken;
                         }
                         throw new RuntimeException("WeChat token error: " + resp);
@@ -78,7 +76,6 @@ public class WeChatOfficialAdapter extends AbstractWeChatAdapter {
                             .bodyValue(body)
                             .retrieve()
                             .bodyToMono(String.class)
-                            .doOnNext(resp -> log.debug("[{}] send response: {}", getChannelId(), resp))
                             .then();
                 });
     }

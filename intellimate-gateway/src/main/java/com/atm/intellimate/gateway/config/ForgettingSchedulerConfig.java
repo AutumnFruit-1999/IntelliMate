@@ -89,7 +89,6 @@ public class ForgettingSchedulerConfig {
                                                    java.util.concurrent.atomic.AtomicInteger totalForgotten,
                                                    java.util.concurrent.atomic.AtomicInteger totalArchived) {
             if (!cfg.longTermEnabled()) {
-                log.debug("Long-term memory disabled; skipping nightly forgetting and archive");
                 return Mono.empty();
             }
             return agentMemoryRepository.findDistinctUserAgentPairs()

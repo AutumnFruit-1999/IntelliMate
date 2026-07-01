@@ -95,7 +95,6 @@ public abstract class AbstractWeChatAdapter extends AbstractChannelAdapter {
         String msgType = fields.getOrDefault("MsgType", "text");
 
         if (!"text".equals(msgType)) {
-            log.info("[{}] unsupported message type: {}", getChannelId(), msgType);
             return null;
         }
 

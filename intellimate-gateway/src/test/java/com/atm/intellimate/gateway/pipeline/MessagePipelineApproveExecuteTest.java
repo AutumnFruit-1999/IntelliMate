@@ -10,11 +10,10 @@ import com.atm.intellimate.core.protocol.ResponseFrame;
 import com.atm.intellimate.gateway.audit.AuditService;
 import com.atm.intellimate.gateway.config.AgentConfigService;
 import com.atm.intellimate.gateway.config.ResolvedAgentConfig;
-import com.atm.intellimate.gateway.entity.PlanEntity;
 import com.atm.intellimate.gateway.entity.SessionEntity;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
 import com.atm.intellimate.gateway.repository.SessionRepository;
-import com.atm.intellimate.gateway.service.PlanService;
+import com.atm.intellimate.gateway.service.InlinePlanService;
 import com.atm.intellimate.gateway.session.SessionManager;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +44,7 @@ class MessagePipelineApproveExecuteTest {
     @Mock private AgentConfigService agentConfigService;
     @Mock private CommandHandler commandHandler;
     @Mock private AuditService auditService;
-    @Mock private PlanService planService;
+    @Mock private InlinePlanService inlinePlanService;
     @Mock private SessionRegistry sessionRegistry;
     @Mock private SessionRepository sessionRepository;
     @Mock private com.atm.intellimate.gateway.channel.ChannelIdentityService channelIdentityService;
@@ -54,30 +53,26 @@ class MessagePipelineApproveExecuteTest {
     private MessagePipeline pipeline;
     private MessageConverter messageConverter;
     private AgentEventMapper agentEventMapper;
-    private PlanExecutionOrchestrator planExecutionOrchestrator;
 
     @BeforeEach
     void setUp() {
         messageConverter = new MessageConverter(sessionManager, properties);
-        planExecutionOrchestrator = new PlanExecutionOrchestrator(planService, null, null, properties, null);
-        agentEventMapper = new AgentEventMapper(agentConfigService, agentRuntime, properties, planExecutionOrchestrator);
-        PlanRequestHandler planRequestHandler = new PlanRequestHandler(planService, agentRuntime, sessionRepository);
+        agentEventMapper = new AgentEventMapper(agentConfigService, agentRuntime, properties);
         pipeline = new MessagePipeline(
                 sessionManager, messageConverter, agentEventMapper, agentRuntime, properties,
-                agentConfigService, commandHandler, auditService, planRequestHandler,
-                planService, planExecutionOrchestrator, sessionRegistry, sessionRepository,
-                channelIdentityService, crossChannelSyncService);
+                agentConfigService, commandHandler, auditService, inlinePlanService,
+                sessionRegistry, sessionRepository, channelIdentityService, crossChannelSyncService);
     }
 
-    private PlanEntity makePlan(Long id, Long sessionId, String status) {
-        PlanEntity p = new PlanEntity();
-        p.setId(id);
-        p.setSessionId(sessionId);
-        p.setStatus(status);
-        p.setTitle("Test Plan");
-        p.setCreatedAt(LocalDateTime.now());
-        p.setUpdatedAt(LocalDateTime.now());
-        return p;
+    private TranscriptMessageEntity makePlanMessage(Long id, Long sessionId, String status) {
+        TranscriptMessageEntity msg = new TranscriptMessageEntity();
+        msg.setId(id);
+        msg.setSessionId(sessionId);
+        msg.setRole("assistant");
+        msg.setContent("Test Plan");
+        msg.setMetadataJson("{\"type\":\"plan\",\"plan\":{\"status\":\"" + status + "\",\"steps\":[]}}");
+        msg.setCreatedAt(LocalDateTime.now());
+        return msg;
     }
 
     private SessionEntity makeSession(Long id) {
@@ -91,29 +86,30 @@ class MessagePipelineApproveExecuteTest {
     }
 
     @Test
-    void approveAndExecute_emitsStatusChangedAndTriggersAgent() {
-        Long planId = 100L;
+    void planApprove_approved_triggersAgentExecution() {
+        Long messageId = 100L;
         Long sessionId = 200L;
 
-        PlanEntity approved = makePlan(planId, sessionId, "approved");
-        PlanEntity executing = makePlan(planId, sessionId, "executing");
+        TranscriptMessageEntity planMsg = makePlanMessage(messageId, sessionId, "approved");
         SessionEntity session = makeSession(sessionId);
 
-        when(planService.approvePlan(planId, true, null)).thenReturn(Mono.just(approved));
-        when(planService.resumePlan(planId)).thenReturn(Mono.just(executing));
+        when(inlinePlanService.updatePlanStatus(messageId, "approved")).thenReturn(Mono.empty());
+        when(inlinePlanService.getPlanMessage(messageId)).thenReturn(Mono.just(planMsg));
         when(sessionRepository.findById(sessionId)).thenReturn(Mono.just(session));
 
-        when(planService.getActivePlan(sessionId)).thenReturn(Mono.just(executing));
+        when(inlinePlanService.getActivePlan(sessionId)).thenReturn(Mono.just(planMsg));
         when(sessionManager.appendMessage(eq(sessionId), any(TranscriptMessageEntity.class)))
                 .thenReturn(Mono.empty());
         when(auditService.log(anyString(), anyString(), anyLong(), anyString()))
+                .thenReturn(Mono.empty());
+        when(crossChannelSyncService.syncToExternalChannels(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(Mono.empty());
 
         IntelliMateProperties.Agent agentProps = mock(IntelliMateProperties.Agent.class);
         when(agentProps.getHistoryLimit()).thenReturn(20);
         when(properties.getAgent()).thenReturn(agentProps);
 
-        when(sessionManager.getPlanHistory(eq(sessionId), eq(planId), anyInt()))
+        when(sessionManager.getHistory(eq(sessionId), anyInt()))
                 .thenReturn(Flux.empty());
 
         IntelliMateProperties.Agent agentConfig = mock(IntelliMateProperties.Agent.class);
@@ -122,16 +118,13 @@ class MessagePipelineApproveExecuteTest {
                 agentConfig, null, null, null, null);
         when(agentConfigService.resolve("test-agent")).thenReturn(Mono.just(resolved));
 
-        when(planService.getSteps(planId)).thenReturn(Flux.empty());
+        when(inlinePlanService.buildPlanContext(messageId)).thenReturn(Mono.just("## 当前计划"));
 
         when(agentRuntime.dispatch(any())).thenReturn(Flux.just(
                 new AgentEvent.Done("Plan execution started", 1)));
 
-        when(planService.getActivePlan(sessionId)).thenReturn(Mono.just(executing));
-        when(planService.getPlanById(planId)).thenReturn(Mono.just(executing));
-
-        RequestFrame request = new RequestFrame("req-1", "plan.approve_and_execute",
-                Map.of("planId", planId));
+        RequestFrame request = new RequestFrame("req-1", "plan.approve",
+                Map.of("messageId", messageId, "approved", true));
 
         Flux<GatewayFrame> result = pipeline.processRequest(request, "ws-session-1");
 
@@ -142,79 +135,93 @@ class MessagePipelineApproveExecuteTest {
                     assertThat(evt.event()).isEqualTo("plan.status_changed");
                     @SuppressWarnings("unchecked")
                     Map<String, Object> payload = (Map<String, Object>) evt.payload();
-                    assertThat(payload.get("planId")).isEqualTo(planId);
-                    assertThat(payload.get("status")).isEqualTo("executing");
+                    assertThat(payload.get("messageId")).isEqualTo(messageId);
+                    assertThat(payload.get("status")).isEqualTo("approved");
                 })
                 .thenConsumeWhile(frame -> true)
                 .verifyComplete();
 
-        verify(planService).approvePlan(planId, true, null);
-        verify(planService).resumePlan(planId);
+        verify(inlinePlanService).updatePlanStatus(messageId, "approved");
+        verify(inlinePlanService).getPlanMessage(messageId);
         verify(sessionRepository).findById(sessionId);
     }
 
     @Test
-    void approveAndExecute_approveFails_returnsErrorWithCurrentStatus() {
-        Long planId = 100L;
+    void planApprove_rejected_cancelsPlan() {
+        Long messageId = 100L;
 
-        PlanEntity draftPlan = makePlan(planId, 200L, "draft");
+        when(inlinePlanService.updatePlanStatus(messageId, "cancelled")).thenReturn(Mono.empty());
 
-        when(planService.approvePlan(planId, true, null))
-                .thenReturn(Mono.error(new IllegalStateException("Plan is not in draft status")));
-        when(planService.getPlanById(planId)).thenReturn(Mono.just(draftPlan));
-
-        RequestFrame request = new RequestFrame("req-2", "plan.approve_and_execute",
-                Map.of("planId", planId));
+        RequestFrame request = new RequestFrame("req-2", "plan.approve",
+                Map.of("messageId", messageId, "approved", false));
 
         Flux<GatewayFrame> result = pipeline.processRequest(request, "ws-session-2");
 
         StepVerifier.create(result)
                 .assertNext(frame -> {
-                    assertThat(frame).isInstanceOf(ResponseFrame.class);
-                    ResponseFrame resp = (ResponseFrame) frame;
-                    assertThat(resp.ok()).isFalse();
-                    assertThat(resp.error().toString()).contains("Plan is not in draft status");
+                    assertThat(frame).isInstanceOf(EventFrame.class);
+                    EventFrame evt = (EventFrame) frame;
+                    assertThat(evt.event()).isEqualTo("plan.status_changed");
                     @SuppressWarnings("unchecked")
-                    Map<String, Object> payload = (Map<String, Object>) resp.payload();
-                    assertThat(payload).isNotNull();
-                    assertThat(payload.get("currentStatus")).isEqualTo("draft");
+                    Map<String, Object> payload = (Map<String, Object>) evt.payload();
+                    assertThat(payload.get("messageId")).isEqualTo(messageId);
+                    assertThat(payload.get("status")).isEqualTo("cancelled");
                 })
+                .assertNext(frame -> assertThat(frame).isInstanceOf(ResponseFrame.class))
                 .verifyComplete();
 
-        verify(planService).approvePlan(planId, true, null);
-        verify(planService, never()).resumePlan(anyLong());
+        verify(inlinePlanService).updatePlanStatus(messageId, "cancelled");
+        verify(inlinePlanService, never()).getPlanMessage(anyLong());
     }
 
     @Test
-    void approveAndExecute_approveSucceeds_resumeFails_returnsApprovedStatus() {
-        Long planId = 100L;
+    void planResume_triggersAgentExecution() {
+        Long messageId = 100L;
         Long sessionId = 200L;
 
-        PlanEntity approved = makePlan(planId, sessionId, "approved");
+        TranscriptMessageEntity planMsg = makePlanMessage(messageId, sessionId, "executing");
+        SessionEntity session = makeSession(sessionId);
 
-        when(planService.approvePlan(planId, true, null)).thenReturn(Mono.just(approved));
-        when(planService.resumePlan(planId))
-                .thenReturn(Mono.error(new RuntimeException("Resume failed")));
-        when(planService.getPlanById(planId)).thenReturn(Mono.just(approved));
+        when(inlinePlanService.updatePlanStatus(messageId, "executing")).thenReturn(Mono.empty());
+        when(inlinePlanService.getPlanMessage(messageId)).thenReturn(Mono.just(planMsg));
+        when(sessionRepository.findById(sessionId)).thenReturn(Mono.just(session));
 
-        RequestFrame request = new RequestFrame("req-3", "plan.approve_and_execute",
-                Map.of("planId", planId));
+        when(inlinePlanService.getActivePlan(sessionId)).thenReturn(Mono.just(planMsg));
+        when(sessionManager.appendMessage(eq(sessionId), any(TranscriptMessageEntity.class)))
+                .thenReturn(Mono.empty());
+        when(auditService.log(anyString(), anyString(), anyLong(), anyString()))
+                .thenReturn(Mono.empty());
+        when(crossChannelSyncService.syncToExternalChannels(anyString(), anyString(), anyString(), anyString(), any()))
+                .thenReturn(Mono.empty());
+
+        IntelliMateProperties.Agent agentProps = mock(IntelliMateProperties.Agent.class);
+        when(agentProps.getHistoryLimit()).thenReturn(20);
+        when(properties.getAgent()).thenReturn(agentProps);
+        when(sessionManager.getHistory(eq(sessionId), anyInt())).thenReturn(Flux.empty());
+
+        IntelliMateProperties.Agent agentConfig = mock(IntelliMateProperties.Agent.class);
+        ResolvedAgentConfig resolved = new ResolvedAgentConfig(agentConfig, null, null, null, null);
+        when(agentConfigService.resolve("test-agent")).thenReturn(Mono.just(resolved));
+        when(inlinePlanService.buildPlanContext(messageId)).thenReturn(Mono.just("## 当前计划"));
+        when(agentRuntime.dispatch(any())).thenReturn(Flux.just(new AgentEvent.Done("done", 1)));
+
+        RequestFrame request = new RequestFrame("req-3", "plan.resume",
+                Map.of("messageId", messageId));
 
         Flux<GatewayFrame> result = pipeline.processRequest(request, "ws-session-3");
 
         StepVerifier.create(result)
                 .assertNext(frame -> {
-                    assertThat(frame).isInstanceOf(ResponseFrame.class);
-                    ResponseFrame resp = (ResponseFrame) frame;
-                    assertThat(resp.ok()).isFalse();
+                    assertThat(frame).isInstanceOf(EventFrame.class);
+                    EventFrame evt = (EventFrame) frame;
+                    assertThat(evt.event()).isEqualTo("plan.status_changed");
                     @SuppressWarnings("unchecked")
-                    Map<String, Object> payload = (Map<String, Object>) resp.payload();
-                    assertThat(payload).isNotNull();
-                    assertThat(payload.get("currentStatus")).isEqualTo("approved");
+                    Map<String, Object> payload = (Map<String, Object>) evt.payload();
+                    assertThat(payload.get("status")).isEqualTo("executing");
                 })
+                .thenConsumeWhile(frame -> true)
                 .verifyComplete();
 
-        verify(planService).approvePlan(planId, true, null);
-        verify(planService).resumePlan(planId);
+        verify(inlinePlanService).updatePlanStatus(messageId, "executing");
     }
 }

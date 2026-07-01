@@ -17,11 +17,8 @@ public interface TranscriptMessageRepository extends ReactiveCrudRepository<Tran
     @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND id < :beforeId ORDER BY created_at DESC LIMIT :limit")
     Flux<TranscriptMessageEntity> findRecentBySessionIdBeforeId(Long sessionId, Long beforeId, int limit);
 
-    @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND plan_id = :planId ORDER BY created_at DESC LIMIT :limit")
-    Flux<TranscriptMessageEntity> findRecentBySessionIdAndPlanId(Long sessionId, Long planId, int limit);
-
-    @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND plan_id IS NULL ORDER BY created_at DESC LIMIT :limit")
-    Flux<TranscriptMessageEntity> findRecentBySessionIdNoPlan(Long sessionId, int limit);
+    @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND JSON_EXTRACT(metadata_json, '$.type') = 'plan' AND JSON_EXTRACT(metadata_json, '$.plan.status') IN ('draft', 'approved', 'executing', 'paused') ORDER BY created_at DESC LIMIT 1")
+    Mono<TranscriptMessageEntity> findActivePlanBySessionId(Long sessionId);
 
     Mono<Void> deleteBySessionId(Long sessionId);
 
@@ -31,8 +28,8 @@ public interface TranscriptMessageRepository extends ReactiveCrudRepository<Tran
            "AND created_at < :before")
     Mono<Long> deleteExpiredProactiveMessages(LocalDateTime before);
 
-    @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND plan_id IS NULL AND created_at > :after ORDER BY created_at ASC LIMIT :limit")
-    Flux<TranscriptMessageEntity> findRecentBySessionIdNoPlanAfter(Long sessionId, LocalDateTime after, int limit);
+    @Query("SELECT * FROM transcript_message WHERE session_id = :sessionId AND created_at > :after ORDER BY created_at ASC LIMIT :limit")
+    Flux<TranscriptMessageEntity> findRecentBySessionIdAfter(Long sessionId, LocalDateTime after, int limit);
 
     @Query("SELECT tm.* FROM transcript_message tm " +
            "INNER JOIN session s ON tm.session_id = s.id " +

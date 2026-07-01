@@ -30,7 +30,6 @@ public class SkillUsageRecorderImpl implements SkillUsageRecorder {
         entity.setActivationType(activationType);
 
         repository.save(entity)
-                .doOnNext(saved -> log.debug("Recorded skill activation: {} by {} ({})", skillName, agentName, activationType))
                 .doOnError(e -> log.warn("Failed to record skill activation: {}", e.getMessage()))
                 .subscribe();
     }

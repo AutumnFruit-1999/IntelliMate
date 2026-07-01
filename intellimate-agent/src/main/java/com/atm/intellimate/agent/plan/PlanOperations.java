@@ -1,32 +1,19 @@
 package com.atm.intellimate.agent.plan;
 
+import reactor.core.publisher.Mono;
 import java.util.List;
 
-/**
- * SPI for Plan state management.
- * Defined in intellimate-agent, implemented in intellimate-gateway.
- */
 public interface PlanOperations {
 
-    record StepInput(String title, String description) {}
+    record StepInput(String title, String description, String verification) {}
 
-    record PlanResult(Long planId, String status, String message) {}
+    record PlanResult(long messageId, String status, String message) {}
 
-    record StepResult(Long planId, int stepIndex, String status, String message) {}
+    Mono<PlanResult> createPlan(long sessionId, String title, List<StepInput> steps);
 
-    record StepSnapshot(int index, String title, String description, String status) {}
+    Mono<PlanResult> updateStep(long messageId, int stepIndex, String status, String resultSummary);
 
-    PlanResult createPlan(Long sessionId, String title, List<StepInput> steps);
+    Mono<PlanResult> completePlan(long messageId, String summary);
 
-    StepResult markStep(Long planId, int stepIndex, String status, String summary);
-
-    StepResult addStep(Long planId, int afterIndex, String title, String description);
-
-    StepResult removeStep(Long planId, int stepIndex, String reason);
-
-    PlanResult completePlan(Long planId, String summary);
-
-    List<StepSnapshot> getSteps(Long planId);
-
-    boolean isPausedOrCancelled(Long planId);
+    Mono<Boolean> isPausedOrCancelled(long messageId);
 }

@@ -32,16 +32,12 @@ spring:
       chat:
         options:
           model: ${INTELLIMATE_AGENT_MODEL:qwen-plus}
-      embedding:
-        options:
-          model: ${EMBEDDING_MODEL:text-embedding-v3}
-          dimensions: ${EMBEDDING_DIMENSIONS:1024}
     vectorstore:
       qdrant:
         host: ${QDRANT_HOST:localhost}
         port: ${QDRANT_GRPC_PORT:6334}
         collection-name: intellimate_memories
-        initialize-schema: true
+        initialize-schema: false
     mcp:
       client:
         enabled: false
@@ -76,8 +72,6 @@ intellimate:
     condenser-summary-length: 200
     condenser-min-turns-between: 5
     plan-max-steps: 20
-    plan-step-timeout-seconds: 120
-    plan-approval-timeout-seconds: 600
   skills:
     dir: ${INTELLIMATE_SKILLS_DIR:../skills/}
   proactive:

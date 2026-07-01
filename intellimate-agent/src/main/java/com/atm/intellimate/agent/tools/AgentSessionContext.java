@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * ThreadLocal-based holder for the current agent session ID.
- * Set by AgentRuntime before executing the loop, used by tools (e.g. WritePlanTool)
+ * Set by AgentRuntime before executing the loop, used by tools (e.g. PlanTool)
  * that need to know which session they are operating in.
  */
 @Component

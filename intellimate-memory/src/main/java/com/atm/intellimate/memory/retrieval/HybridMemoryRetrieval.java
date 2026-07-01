@@ -5,6 +5,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 
 public class HybridMemoryRetrieval {
@@ -31,6 +33,9 @@ public class HybridMemoryRetrieval {
             String cue, String userId, String agentId,
             int maxInjectionTokens, double lambda, Strategy strategy) {
 
+        log.info("[记忆检索-详情] 查询='{}', 策略={}, 向量启用={}",
+                cue, strategy, strategy != Strategy.KEYWORD_ONLY);
+
         if (vectorStore == null || strategy == Strategy.KEYWORD_ONLY) {
             return keywordRetrieval.retrieve(cue, userId, agentId, maxInjectionTokens, lambda);
         }
@@ -39,7 +44,6 @@ public class HybridMemoryRetrieval {
                 .onErrorReturn(false)
                 .flatMap(available -> {
                     if (!available) {
-                        log.info("Vector store unavailable, falling back to keyword retrieval");
                         return keywordRetrieval.retrieve(cue, userId, agentId, maxInjectionTokens, lambda);
                     }
                     if (strategy == Strategy.VECTOR_ONLY) {
@@ -56,8 +60,10 @@ public class HybridMemoryRetrieval {
                     List<MemoryChunk> chunks = new ArrayList<>();
                     int tokenCount = 0;
                     for (VectorSearchResult r : results) {
-                        int estimatedTokens = r.content().length() / 3; // rough estimate
-                        if (tokenCount + estimatedTokens > maxInjectionTokens) break;
+                        int estimatedTokens = r.content().length() / 3;
+                        if (tokenCount + estimatedTokens > maxInjectionTokens) {
+                            break;
+                        }
                         tokenCount += estimatedTokens;
                         chunks.add(r.toRecalledChunk(estimatedTokens));
                     }
@@ -82,20 +88,22 @@ public class HybridMemoryRetrieval {
     private List<MemoryChunk> mergeAndRank(List<VectorSearchResult> vectorResults,
                                             List<MemoryChunk> keywordResults,
                                             int maxTokens) {
-        // Use a map keyed by content hash to deduplicate
         Map<String, MergedCandidate> candidates = new LinkedHashMap<>();
 
-        // Add vector results
         for (VectorSearchResult vr : vectorResults) {
-            String key = vr.mysqlId() != null ? "id:" + vr.mysqlId() : "content:" + vr.content().hashCode();
+            String key = vr.mysqlId() != null
+                    ? String.valueOf(vr.mysqlId())
+                    : "vec:" + vr.content().hashCode();
+            double importanceBoost = Math.max(0.3, vr.importance());
+            double recencyBoost = computeRecencyBoost(vr.createdAt());
+            double weightedVectorScore = vr.similarity() * vectorWeight * importanceBoost * recencyBoost;
             candidates.put(key, new MergedCandidate(
                     vr.toRecalledChunk(vr.content().length() / 3),
-                    vr.similarity() * vectorWeight,
+                    weightedVectorScore,
                     0.0
             ));
         }
 
-        // Merge keyword results
         double maxKeywordScore = keywordResults.stream()
                 .mapToDouble(MemoryChunk::importance)
                 .max().orElse(1.0);
@@ -103,12 +111,12 @@ public class HybridMemoryRetrieval {
 
         for (int i = 0; i < keywordResults.size(); i++) {
             MemoryChunk kw = keywordResults.get(i);
-            // Normalize keyword rank score
             double normalizedKeywordScore = 1.0 - ((double) i / keywordResults.size());
-            String key = "keyword:" + kw.content().hashCode();
+            String key = kw.sourceId() != null
+                    ? String.valueOf(kw.sourceId())
+                    : "kw:" + kw.content().hashCode();
             MergedCandidate existing = candidates.get(key);
             if (existing != null) {
-                // Already from vector, boost with keyword score
                 candidates.put(key, new MergedCandidate(
                         existing.chunk,
                         existing.vectorScore,
@@ -120,12 +128,10 @@ public class HybridMemoryRetrieval {
             }
         }
 
-        // Sort by combined score
         List<MergedCandidate> sorted = candidates.values().stream()
-                .sorted(Comparator.comparingDouble(MergedCandidate::totalScore).reversed())
+                .sorted(Comparator.comparingDouble(MergedCandidate::finalScore).reversed())
                 .toList();
 
-        // Token budget truncation
         List<MemoryChunk> result = new ArrayList<>();
         int tokenCount = 0;
         for (MergedCandidate mc : sorted) {
@@ -134,10 +140,27 @@ public class HybridMemoryRetrieval {
             tokenCount += tokens;
             result.add(mc.chunk);
         }
+
         return result;
+    }
+
+    private double computeRecencyBoost(Instant createdAt) {
+        if (createdAt == null) {
+            return 1.0;
+        }
+        long daysSinceCreation = Duration.between(createdAt, Instant.now()).toDays();
+        return Math.exp(-0.05 * daysSinceCreation);
     }
 
     private record MergedCandidate(MemoryChunk chunk, double vectorScore, double keywordScore) {
         double totalScore() { return vectorScore + keywordScore; }
+
+        double finalScore() {
+            double score = totalScore();
+            if ("consolidated".equals(chunk.metadata().get("memory_level"))) {
+                score += 0.1;
+            }
+            return score;
+        }
     }
 }

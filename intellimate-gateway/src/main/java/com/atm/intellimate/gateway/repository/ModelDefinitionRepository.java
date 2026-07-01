@@ -15,5 +15,7 @@ public interface ModelDefinitionRepository extends ReactiveCrudRepository<ModelD
 
     Mono<ModelDefinitionEntity> findByProviderIdAndModelId(Long providerId, String modelId);
 
+    Flux<ModelDefinitionEntity> findByCategoryAndEnabledOrderBySortOrder(String category, Integer enabled);
+
     Mono<Void> deleteByProviderId(Long providerId);
 }

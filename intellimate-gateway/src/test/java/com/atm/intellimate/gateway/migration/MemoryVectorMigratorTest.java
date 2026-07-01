@@ -46,7 +46,8 @@ class MemoryVectorMigratorTest {
     void migrate_skipsWhenVectorStoreUnavailable() {
         when(vectorStore.isAvailable()).thenReturn(Mono.just(false));
 
-        StepVerifier.create(migrator.migrate())
+        StepVerifier.withVirtualTime(() -> migrator.migrate())
+                .thenAwait(java.time.Duration.ofMinutes(1))
                 .assertNext(stats -> {
                     assertThat(stats.migrated()).isZero();
                     assertThat(stats.skipped()).isZero();

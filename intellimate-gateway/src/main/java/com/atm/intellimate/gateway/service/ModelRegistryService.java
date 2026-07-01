@@ -1,15 +1,21 @@
 package com.atm.intellimate.gateway.service;
 
 import com.atm.intellimate.agent.model.ChatModelRegistry;
+import com.atm.intellimate.agent.model.DelegatingEmbeddingModel;
+import com.atm.intellimate.agent.model.EmbeddingModelFactory;
 import com.atm.intellimate.agent.model.ModelConfig;
 import com.atm.intellimate.agent.model.ProviderConfig;
 import com.atm.intellimate.agent.model.ProviderType;
+import com.atm.intellimate.gateway.entity.MemoryConfigEntity;
 import com.atm.intellimate.gateway.entity.ModelDefinitionEntity;
 import com.atm.intellimate.gateway.entity.ModelProviderEntity;
+import com.atm.intellimate.gateway.repository.MemoryConfigRepository;
 import com.atm.intellimate.gateway.repository.ModelDefinitionRepository;
 import com.atm.intellimate.gateway.repository.ModelProviderRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -17,6 +23,9 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class ModelRegistryService {
@@ -26,30 +35,40 @@ public class ModelRegistryService {
 
     private final ModelProviderRepository providerRepo;
     private final ModelDefinitionRepository definitionRepo;
+    private final MemoryConfigRepository memoryConfigRepo;
     private final CryptoService cryptoService;
     private final ChatModelRegistry registry;
+    private final EmbeddingModelFactory embeddingModelFactory;
+    private final DelegatingEmbeddingModel delegatingEmbeddingModel;
+
+    private volatile List<ProviderConfig> cachedProviderConfigs = List.of();
 
     @Value("${spring.ai.dashscope.api-key:}")
     private String dashScopeApiKeyFromYml;
 
     public ModelRegistryService(ModelProviderRepository providerRepo,
                                 ModelDefinitionRepository definitionRepo,
+                                MemoryConfigRepository memoryConfigRepo,
                                 CryptoService cryptoService,
-                                ChatModelRegistry registry) {
+                                ChatModelRegistry registry,
+                                EmbeddingModelFactory embeddingModelFactory,
+                                @Autowired(required = false) DelegatingEmbeddingModel delegatingEmbeddingModel) {
         this.providerRepo = providerRepo;
         this.definitionRepo = definitionRepo;
+        this.memoryConfigRepo = memoryConfigRepo;
         this.cryptoService = cryptoService;
         this.registry = registry;
+        this.embeddingModelFactory = embeddingModelFactory;
+        this.delegatingEmbeddingModel = delegatingEmbeddingModel;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
-        log.info("ModelRegistryService starting up...");
         migrateApiKeyIfNeeded()
                 .then(loadAll())
+                .then(initEmbeddingModel())
                 .subscribe(
-                        unused -> log.info("ModelRegistryService initialized: {} providers, {} definitions",
-                                registry.providerCount(), registry.definitionCount()),
+                        unused -> {},
                         err -> log.error("ModelRegistryService initialization failed", err)
                 );
     }
@@ -64,7 +83,6 @@ public class ModelRegistryService {
         return providerRepo.findByName("阿里 DashScope")
                 .flatMap(provider -> {
                     if (PLACEHOLDER.equals(provider.getApiKeyEncrypted())) {
-                        log.info("Migrating DashScope API Key from application.yml to DB");
                         provider.setApiKeyEncrypted(cryptoService.encrypt(dashScopeApiKeyFromYml));
                         return providerRepo.save(provider).then();
                     }
@@ -88,11 +106,14 @@ public class ModelRegistryService {
                             .map(this::toProviderConfig)
                             .toList();
 
-                    List<ModelConfig> modelConfigs = definitions.stream()
+                    List<ModelConfig> chatConfigs = definitions.stream()
+                            .filter(d -> !"EMBEDDING".equals(d.getCategory()))
                             .map(this::toModelConfig)
                             .toList();
 
-                    registry.refreshAll(providerConfigs, modelConfigs);
+                    registry.refreshAll(providerConfigs, chatConfigs);
+
+                    this.cachedProviderConfigs = providerConfigs;
                 })
                 .then();
     }
@@ -101,9 +122,45 @@ public class ModelRegistryService {
      * Reload the entire registry — called after CRUD operations.
      */
     public Mono<Void> reload() {
-        return loadAll()
-                .doOnSuccess(v -> log.info("Registry reloaded: {} providers, {} definitions",
-                        registry.providerCount(), registry.definitionCount()));
+        return loadAll();
+    }
+
+    private Mono<Void> initEmbeddingModel() {
+        if (delegatingEmbeddingModel == null) {
+            return Mono.empty();
+        }
+        return memoryConfigRepo.findByAgentNameAndConfigKey("_global_", "embedding.definition_id")
+                .flatMap(config -> {
+                    String val = config.getConfigValue();
+                    if (val == null || val.isBlank()) {
+                        return Mono.empty();
+                    }
+                    try {
+                        return refreshEmbeddingModel(Long.parseLong(val));
+                    } catch (NumberFormatException e) {
+                        log.warn("Invalid embedding.definition_id '{}', ignoring", val);
+                        return Mono.empty();
+                    }
+                })
+                .onErrorResume(e -> {
+                    log.warn("Embedding model init failed (non-fatal, will use keyword retrieval): {}", e.getMessage());
+                    return Mono.empty();
+                });
+    }
+
+    public Mono<Void> refreshEmbeddingModel(Long definitionId) {
+        return definitionRepo.findById(definitionId)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("Embedding definition not found: " + definitionId)))
+                .flatMap(def -> providerRepo.findById(def.getProviderId())
+                        .switchIfEmpty(Mono.error(new IllegalStateException("Provider not found for definition: " + definitionId)))
+                        .map(provider -> {
+                            ProviderConfig pc = toProviderConfig(provider);
+                            int dims = def.getDimensions() != null ? def.getDimensions() : 1024;
+                            EmbeddingModel model = embeddingModelFactory.create(pc, def.getModelId(), dims);
+                            delegatingEmbeddingModel.setDelegate(model);
+                            return model;
+                        }))
+                .then();
     }
 
     private ProviderConfig toProviderConfig(ModelProviderEntity entity) {
@@ -123,7 +180,9 @@ public class ModelRegistryService {
                 entity.getId(),
                 entity.getProviderId(),
                 entity.getModelId(),
-                entity.getDisplayName()
+                entity.getDisplayName(),
+                entity.getCategory(),
+                entity.getDimensions()
         );
     }
 }

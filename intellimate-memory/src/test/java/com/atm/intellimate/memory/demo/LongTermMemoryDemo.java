@@ -79,9 +79,9 @@ class LongTermMemoryDemo {
         };
 
         // 1. Store 3 memories
-        ltm.store(new ExtractedFact("episodic", "上次修复了 auth 模块 NPE", 0.7f), "user1", "default").block();
-        ltm.store(new ExtractedFact("semantic", "项目用 Spring Boot 3.4.3", 0.8f), "user1", "default").block();
-        ltm.store(new ExtractedFact("procedural", "bug修复流程: 读日志->定位->修复->测试", 0.6f), "user1", "default").block();
+        ltm.store(ExtractedFact.legacy("episodic", "上次修复了 auth 模块 NPE", 0.7f), "user1", "default").block();
+        ltm.store(ExtractedFact.legacy("semantic", "项目用 Spring Boot 3.4.3", 0.8f), "user1", "default").block();
+        ltm.store(ExtractedFact.legacy("procedural", "bug修复流程: 读日志->定位->修复->测试", 0.6f), "user1", "default").block();
         assertEquals(3, storage.size());
 
         // 2. Retrieve with cue "auth 模块报错"

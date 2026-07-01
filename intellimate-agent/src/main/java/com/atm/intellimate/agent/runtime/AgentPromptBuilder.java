@@ -108,7 +108,7 @@ public class AgentPromptBuilder {
         StringBuilder sb = new StringBuilder();
         sb.append(PromptLoader.load("prompts/plan-system.md"));
         if (forcePlan) {
-            sb.append("\n\n**重要指令：你必须先调用 `writePlan` 创建计划，等待用户审批后再执行。在审批通过之前，不要调用任何其他工具或直接开始执行任务。**");
+            sb.append("\n\n**重要指令：你必须先调用 `plan` 工具创建计划（action=\"create\"），等待用户审批后再执行。在审批通过之前，不要调用任何其他工具或直接开始执行任务。**");
         }
         return sb.toString();
     }

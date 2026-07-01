@@ -84,8 +84,6 @@ public class ForgettingScheduler {
                         for (int i = 0; i < excess && i < survivors.size(); i++) {
                             toDelete.add(survivors.get(i).getId());
                         }
-                        log.info("Trimmed {} excess memories for user={}, agent={} (max={})",
-                                excess, userId, agentId, maxMemoriesPerUser);
                     }
 
                     return Flux.fromIterable(toDelete)
@@ -135,7 +133,7 @@ public class ForgettingScheduler {
                     int totalCompacted = mergedIds.size();
                     Mono<Void> saveSurvivors = Flux.fromIterable(survivorsToSave)
                             .flatMap(survivor -> longTermMemory.store(
-                                    new ExtractedFact(survivor.getMemoryType(), survivor.getContent(), survivor.getImportance()),
+                                    ExtractedFact.legacy(survivor.getMemoryType(), survivor.getContent(), survivor.getImportance()),
                                     userId, agentId)
                                     .onErrorResume(e -> {
                                         log.warn("Failed to save merged survivor {}", survivor.getId(), e);

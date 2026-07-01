@@ -9,7 +9,7 @@ import {
 } from "../lib/protocol";
 import { useChatStore } from "../stores/chatStore";
 import { useAgentStore } from "../stores/agentStore";
-import { usePlanStore } from "../stores/planStore";
+import { usePlanStore, type PlanData, type PlanStepData } from "../stores/planStore";
 import { useMemoryStore } from "../stores/memoryStore";
 import { useSchedulerStore } from "../stores/schedulerStore";
 import { useNotification } from "./useNotification";
@@ -18,8 +18,10 @@ const WS_URL =
   import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}/ws`;
 const REQUEST_TIMEOUT_MS = 300_000;
 const PLAN_ACTION_WAIT_MS = 30_000;
-const PLAN_STALE_CHECK_INTERVAL_MS = 15_000;
-const PLAN_STALE_THRESHOLD_MS = 60_000;
+
+function planPayload<T>(payload: Record<string, unknown>): T {
+  return payload as T;
+}
 
 export function useWebSocket() {
   const { requestPermission, notify } = useNotification();
@@ -55,16 +57,6 @@ export function useWebSocket() {
         switch (event.event) {
           case "session.welcome": {
             store.setWsSessionId(event.payload.wsSessionId as string);
-            const planState = usePlanStore.getState();
-            if (
-              planState.plan &&
-              !["completed", "cancelled", "failed"].includes(planState.plan.status)
-            ) {
-              planState.syncFromServer(planState.plan.planId);
-            }
-            if (planState.planHistory.length === 0) {
-              planState.loadHistoryFromServer();
-            }
             // 绑定当前 agent 以接收 proactive 消息
             const agentState = useAgentStore.getState();
             const currentAgentName = agentState.activeAgent;
@@ -99,33 +91,6 @@ export function useWebSocket() {
               event.payload.totalTurns as number | undefined,
             );
             clearRequestTimeout(requestId);
-
-            const planState = usePlanStore.getState();
-            if (planState.plan && planState.plan.status === "executing") {
-              const nonTerminal = planState.plan.steps.filter(
-                (s) => s.status === "pending" || s.status === "in_progress",
-              );
-              for (const step of nonTerminal) {
-                usePlanStore.getState().handleStepDone({
-                  planId: planState.plan.planId,
-                  stepIndex: step.index,
-                  status: "completed",
-                  resultSummary: "",
-                });
-              }
-              const updated = usePlanStore.getState();
-              if (updated.plan && updated.plan.status === "executing") {
-                updated.handlePlanCompleted({
-                  planId: updated.plan.planId,
-                  status: "completed",
-                });
-              }
-            }
-            if (planState.plan &&
-                !["completed", "cancelled", "failed"].includes(planState.plan.status)) {
-              store.snapshotStepGroup();
-              usePlanStore.getState().syncFromServer(planState.plan.planId);
-            }
             requestPermission();
 
             if (document.hidden) {
@@ -195,17 +160,6 @@ export function useWebSocket() {
               arguments: event.payload.arguments as string,
               turn: event.payload.turn as number | undefined,
             });
-            if (tcName !== "writePlan" && tcName !== "updatePlan") {
-              const ps = usePlanStore.getState();
-              if (ps.plan && (ps.plan.status === "executing" || ps.plan.status === "approved")) {
-                ps.addStepToolCall({
-                  toolCallId: event.payload.toolCallId as string,
-                  name: tcName,
-                  description: tcDesc,
-                  arguments: event.payload.arguments as string,
-                });
-              }
-            }
             store.setActivityTool(tcName, tcDesc || null);
             break;
           }
@@ -221,48 +175,81 @@ export function useWebSocket() {
               trResult,
               trSuccess,
             );
-            usePlanStore.getState().updateStepToolResult(trId, trResult, trSuccess);
             store.clearActivityTool();
             break;
           }
           case "plan.created": {
             console.log("[WS] plan.created:", event.payload);
-            usePlanStore.getState().handlePlanCreated(event.payload);
+            const created = planPayload<{
+              messageId: number;
+              title: string;
+              status: string;
+              steps: PlanStepData[];
+            }>(event.payload);
+            usePlanStore.getState().handlePlanCreated(created);
+            useChatStore.getState().addPlanMessage(created);
             break;
           }
-          case "plan.awaiting_approval": {
-            console.log("[WS] plan.awaiting_approval:", event.payload);
-            usePlanStore.getState().setAwaitingApproval(event.payload.planId as number);
+          case "plan.step_updated": {
+            console.log("[WS] plan.step_updated:", event.payload);
+            const stepData = planPayload<{
+              messageId: number;
+              stepIndex: number;
+              status: string;
+              resultSummary?: string;
+            }>(event.payload);
+            usePlanStore.getState().handleStepUpdated(stepData);
+            useChatStore.getState().updateMessageMetadata(stepData.messageId, (metadata) => {
+              const plan = metadata.plan as PlanData | undefined;
+              if (!plan) return metadata;
+              return {
+                ...metadata,
+                plan: {
+                  ...plan,
+                  steps: plan.steps.map((s) =>
+                    s.index === stepData.stepIndex
+                      ? {
+                          ...s,
+                          status: stepData.status,
+                          resultSummary: stepData.resultSummary ?? s.resultSummary,
+                        }
+                      : s,
+                  ),
+                },
+              };
+            });
             break;
           }
           case "plan.status_changed": {
             console.log("[WS] plan.status_changed:", event.payload);
-            usePlanStore.getState().handlePlanStatusChanged(event.payload);
-            const changedStatus = event.payload.status as string;
-            if (changedStatus === "cancelled" || changedStatus === "failed") {
-              useChatStore.getState().snapshotStepGroup();
-            }
-            break;
-          }
-          case "plan.step_start": {
-            console.log("[WS] plan.step_start:", event.payload);
-            usePlanStore.getState().handleStepStart(event.payload);
-            break;
-          }
-          case "plan.step_done": {
-            console.log("[WS] plan.step_done:", event.payload);
-            usePlanStore.getState().handleStepDone(event.payload);
-            break;
-          }
-          case "plan.adjusted": {
-            console.log("[WS] plan.adjusted:", event.payload);
-            usePlanStore.getState().handlePlanAdjusted(event.payload);
+            const statusData = planPayload<{ messageId: number; status: string }>(event.payload);
+            usePlanStore.getState().handleStatusChanged(statusData);
+            useChatStore.getState().updateMessageMetadata(statusData.messageId, (metadata) => {
+              const plan = metadata.plan as PlanData | undefined;
+              if (!plan) return metadata;
+              return {
+                ...metadata,
+                plan: { ...plan, status: statusData.status },
+              };
+            });
             break;
           }
           case "plan.completed": {
             console.log("[WS] plan.completed:", event.payload);
-            usePlanStore.getState().handlePlanCompleted(event.payload);
-            useChatStore.getState().snapshotStepGroup();
+            const completed = planPayload<{ messageId: number; summary?: string }>(event.payload);
+            usePlanStore.getState().handlePlanCompleted(completed);
+            useChatStore.getState().updateMessageMetadata(completed.messageId, (metadata) => {
+              const plan = metadata.plan as PlanData | undefined;
+              if (!plan) return metadata;
+              return {
+                ...metadata,
+                plan: {
+                  ...plan,
+                  status: "completed",
+                  completionSummary: completed.summary ?? plan.completionSummary,
+                },
+              };
+            });
             break;
           }
           // ─── Delegation / Handoff / Parallel events ───
@@ -388,43 +375,13 @@ export function useWebSocket() {
         seq: 0,
       });
       console.log("[WS] agent.bind sent via useEffect for:", activeAgent);
+
+      const chatState = useChatStore.getState();
+      if (!chatState.historyLoaded && !chatState.loadingHistory) {
+        chatState.loadHistoryFromServer(activeAgent);
+      }
     }
   }, [activeAgent]);
-
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    const stopPolling = () => {
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-    };
-
-    const unsub = usePlanStore.subscribe((state) => {
-      const plan = state.plan;
-      const isExecuting = plan && ["executing", "approved"].includes(plan.status);
-
-      if (isExecuting && !pollTimerRef.current) {
-        const planId = plan.planId;
-        pollTimerRef.current = setInterval(() => {
-          const { plan: currentPlan, lastPlanEventTimestamp, syncFromServer } = usePlanStore.getState();
-          if (!currentPlan || !["executing", "approved"].includes(currentPlan.status)) return;
-          const elapsed = Date.now() - lastPlanEventTimestamp;
-          if (elapsed > PLAN_STALE_THRESHOLD_MS) {
-            syncFromServer(planId);
-          }
-        }, PLAN_STALE_CHECK_INTERVAL_MS);
-      } else if (!isExecuting) {
-        stopPolling();
-      }
-    });
-
-    return () => {
-      unsub();
-      stopPolling();
-    };
-  }, []);
 
   function clearRequestTimeout(requestId: string) {
     const timer = timeoutTimers.current.get(requestId);
@@ -530,7 +487,10 @@ export function useWebSocket() {
     const waitingMsg = msgs.find((m) => m.streaming);
     if (!waitingMsg) return;
 
-    const requestId = waitingMsg.id.replace("assistant-", "");
+    const requestId =
+      typeof waitingMsg.id === "string"
+        ? waitingMsg.id.replace("assistant-", "")
+        : String(waitingMsg.id);
     const req = createConversationCancel(requestId);
     client.send(req);
 

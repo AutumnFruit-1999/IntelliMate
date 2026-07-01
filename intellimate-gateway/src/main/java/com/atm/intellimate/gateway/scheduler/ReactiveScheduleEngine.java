@@ -71,7 +71,6 @@ public class ReactiveScheduleEngine implements SmartLifecycle {
     public void start() {
         IntelliMateProperties.Scheduler schedulerProps = properties.getScheduler();
         if (schedulerProps != null && !schedulerProps.isEnabled()) {
-            log.info("Scheduler is disabled via configuration");
             return;
         }
         if (!running.compareAndSet(false, true)) return;
@@ -84,7 +83,6 @@ public class ReactiveScheduleEngine implements SmartLifecycle {
 
         registry.loadAll()
                 .then(registry.initializeNextFireTimes())
-                .doOnSuccess(v -> log.info("ReactiveScheduleEngine started, tick period: {}s, pool: {}", tickPeriod, poolSize))
                 .subscribe();
 
         tickDisposable = Flux.interval(Duration.ofSeconds(tickPeriod))
@@ -110,14 +108,12 @@ public class ReactiveScheduleEngine implements SmartLifecycle {
     @Override
     public void stop() {
         if (!running.compareAndSet(true, false)) return;
-        log.info("Stopping ReactiveScheduleEngine...");
         if (tickDisposable != null) tickDisposable.dispose();
         if (configDisposable != null) configDisposable.dispose();
 
         if (!runningJobs.isEmpty()) {
             IntelliMateProperties.Scheduler schedulerProps = properties.getScheduler();
             int awaitSeconds = schedulerProps != null ? schedulerProps.getShutdownAwaitSeconds() : 30;
-            log.info("Waiting up to {}s for {} running jobs to complete...", awaitSeconds, runningJobs.size());
             long deadline = System.currentTimeMillis() + awaitSeconds * 1000L;
             while (!runningJobs.isEmpty() && System.currentTimeMillis() < deadline) {
                 try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
@@ -171,7 +167,6 @@ public class ReactiveScheduleEngine implements SmartLifecycle {
         }
         if (config.getConcurrentAllowed() == null || config.getConcurrentAllowed() == 0) {
             if (runningJobs.containsKey(config.getJobName())) {
-                log.debug("Skipping job '{}': already running", config.getJobName());
                 return false;
             }
         }
@@ -278,7 +273,6 @@ public class ReactiveScheduleEngine implements SmartLifecycle {
             return Mono.empty();
         }
         Duration delay = retryHandler.getRetryDelay(config, currentRetry);
-        log.info("Scheduling retry #{} for job '{}' after {}", currentRetry + 1, config.getJobName(), delay);
 
         return Mono.delay(delay)
                 .flatMap(tick -> dispatchJob(config, "RETRY", currentRetry + 1))
@@ -286,7 +280,6 @@ public class ReactiveScheduleEngine implements SmartLifecycle {
     }
 
     private void handleConfigChange(ConfigChangeEvent event) {
-        log.info("Config change event: job={}, type={}", event.jobName(), event.type());
         registry.reloadJob(event.jobName()).subscribe();
     }
 

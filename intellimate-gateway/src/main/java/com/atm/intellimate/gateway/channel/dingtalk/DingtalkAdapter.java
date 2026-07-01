@@ -112,7 +112,6 @@ public class DingtalkAdapter extends AbstractChannelAdapter {
                             .bodyValue(body)
                             .retrieve()
                             .bodyToMono(JsonNode.class)
-                            .doOnNext(response -> log.debug("[{}] send response: {}", getChannelId(), response))
                             .then();
                 });
     }
@@ -167,8 +166,6 @@ public class DingtalkAdapter extends AbstractChannelAdapter {
                     accessToken = response.path("accessToken").asText();
                     int expireSeconds = response.path("expireIn").asInt(7200);
                     tokenExpiresAtEpochMs = System.currentTimeMillis() + expireSeconds * 1000L;
-                    log.info("[{}] access_token refreshed, expires in {}s",
-                            getChannelId(), expireSeconds);
                     return Mono.empty();
                 });
     }

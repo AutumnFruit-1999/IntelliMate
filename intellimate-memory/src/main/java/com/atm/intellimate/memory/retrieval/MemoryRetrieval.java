@@ -42,38 +42,18 @@ public class MemoryRetrieval {
 
     /**
      * Retrieve the most relevant memories within the token budget.
+     * Always tries FULLTEXT search first; falls back to full load only when search returns empty.
      */
     public Mono<List<MemoryChunk>> retrieve(String cue, String userId, String agentId,
                                              int maxInjectionTokens, double lambda) {
-        return longTermMemory.countByUserId(userId, agentId)
-                .flatMap(count -> {
-                    if (count > 1000) {
-                        log.info(
-                                "Memory retrieval: userId={} agentId={} memoryCount={} (>1000), using staged retrieval "
-                                        + "(keyword search LIMIT 100, score, top 20, token budget)",
-                                userId, agentId, count);
-                        // Stage 1: keyword DB search (LIMIT 100 per keyword); cap in case cue has no keywords (full scan).
-                        return longTermMemory.search(cue, userId, agentId)
-                                .take(100)
-                                .collectList()
-                                .map(candidates -> {
-                                    List<MemoryEntry> topCandidates = candidates.stream()
-                                            .sorted(Comparator.comparingDouble(m -> -scoringFunction.computeRetrievalScore(
-                                                    m,
-                                                    Math.max(0.1, keywordExtractor.jaccardSimilarity(cue, m.getContent())),
-                                                    lambda)))
-                                            .limit(20)
-                                            .toList();
-                                    return selectAndScore(topCandidates, cue, maxInjectionTokens, lambda);
-                                });
+        return longTermMemory.search(cue, userId, agentId)
+                .collectList()
+                .map(searchResults -> {
+                    log.info("[记忆检索] FULLTEXT 命中 {} 条（SQL 已按相关性排序取 top 10）", searchResults.size());
+                    if (searchResults.isEmpty()) {
+                        return List.<MemoryChunk>of();
                     }
-                    log.debug(
-                            "Memory retrieval: userId={} agentId={} memoryCount={} (<=1000), load all for user/agent "
-                                    + "then score within token budget",
-                            userId, agentId, count);
-                    return longTermMemory.findByUserId(userId, agentId)
-                            .collectList()
-                            .map(candidates -> selectAndScore(candidates, cue, maxInjectionTokens, lambda));
+                    return selectAndScore(searchResults, cue, maxInjectionTokens, lambda);
                 });
     }
 
@@ -81,23 +61,39 @@ public class MemoryRetrieval {
 
     private List<MemoryChunk> selectAndScore(List<MemoryEntry> candidates, String cue,
                                               int maxInjectionTokens, double lambda) {
-        record ScoredMemory(MemoryEntry entry, double score, double relevance) {}
+        log.info("[记忆评分] cue='{}', 候选数={}, 阈值={}, tokenBudget={}",
+                cue, candidates.size(), MIN_RELEVANCE_THRESHOLD, maxInjectionTokens);
 
-        List<ScoredMemory> scored = candidates.stream()
+        List<ScoredMemory> allScored = candidates.stream()
                 .map(m -> {
                     double relevance = keywordExtractor.jaccardSimilarity(cue, m.getContent());
                     double score = scoringFunction.computeRetrievalScore(m, Math.max(0.1, relevance), lambda);
                     return new ScoredMemory(m, score, relevance);
                 })
+                .toList();
+
+        allScored.forEach(sm -> {
+            String preview = sm.entry().getContent();
+            if (preview != null && preview.length() > 40) preview = preview.substring(0, 40) + "...";
+            log.info("[记忆评分]   >> id={}, Jaccard={}, score={}, content='{}'",
+                    sm.entry().getId(), String.format("%.3f", sm.relevance()),
+                    String.format("%.4f", sm.score()), preview);
+        });
+
+        List<ScoredMemory> scored = allScored.stream()
                 .filter(sm -> sm.relevance() >= MIN_RELEVANCE_THRESHOLD)
                 .sorted(Comparator.comparingDouble(ScoredMemory::score).reversed())
                 .toList();
+
+        log.info("[记忆评分] 通过阈值 {} 条 / 候选 {} 条", scored.size(), allScored.size());
 
         List<MemoryChunk> result = new ArrayList<>();
         int tokenCount = 0;
         for (ScoredMemory sm : scored) {
             int chunkTokens = tokenEstimator.estimate(sm.entry().getContent());
-            if (tokenCount + chunkTokens > maxInjectionTokens) break;
+            if (tokenCount + chunkTokens > maxInjectionTokens) {
+                break;
+            }
             tokenCount += chunkTokens;
 
             try {
@@ -109,6 +105,11 @@ public class MemoryRetrieval {
 
             result.add(sm.entry().toRecalledChunk(chunkTokens, sm.relevance()));
         }
+
+        log.info("[记忆评分] 最终注入 {} 条, 消耗 {} tokens", result.size(), tokenCount);
         return result;
     }
+
+
+    private record ScoredMemory(MemoryEntry entry, double score, double relevance) {}
 }

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -32,6 +33,8 @@ public class MemoryVectorMigrator implements ApplicationRunner {
     private static final int MAX_CONCURRENT = 5;
     private static final int EXISTENCE_SEARCH_TOP_K = 10;
     private static final Duration BATCH_DELAY = Duration.ofMillis(100);
+    private static final int AVAILABILITY_MAX_RETRIES = 5;
+    private static final Duration AVAILABILITY_RETRY_DELAY = Duration.ofSeconds(3);
 
     private final VectorMemoryStore vectorStore;
     private final AgentMemoryRepository memoryRepository;
@@ -41,29 +44,25 @@ public class MemoryVectorMigrator implements ApplicationRunner {
         this.memoryRepository = memoryRepository;
     }
 
-    record MigrationStats(int migrated, int skipped, int failed, int total) {}
+    public record MigrationStats(int migrated, int skipped, int failed, int total) {}
 
     @Override
     public void run(ApplicationArguments args) {
         migrate()
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
-                        stats -> log.info(
-                                "Memory vector migration complete: total={}, migrated={}, skipped={}, failed={}",
-                                stats.total(), stats.migrated(), stats.skipped(), stats.failed()),
+                        null,
                         err -> log.error("Memory vector migration failed", err)
                 );
     }
 
-    Mono<MigrationStats> migrate() {
-        return vectorStore.isAvailable()
+    public Mono<MigrationStats> migrate() {
+        return waitForVectorStoreAvailable()
                 .flatMap(available -> {
                     if (!available) {
-                        log.info("Vector store not available, skipping memory vector migration");
                         return Mono.just(new MigrationStats(0, 0, 0, 0));
                     }
 
-                    log.info("Starting memory vector migration from MySQL to Qdrant");
                     AtomicInteger migrated = new AtomicInteger();
                     AtomicInteger skipped = new AtomicInteger();
                     AtomicInteger failed = new AtomicInteger();
@@ -82,6 +81,22 @@ public class MemoryVectorMigrator implements ApplicationRunner {
                                 return new MigrationStats(m, s, f, m + s + f);
                             }));
                 });
+    }
+
+    /**
+     * Waits for vector store to become available with retries.
+     * The DelegatingEmbeddingModel delegate is set asynchronously after DB config loads,
+     * so the vector store may not be ready immediately at startup.
+     */
+    Mono<Boolean> waitForVectorStoreAvailable() {
+        return Mono.defer(() -> vectorStore.isAvailable()
+                        .flatMap(available -> {
+                            if (available) return Mono.just(true);
+                            return Mono.error(new IllegalStateException("Vector store not yet available"));
+                        }))
+                .retryWhen(Retry.fixedDelay(AVAILABILITY_MAX_RETRIES, AVAILABILITY_RETRY_DELAY)
+                        .filter(t -> t instanceof IllegalStateException))
+                .onErrorResume(e -> Mono.just(false));
     }
 
     private Mono<Void> migrateOne(AgentMemoryEntity entity,
@@ -129,21 +144,14 @@ public class MemoryVectorMigrator implements ApplicationRunner {
                 .map(results -> results.stream()
                         .anyMatch(result -> entry.getId().equals(result.mysqlId())))
                 .defaultIfEmpty(false)
-                .onErrorResume(e -> {
-                    log.debug("Existence check failed for id={}: {}", entry.getId(), e.getMessage());
-                    return Mono.just(false);
-                });
+                .onErrorResume(e -> Mono.just(false));
     }
 
     private void recordProgress(AtomicInteger processed,
                                 AtomicInteger migrated,
                                 AtomicInteger skipped,
                                 AtomicInteger failed) {
-        int count = processed.incrementAndGet();
-        if (count % 100 == 0) {
-            log.info("Memory vector migration progress: processed={}, migrated={}, skipped={}, failed={}",
-                    count, migrated.get(), skipped.get(), failed.get());
-        }
+        processed.incrementAndGet();
     }
 
     private MemoryEntry toMemoryEntry(AgentMemoryEntity entity) {

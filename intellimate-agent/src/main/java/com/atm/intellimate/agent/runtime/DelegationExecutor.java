@@ -113,7 +113,7 @@ public class DelegationExecutor {
                                         List.of(),
                                         workerCfg.toolsEnabled(), workerCfg.mcpToolsEnabled(),
                                         workerCfg.skillsEnabled(), workerCfg.skillGroupsEnabled(),
-                                        null, false, null, null, childCtx,
+                                        null, false, null, childCtx,
                                         workerCfg.bridgeNode());
 
                                 StringBuilder workerResult = new StringBuilder();
@@ -220,7 +220,7 @@ public class DelegationExecutor {
                                         sid, null, wa, buildWorkerPrompt(pt.task(), ""),
                                         List.of(), cfg.toolsEnabled(), cfg.mcpToolsEnabled(),
                                         cfg.skillsEnabled(), cfg.skillGroupsEnabled(),
-                                        null, false, null, null, childCtx,
+                                        null, false, null, childCtx,
                                         cfg.bridgeNode());
 
                                 StringBuilder result = new StringBuilder();

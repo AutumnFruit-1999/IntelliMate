@@ -38,7 +38,6 @@ public class CryptoService {
         } else {
             this.keyBytes = deriveKey(key);
             this.enabled = true;
-            log.info("CryptoService initialized with AES-256-GCM");
         }
     }
 
@@ -81,7 +80,6 @@ public class CryptoService {
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(keyBytes, "AES"), new GCMParameterSpec(GCM_TAG_LENGTH, iv));
             return new String(cipher.doFinal(ciphertext), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {
-            log.debug("Not base64 encoded (likely plaintext): {}", e.getMessage());
             return encrypted;
         } catch (Exception e) {
             log.error("Decryption failed for stored value — possible key mismatch or data corruption", e);

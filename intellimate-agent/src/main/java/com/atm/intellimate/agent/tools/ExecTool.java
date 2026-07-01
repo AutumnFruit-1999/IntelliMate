@@ -1,8 +1,6 @@
 package com.atm.intellimate.agent.tools;
 
 import com.atm.intellimate.core.exception.ToolExecutionException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -15,7 +13,6 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ExecTool {
 
-    private static final Logger log = LoggerFactory.getLogger(ExecTool.class);
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
 
     @Tool(description = "在宿主机上执行 Shell 命令并返回完整输出（含退出码）。")
@@ -25,7 +22,6 @@ public class ExecTool {
             @ToolParam(description = "超时秒数（默认 30）", required = false) Integer timeoutSeconds
     ) {
         int timeout = (timeoutSeconds != null && timeoutSeconds > 0) ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
-        log.info("Executing command: {} (timeout={}s)", command, timeout);
 
         try {
             ProcessBuilder pb = new ProcessBuilder("sh", "-c", command);

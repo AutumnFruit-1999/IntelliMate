@@ -72,10 +72,7 @@ public class AgentConfigService {
                             canDelegate, entity.getDelegateAgents(), entity.getGoal(),
                             entity.getBridgeNode()));
                 })
-                .defaultIfEmpty(new ResolvedAgentConfig(properties.getAgent(), null, null, null, null))
-                .doOnNext(cfg -> log.debug("Resolved agent config: name={}, model={}, tools={}, mcpTools={}, skills={}, skillGroups={}, canDelegate={}",
-                        cfg.agent().getName(), cfg.agent().getModel(), cfg.toolsEnabled(), cfg.mcpToolsEnabled(),
-                        cfg.skillsEnabled(), cfg.skillGroupsEnabled(), cfg.canDelegate()));
+                .defaultIfEmpty(new ResolvedAgentConfig(properties.getAgent(), null, null, null, null));
     }
 
     private Mono<String> buildDelegateAgentInfo(String delegateAgentsJson) {

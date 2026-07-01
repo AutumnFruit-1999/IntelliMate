@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { useMemoryStore, type MemorySnapshotData, type ConsolidationLogEntry } from "../stores/memoryStore";
-import { ArrowLeft, Brain, Database, Settings, Trash2, RefreshCw, RotateCcw, HelpCircle } from "lucide-react";
-import type { MemoryConfigItem, LongTermMemoryItem, ArchivedMemoryItem, ModelGroup, AgentSummary } from "../lib/api";
-import { fetchModelGroups, fetchAgents, fetchArchivedMemories, fetchWorkingMemoryByAgent } from "../lib/api";
+import { ArrowLeft, Brain, Database, Settings, Trash2, RefreshCw, HelpCircle } from "lucide-react";
+import type { MemoryConfigItem, LongTermMemoryItem, ArchivedMemoryItem, ModelGroup, AgentSummary, EmbeddingModelGroup } from "../lib/api";
+import { fetchModelGroups, fetchAgents, fetchArchivedMemories, fetchWorkingMemoryByAgent, fetchEmbeddingModels, getActiveEmbeddingModel, activateEmbeddingModel, deactivateEmbeddingModel } from "../lib/api";
 
 interface Props {
   onBack: () => void;
@@ -275,7 +275,7 @@ function ConsolidationCard({ entry }: { entry: ConsolidationLogEntry }) {
 }
 
 function LongTermTab() {
-  const [subTab, setSubTab] = useState<"episodic" | "semantic" | "procedural">("episodic");
+  const [subTab, setSubTab] = useState<"keyword" | "semantic">("keyword");
   const memories = useMemoryStore((s) => s.longTermMemories);
   const fetchMem = useMemoryStore((s) => s.fetchLongTermMemories);
   const deleteMem = useMemoryStore((s) => s.deleteLongTermMemory);
@@ -283,17 +283,25 @@ function LongTermTab() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    void fetchMem(undefined, subTab);
-  }, [fetchMem, subTab, selectedAgentId]);
+    void fetchMem();
+  }, [fetchMem, selectedAgentId]);
 
-  const filtered = search
-    ? memories.filter((m) => m.content.toLowerCase().includes(search.toLowerCase()))
-    : memories;
+  const filtered = memories.filter((m) => {
+    if (search && !m.content.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const displayMemories = subTab === "semantic"
+    ? filtered.filter((m) => m.enrichedContent)
+    : filtered;
+
+  const consolidated = displayMemories.filter((m) => m.memoryLevel === "consolidated");
+  const detail = displayMemories.filter((m) => m.memoryLevel !== "consolidated");
 
   return (
     <div className="max-w-5xl space-y-4">
       <div className="flex gap-2">
-        {(["episodic", "semantic", "procedural"] as const).map((t) => (
+        {(["keyword", "semantic"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setSubTab(t)}
@@ -303,7 +311,7 @@ function LongTermTab() {
                 : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
             }`}
           >
-            {t === "episodic" ? "情景记忆" : t === "semantic" ? "语义记忆" : "程序记忆"}
+            {t === "keyword" ? "关键词记忆" : "语义记忆"}
           </button>
         ))}
         <input
@@ -313,23 +321,111 @@ function LongTermTab() {
           placeholder="搜索..."
           className="ml-auto px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 w-48"
         />
-        <button onClick={() => fetchMem("default", subTab)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+        <button onClick={() => void fetchMem()} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
           <RefreshCw size={14} className="text-slate-500" />
         </button>
       </div>
 
-      {filtered.length === 0 ? (
+      {displayMemories.length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           <Database size={36} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">暂无{subTab === "episodic" ? "情景" : subTab === "semantic" ? "语义" : "程序"}记忆</p>
+          {subTab === "semantic" ? (
+            <>
+              <p className="text-sm">暂无语义增强记忆</p>
+              <p className="text-xs mt-1">启用向量存储后，新记忆会自动生成语义增强版本</p>
+            </>
+          ) : (
+            <p className="text-sm">暂无长期记忆</p>
+          )}
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((mem) => (
-            <MemoryItem key={mem.id} memory={mem} onDelete={() => deleteMem(mem.id)} />
-          ))}
+        <div className="space-y-4">
+          {consolidated.length > 0 && (
+            <div>
+              <h4 className="text-xs font-medium text-slate-500 mb-2">整合记忆</h4>
+              {consolidated.map((mem) => (
+                <MemoryItemV3 key={mem.id} memory={mem} subTab={subTab} onDelete={() => deleteMem(mem.id)} />
+              ))}
+            </div>
+          )}
+          {detail.length > 0 && (
+            <div>
+              <h4 className="text-xs font-medium text-slate-500 mb-2">详细记忆</h4>
+              {detail.map((mem) => (
+                <MemoryItemV3 key={mem.id} memory={mem} subTab={subTab} onDelete={() => deleteMem(mem.id)} />
+              ))}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function MemoryItemV3({
+  memory,
+  subTab,
+  onDelete,
+}: {
+  memory: LongTermMemoryItem;
+  subTab: "keyword" | "semantic";
+  onDelete: () => void;
+}) {
+  const isConsolidated = memory.memoryLevel === "consolidated";
+  const displayContent =
+    subTab === "semantic" && memory.enrichedContent ? memory.enrichedContent : memory.content;
+
+  return (
+    <div
+      className={`rounded-lg border p-3 mb-2 ${
+        isConsolidated
+          ? "border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/10"
+          : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            {isConsolidated && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                整合
+              </span>
+            )}
+            {memory.topic && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                {memory.topic}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-700 dark:text-slate-200 break-words">{displayContent}</p>
+          {subTab === "keyword" && memory.keywords && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {memory.keywords.split(/\s+/).filter(Boolean).map((kw, i) => (
+                <span
+                  key={i}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                >
+                  {kw}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+            <ImportanceBar importance={memory.importance} />
+            <span>访问 {memory.accessCount} 次</span>
+            <span>创建: {new Date(memory.createdAt).toLocaleDateString()}</span>
+            {isConsolidated && memory.sourceMemoryIds && (
+              <span className="text-purple-500">引用 {memory.sourceMemoryIds.length} 条记忆</span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={onDelete}
+          className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -361,16 +457,24 @@ function ConfigTab() {
   const configError = useMemoryStore((s) => s.configError);
   const fetchConfig = useMemoryStore((s) => s.fetchConfig);
   const saveConfig = useMemoryStore((s) => s.saveConfig);
-  const resetCfg = useMemoryStore((s) => s.resetConfig);
+  const deleteCfg = useMemoryStore((s) => s.deleteConfig);
   const selectedAgentId = useMemoryStore((s) => s.selectedAgentId);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
+  const [embeddingGroups, setEmbeddingGroups] = useState<EmbeddingModelGroup[]>([]);
+  const [activeEmbeddingId, setActiveEmbeddingId] = useState<number | null>(null);
+  const [embeddingLoading, setEmbeddingLoading] = useState(false);
+  const [embeddingError, setEmbeddingError] = useState<string | null>(null);
 
   useEffect(() => { fetchConfig(); }, [fetchConfig, selectedAgentId]);
   useEffect(() => { setEdits({}); }, [config]);
   useEffect(() => {
     fetchModelGroups().then(setModelGroups).catch(() => {});
+  }, []);
+  useEffect(() => {
+    fetchEmbeddingModels().then(setEmbeddingGroups).catch(() => setEmbeddingGroups([]));
+    getActiveEmbeddingModel().then((res) => setActiveEmbeddingId(res.definitionId)).catch(() => {});
   }, []);
 
   const hasEdits = Object.keys(edits).length > 0;
@@ -385,14 +489,32 @@ function ConfigTab() {
     }
   };
 
-  const handleReset = async () => {
-    if (!confirm("确定恢复所有配置为默认值？")) return;
+  const handleDelete = async () => {
+    if (!confirm("确定清除该 Agent 的所有记忆配置？清除后记忆功能将不可用，直到重新配置。")) return;
     setSaving(true);
     try {
-      await resetCfg();
+      await deleteCfg();
       setEdits({});
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleEmbeddingActivate = async (definitionId: number | null) => {
+    setEmbeddingLoading(true);
+    setEmbeddingError(null);
+    try {
+      if (definitionId === null) {
+        await deactivateEmbeddingModel();
+        setActiveEmbeddingId(null);
+      } else {
+        await activateEmbeddingModel(definitionId);
+        setActiveEmbeddingId(definitionId);
+      }
+    } catch (e) {
+      setEmbeddingError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEmbeddingLoading(false);
     }
   };
 
@@ -414,82 +536,141 @@ function ConfigTab() {
     );
   }
 
+  const enabledKey = "long_term.enabled";
+  const memoryEnabled = (edits[enabledKey] ?? config.longTerm?.enabled?.value) === "true";
+
+  const longTermItemsWithoutEnabled = Object.fromEntries(
+    Object.entries(config.longTerm ?? {}).filter(([k]) => k !== "enabled")
+  );
+
+  const isAllEmpty = () => {
+    const allItems = { ...config.working, ...config.consolidation, ...config.longTerm, ...config.vector, ...config.retrieval, ...config.scoring };
+    return Object.entries(allItems).every(([k, v]) => k === "enabled" || !v.value);
+  };
+
+  const handleToggle = () => {
+    if (memoryEnabled) {
+      setEdits((prev) => ({ ...prev, [enabledKey]: "false" }));
+    } else {
+      const newEdits: Record<string, string> = { [enabledKey]: "true" };
+      if (isAllEmpty()) {
+        const defaults: Record<string, string> = {
+          "working.token_budget": "128000",
+          "working.consolidation_threshold": "0.75",
+          "consolidation.max_summary_tokens": "1024",
+          "consolidation.timeout_ms": "30000",
+          "consolidation.max_retries": "2",
+          "consolidation.overflow_tolerance": "1.1",
+          "long_term.max_memories_per_user": "200",
+          "long_term.max_injection_tokens": "2048",
+          "long_term.decay_lambda": "0.1",
+          "long_term.compaction_threshold": "50",
+          "long_term.archive_after_days": "90",
+          "long_term.min_chunks_for_episodic": "4",
+          "long_term.min_fact_importance": "0.3",
+          "long_term.max_merged_content_length": "500",
+          "vector.enabled": "false",
+          "retrieval.strategy": "hybrid",
+          "retrieval.vector_weight": "0.6",
+          "retrieval.keyword_weight": "0.4",
+          "scoring.semantic_weight": "1.2",
+          "scoring.episodic_weight": "0.8",
+          "scoring.procedural_weight": "1.0",
+          "scoring.semantic_decay_lambda": "0.03",
+          "scoring.episodic_decay_lambda": "0.10",
+          "scoring.procedural_decay_lambda": "0.05",
+        };
+        Object.assign(newEdits, defaults);
+      }
+      setEdits((prev) => ({ ...prev, ...newEdits }));
+    }
+  };
+
   return (
     <div className="max-w-4xl space-y-8">
-      <ConfigSection
-        title="工作记忆"
-        prefix="working"
-        items={config.working}
-        edits={edits}
-        setEdits={setEdits}
-      />
-      <ConfigSection
-        title="记忆巩固"
-        prefix="consolidation"
-        items={config.consolidation}
-        edits={edits}
-        setEdits={setEdits}
-        modelGroups={modelGroups}
-      />
-      <ConfigSection
-        title="长期记忆"
-        prefix="long_term"
-        items={config.longTerm}
-        edits={edits}
-        setEdits={setEdits}
-      />
-      {config.vector && Object.keys(config.vector).length > 0 && (
-        <ConfigSection
-          title="向量数据库"
-          prefix="vector"
-          items={config.vector}
-          edits={edits}
-          setEdits={setEdits}
-        />
+      <div className="flex items-center justify-between rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-5 py-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            记忆系统总开关
+            {CONFIG_TOOLTIPS[enabledKey] && <Tooltip text={CONFIG_TOOLTIPS[enabledKey]} />}
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            {memoryEnabled ? "已开启，Agent 将具备跨会话的持久记忆能力" : "已关闭，开启后才能配置以下所有记忆参数"}
+          </p>
+        </div>
+        <button
+          onClick={handleToggle}
+          className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+            memoryEnabled ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-600"
+          }`}
+        >
+          <span
+            className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+              memoryEnabled ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </div>
+
+      {!memoryEnabled && (
+        <div className="text-center py-8 text-slate-400 dark:text-slate-500">
+          <Settings size={36} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm">请先开启记忆系统总开关，然后配置以下参数</p>
+        </div>
       )}
-      {config.embedding && Object.keys(config.embedding).length > 0 && (
-        <ConfigSection
-          title="Embedding 模型"
-          prefix="embedding"
-          items={config.embedding}
-          edits={edits}
-          setEdits={setEdits}
-        />
-      )}
-      {config.retrieval && Object.keys(config.retrieval).length > 0 && (
-        <ConfigSection
-          title="检索策略"
-          prefix="retrieval"
-          items={config.retrieval}
-          edits={edits}
-          setEdits={setEdits}
-        />
-      )}
-      {config.scoring && Object.keys(config.scoring).length > 0 && (
-        <ConfigSection
-          title="评分参数"
-          prefix="scoring"
-          items={config.scoring}
-          edits={edits}
-          setEdits={setEdits}
-        />
+
+      {memoryEnabled && (
+        <div className="space-y-8">
+          <ConfigSection
+            title="工作记忆"
+            prefix="working"
+            items={config.working}
+            edits={edits}
+            setEdits={setEdits}
+          />
+          <ConfigSection
+            title="记忆巩固"
+            prefix="consolidation"
+            items={config.consolidation}
+            edits={edits}
+            setEdits={setEdits}
+            modelGroups={modelGroups}
+          />
+          <ConfigSection
+            title="长期记忆"
+            prefix="long_term"
+            items={longTermItemsWithoutEnabled}
+            edits={edits}
+            setEdits={setEdits}
+          />
+          <VectorSection
+            config={config}
+            edits={edits}
+            setEdits={setEdits}
+            embeddingGroups={embeddingGroups}
+            activeEmbeddingId={activeEmbeddingId}
+            embeddingLoading={embeddingLoading}
+            embeddingError={embeddingError}
+            handleEmbeddingActivate={handleEmbeddingActivate}
+          />
+        </div>
       )}
 
       <div className="flex gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+        <button
+          onClick={handleDelete}
+          disabled={saving}
+          className="px-4 py-2 text-sm font-medium rounded-lg border border-red-300 dark:border-red-600 text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+        >
+          <Trash2 size={14} />
+          清除配置
+        </button>
         <button
           onClick={handleSave}
           disabled={!hasEdits || saving}
           className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? "保存中..." : hasEdits ? "保存修改" : "无修改"}
-        </button>
-        <button
-          onClick={handleReset}
-          disabled={saving}
-          className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-        >
-          <RotateCcw size={14} />
-          恢复默认
         </button>
       </div>
     </div>
@@ -531,28 +712,26 @@ const CONFIG_TOOLTIPS: Record<string, string> = {
     "冷记忆归档天数。当记忆超过此天数未被访问且得分低于阈值时，将从主表迁移到归档表（冷存储）。归档后不再参与检索，但可在「遗忘日志」中查看。",
   "vector.enabled":
     "是否启用向量数据库（Qdrant）进行语义检索。关闭后仅使用关键词检索。需要先部署 Qdrant 服务。",
-  "embedding.model":
-    "生成向量嵌入时使用的模型。默认使用 DashScope text-embedding-v3。更换模型后需要重新迁移现有记忆。",
-  "embedding.dimensions":
-    "向量维度。必须与所选 Embedding 模型的输出维度一致。默认 1024。修改后需要重建向量索引。",
+  "embedding.definition_id":
+    "当前激活的 Embedding 模型。在「模型管理」中添加 Embedding 类型模型后，在此选择。未选择时向量检索禁用。",
   "retrieval.strategy":
     "记忆检索策略。hybrid = 向量+关键词混合检索（推荐）；vector_only = 仅向量语义检索；keyword_only = 仅关键词检索。",
   "retrieval.vector_weight":
-    "混合检索中向量结果的权重。与 keyword_weight 共同决定排序。值范围 0~1，默认 0.6。",
+    "混合检索中向量结果的权重。与 keyword_weight 共同决定排序。值范围 0~1，建议 0.6。",
   "retrieval.keyword_weight":
-    "混合检索中关键词结果的权重。与 vector_weight 共同决定排序。值范围 0~1，默认 0.4。",
+    "混合检索中关键词结果的权重。与 vector_weight 共同决定排序。值范围 0~1，建议 0.4。",
   "scoring.semantic_weight":
-    "知识型记忆（semantic）的检索评分权重。越高则知识型记忆越容易被召回。默认 1.2。",
+    "知识型记忆（semantic）的检索评分权重。越高则知识型记忆越容易被召回。建议 1.2。",
   "scoring.episodic_weight":
-    "情景型记忆（episodic）的检索评分权重。越高则对话经历越容易被召回。默认 0.8。",
+    "情景型记忆（episodic）的检索评分权重。越高则对话经历越容易被召回。建议 0.8。",
   "scoring.procedural_weight":
-    "程序型记忆（procedural）的检索评分权重。越高则操作步骤类记忆越容易被召回。默认 1.0。",
+    "程序型记忆（procedural）的检索评分权重。越高则操作步骤类记忆越容易被召回。建议 1.0。",
   "scoring.semantic_decay_lambda":
-    "知识型记忆的时间衰减速率。越大衰减越快。默认 0.03（衰减较慢，知识长期有效）。",
+    "知识型记忆的时间衰减速率。越大衰减越快。建议 0.03（衰减较慢，知识长期有效）。",
   "scoring.episodic_decay_lambda":
-    "情景型记忆的时间衰减速率。越大衰减越快。默认 0.10（衰减较快，旧对话经历逐渐淡化）。",
+    "情景型记忆的时间衰减速率。越大衰减越快。建议 0.10（衰减较快，旧对话经历逐渐淡化）。",
   "scoring.procedural_decay_lambda":
-    "程序型记忆的时间衰减速率。越大衰减越快。默认 0.05（中等衰减，操作步骤保持一段时间）。",
+    "程序型记忆的时间衰减速率。越大衰减越快。建议 0.05（中等衰减，操作步骤保持一段时间）。",
 };
 
 function Tooltip({ text }: { text: string }) {
@@ -567,6 +746,137 @@ function Tooltip({ text }: { text: string }) {
         </span>
       )}
     </span>
+  );
+}
+
+function VectorSection({
+  config,
+  edits,
+  setEdits,
+  embeddingGroups,
+  activeEmbeddingId,
+  embeddingLoading,
+  embeddingError,
+  handleEmbeddingActivate,
+}: {
+  config: { vector?: Record<string, MemoryConfigItem>; retrieval?: Record<string, MemoryConfigItem>; scoring?: Record<string, MemoryConfigItem> };
+  edits: Record<string, string>;
+  setEdits: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  embeddingGroups: EmbeddingModelGroup[];
+  activeEmbeddingId: number | null;
+  embeddingLoading: boolean;
+  embeddingError: string | null;
+  handleEmbeddingActivate: (id: number | null) => void;
+}) {
+  const vectorEnabledKey = "vector.enabled";
+  const vectorEnabled = (edits[vectorEnabledKey] ?? config.vector?.enabled?.value) === "true";
+
+  const vectorItemsWithoutEnabled = Object.fromEntries(
+    Object.entries(config.vector ?? {}).filter(([k]) => k !== "enabled")
+  );
+
+  return (
+    <>
+      <div className="flex items-center justify-between rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-4 py-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+            向量检索开关
+            {CONFIG_TOOLTIPS[vectorEnabledKey] && <Tooltip text={CONFIG_TOOLTIPS[vectorEnabledKey]} />}
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            {vectorEnabled ? "已开启，使用向量语义检索" : "已关闭，当前为纯关键词检索模式"}
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            const newVal = vectorEnabled ? "false" : "true";
+            setEdits((prev) => ({ ...prev, [vectorEnabledKey]: newVal }));
+          }}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            vectorEnabled ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-600"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+              vectorEnabled ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </div>
+
+      {vectorEnabled && (
+        <>
+          {Object.keys(vectorItemsWithoutEnabled).length > 0 && (
+            <ConfigSection
+              title="向量数据库"
+              prefix="vector"
+              items={vectorItemsWithoutEnabled}
+              edits={edits}
+              setEdits={setEdits}
+            />
+          )}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              Embedding 模型
+              {activeEmbeddingId ? (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">已激活</span>
+              ) : (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400">未配置</span>
+              )}
+            </h3>
+            {embeddingGroups.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                暂无 Embedding 模型。请先在「模型管理」中添加 Embedding 类型的模型。
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <select
+                  value={activeEmbeddingId ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    handleEmbeddingActivate(val ? Number(val) : null);
+                  }}
+                  disabled={embeddingLoading}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                >
+                  <option value="">请选择 Embedding 模型</option>
+                  {embeddingGroups.map((group) => (
+                    <optgroup key={group.providerId} label={group.providerName}>
+                      {group.models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.displayName} ({m.modelId}{m.dimensions ? `, ${m.dimensions}维` : ""})
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                {embeddingError && (
+                  <p className="text-[11px] text-red-500">{embeddingError}</p>
+                )}
+              </div>
+            )}
+          </div>
+          {config.retrieval && Object.keys(config.retrieval).length > 0 && (
+            <ConfigSection
+              title="检索策略"
+              prefix="retrieval"
+              items={config.retrieval}
+              edits={edits}
+              setEdits={setEdits}
+            />
+          )}
+          {config.scoring && Object.keys(config.scoring).length > 0 && (
+            <ConfigSection
+              title="评分参数（v2 遗留，建议关闭）"
+              prefix="scoring"
+              items={config.scoring}
+              edits={edits}
+              setEdits={setEdits}
+            />
+          )}
+        </>
+      )}
+    </>
   );
 }
 
@@ -597,17 +907,17 @@ function ConfigSection({
           const currentValue = edits[fullKey] ?? item.value;
           const isModified = fullKey in edits;
           const borderClass = isModified
-            ? "border-indigo-400 dark:border-indigo-500 ring-1 ring-indigo-200 dark:ring-indigo-800"
+            ? "border-indigo-400 dark:border-indigo-500"
             : "border-slate-200 dark:border-slate-700";
 
           return (
             <div key={fullKey} className="flex items-center gap-4">
-              <div className="w-48 flex-shrink-0">
+              <div className="w-56 flex-shrink-0">
                 <p className="text-sm text-slate-700 dark:text-slate-200 flex items-center">
                   {key}
                   {CONFIG_TOOLTIPS[fullKey] && <Tooltip text={CONFIG_TOOLTIPS[fullKey]} />}
                 </p>
-                <p className="text-xs text-slate-400">{item.description}</p>
+                <p className="text-xs text-slate-400 break-words">{item.description}</p>
               </div>
               <div className="flex-1">
                 {item.type === "boolean" ? (
@@ -654,7 +964,7 @@ function ConfigSection({
                   />
                 )}
               </div>
-              <span className="text-xs text-slate-400 w-20 text-right flex-shrink-0">默认: {item.default}</span>
+              {!currentValue && <span className="text-xs text-amber-500 w-20 text-right flex-shrink-0">未配置</span>}
             </div>
           );
         })}

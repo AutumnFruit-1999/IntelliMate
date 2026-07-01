@@ -25,7 +25,6 @@ public class BridgeToolCallback implements ToolCallback {
     @Override
     public String call(String toolInput) {
         String toolName = definition.name();
-        log.info("Bridge tool call: node={}, tool={}", nodeSession.getNodeName(), toolName);
 
         BridgeProtocol.ToolResult result = nodeSession.callTool(toolName, toolInput);
 

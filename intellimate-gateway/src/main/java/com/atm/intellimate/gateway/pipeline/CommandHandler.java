@@ -57,7 +57,6 @@ public class CommandHandler {
     }
 
     private Flux<GatewayFrame> handleClear(SessionEntity session, String requestId) {
-        log.info("Clearing conversation for session: id={}, persisting memory first", session.getId());
         return Mono.fromRunnable(() -> agentRuntime.flushDeferredEpisodicMemory(session.getId()))
                 .then(sessionManager.resetSession(session.getId()))
                 .thenMany(Flux.just(ResponseFrame.success(requestId,
@@ -82,12 +81,9 @@ public class CommandHandler {
             return Flux.just(ResponseFrame.success(requestId,
                     Map.of("text", "Current model: " + current + ". Usage: /model <name>")));
         }
-        session.setAgentName(modelName);
-        return sessionManager.getOrCreate(
-                        new com.atm.intellimate.core.model.SessionKey(session.getChannelId(), session.getContextType(), session.getContextId()),
-                        new com.atm.intellimate.core.model.SessionMetadata(modelName, null, session.getChannelId(), session.getContextType(), session.getContextId()))
-                .thenMany(Flux.just(ResponseFrame.success(requestId,
-                        Map.of("text", "Model switched to: " + modelName))));
+        return Flux.just(ResponseFrame.success(requestId,
+                Map.of("text", "Model switched to: " + modelName
+                        + ". A new session will be created on next message.")));
     }
 
     private Flux<GatewayFrame> handleApprove(String code, String requestId) {
@@ -106,7 +102,7 @@ public class CommandHandler {
     private Flux<GatewayFrame> handlePlan(SessionEntity session, String arg, String requestId) {
         if (arg.isBlank()) {
             return Flux.just(ResponseFrame.success(requestId,
-                    Map.of("text", "用法：/plan <任务描述> — 强制以 Plan 模式处理任务",
+                    Map.of("text", "用法：/plan <任务描述> — 强制以 Plan 模式处理任务（使用 plan 工具创建计划）",
                            "command", "plan", "forcePlan", true)));
         }
         return Flux.just(ResponseFrame.success(requestId,

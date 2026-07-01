@@ -17,7 +17,7 @@ public class SemanticMemory {
     }
 
     public Mono<Void> store(ExtractedFact fact, String userId, String agentId) {
-        return delegate.store(new ExtractedFact("semantic", fact.content(), fact.importance()), userId, agentId);
+        return delegate.store(ExtractedFact.legacy("semantic", fact.content(), fact.importance()), userId, agentId);
     }
 
     public Flux<MemoryEntry> search(String cue, String userId, String agentId) {

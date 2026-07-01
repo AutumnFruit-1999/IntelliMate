@@ -34,7 +34,6 @@ public class SkillFileService {
             if (content != null && !content.isBlank()) {
                 Files.writeString(dir.resolve("SKILL.md"), content);
             }
-            log.info("Created skill directory: {}", dir);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to create skill directory: " + dir, e);
         }
@@ -62,7 +61,6 @@ public class SkillFileService {
                         log.warn("Failed to delete: {}", p, e);
                     }
                 });
-            log.info("Deleted skill directory: {}", dir);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to walk skill directory: " + dir, e);
         }
@@ -83,7 +81,6 @@ public class SkillFileService {
         try {
             Files.createDirectories(target.getParent());
             Files.write(target, bytes);
-            log.info("Saved file: {}", target);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to save file: " + target, e);
         }
@@ -93,9 +90,7 @@ public class SkillFileService {
         validateType(type);
         Path target = getSkillPath(skillName).resolve(type).resolve(filename);
         try {
-            if (Files.deleteIfExists(target)) {
-                log.info("Deleted file: {}", target);
-            }
+            Files.deleteIfExists(target);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to delete file: " + target, e);
         }

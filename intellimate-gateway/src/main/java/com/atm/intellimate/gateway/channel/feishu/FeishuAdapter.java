@@ -151,7 +151,6 @@ public class FeishuAdapter extends AbstractChannelAdapter {
     public WebhookResponse handleWebhook(WebhookRequest request) {
         if (isVerificationRequest(request)) {
             String body = handleVerification(request);
-            log.info("[{}] verification request handled", getChannelId());
             return new WebhookResponse(200, body, MediaType.APPLICATION_JSON_VALUE);
         }
         return super.handleWebhook(request);
@@ -207,8 +206,6 @@ public class FeishuAdapter extends AbstractChannelAdapter {
                     tenantAccessToken = response.path("tenant_access_token").asText();
                     int expireSeconds = response.path("expire").asInt(7200);
                     tokenExpiresAtEpochMs = System.currentTimeMillis() + expireSeconds * 1000L;
-                    log.info("[{}] tenant_access_token refreshed, expires in {}s",
-                            getChannelId(), expireSeconds);
                     return Mono.empty();
                 });
     }

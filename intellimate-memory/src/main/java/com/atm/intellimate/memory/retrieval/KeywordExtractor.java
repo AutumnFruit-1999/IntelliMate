@@ -14,6 +14,8 @@ import java.util.stream.Collectors;
  */
 public class KeywordExtractor {
 
+    private static final Set<String> MEANINGFUL_SINGLE_CHARS = Set.of("谁", "何", "哪", "吗", "呢");
+
     private static final Set<String> STOP_WORDS = Set.of(
             "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "一个",
             "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好",
@@ -73,6 +75,8 @@ public class KeywordExtractor {
 
     private static void addToken(Set<String> tokens, String word) {
         if (word.length() >= 2 && !STOP_WORDS.contains(word)) {
+            tokens.add(word);
+        } else if (word.length() == 1 && MEANINGFUL_SINGLE_CHARS.contains(word)) {
             tokens.add(word);
         }
     }

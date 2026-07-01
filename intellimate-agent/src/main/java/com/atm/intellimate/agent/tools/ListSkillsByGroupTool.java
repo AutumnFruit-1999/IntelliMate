@@ -4,8 +4,6 @@ import com.atm.intellimate.agent.skills.SkillContentProvider;
 import com.atm.intellimate.agent.skills.SkillContentProvider.SkillGroupSummary;
 import com.atm.intellimate.agent.skills.SkillContentProvider.SkillSummary;
 import com.atm.intellimate.agent.skills.SkillGroupContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -19,8 +17,6 @@ import java.util.stream.Collectors;
 @Component
 public class ListSkillsByGroupTool {
 
-    private static final Logger log = LoggerFactory.getLogger(ListSkillsByGroupTool.class);
-
     private final SkillContentProvider skillContentProvider;
 
     public ListSkillsByGroupTool(SkillContentProvider skillContentProvider) {
@@ -32,8 +28,6 @@ public class ListSkillsByGroupTool {
             @ToolParam(description = "技能分组名称，多个分组用逗号分隔（如 'coding,testing'）。留空返回所有分组概览。")
             String groups
     ) {
-        log.info("listSkillsByGroup called with groups: {}", groups);
-
         if (groups == null || groups.isBlank()) {
             return buildGroupOverview();
         }

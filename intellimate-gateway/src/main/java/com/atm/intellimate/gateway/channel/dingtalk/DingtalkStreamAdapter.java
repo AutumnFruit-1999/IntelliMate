@@ -84,7 +84,6 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
                         .build();
                 streamClient.start();
                 status = ChannelStatus.CONNECTED;
-                log.info("[{}] Stream client connected", CHANNEL_ID);
             } catch (Exception e) {
                 status = ChannelStatus.ERROR;
                 throw new RuntimeException("Failed to start DingTalk Stream client", e);
@@ -107,7 +106,6 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
             tokenExpiresAtEpochMs = 0;
             webClient = null;
             status = ChannelStatus.DISCONNECTED;
-            log.info("[{}] Stream client disconnected", CHANNEL_ID);
         });
     }
 
@@ -145,16 +143,35 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
                         );
                     }
 
+                    log.info("[DingTalk] sending proactive msg: uri={}, contextId={}, contextType={}",
+                            uri, contextId, contextType);
+
                     return webClient.post()
                             .uri(uri)
                             .header("x-acs-dingtalk-access-token", token)
                             .contentType(MediaType.APPLICATION_JSON)
                             .bodyValue(body)
-                            .retrieve()
-                            .bodyToMono(JsonNode.class)
-                            .doOnNext(resp -> log.debug("[{}] send response ({}): {}", CHANNEL_ID, contextType, resp))
-                            .then();
-                });
+                            .exchangeToMono(response -> response.bodyToMono(JsonNode.class)
+                                    .defaultIfEmpty(objectMapper.createObjectNode())
+                                    .flatMap(responseBody -> {
+                                        int statusCode = response.statusCode().value();
+                                        if (statusCode >= 400) {
+                                            log.error("[DingTalk] API HTTP error: status={}, body={}",
+                                                    statusCode, responseBody);
+                                            return Mono.error(new RuntimeException(
+                                                    "DingTalk API HTTP " + statusCode + ": " + responseBody));
+                                        }
+                                        if (responseBody.has("code") && responseBody.get("code").asInt(0) != 0) {
+                                            log.error("[DingTalk] API business error: {}", responseBody);
+                                            return Mono.error(new RuntimeException(
+                                                    "DingTalk API error: " + responseBody));
+                                        }
+                                        log.info("[DingTalk] send success: status={}, response={}",
+                                                statusCode, responseBody);
+                                        return Mono.<Void>empty();
+                                    }));
+                })
+                .doOnError(e -> log.error("[DingTalk] send failed: {}", e.getMessage(), e));
     }
 
     @Override
@@ -229,9 +246,6 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
                     null
             );
 
-            log.info("[{}] Stream message received: sender={}, text length={}",
-                    CHANNEL_ID, senderId, text.length());
-
             if (messageHandler != null) {
                 messageHandler.accept(envelope);
             }
@@ -245,10 +259,14 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
         if (accessToken != null && now < tokenExpiresAtEpochMs - REFRESH_MARGIN_MS) {
             return Mono.just(accessToken);
         }
+        log.info("[DingTalk] refreshing access token...");
         return refreshToken().thenReturn("").flatMap(x -> {
             if (accessToken == null) {
+                log.error("[DingTalk] token refresh failed — accessToken is null");
                 return Mono.error(new RuntimeException("Failed to get access token"));
             }
+            log.info("[DingTalk] token refreshed, expires in {}s",
+                    (tokenExpiresAtEpochMs - System.currentTimeMillis()) / 1000);
             return Mono.just(accessToken);
         });
     }
@@ -274,7 +292,6 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
                     accessToken = response.path("accessToken").asText();
                     int expireSeconds = response.path("expireIn").asInt(7200);
                     tokenExpiresAtEpochMs = System.currentTimeMillis() + expireSeconds * 1000L;
-                    log.info("[{}] access_token refreshed, expires in {}s", CHANNEL_ID, expireSeconds);
                     return Mono.empty();
                 });
     }

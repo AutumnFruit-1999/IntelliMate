@@ -1,8 +1,6 @@
 package com.atm.intellimate.agent.tools;
 
 import com.atm.intellimate.core.exception.ToolExecutionException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -16,7 +14,6 @@ import java.time.Duration;
 @Component
 public class WebFetchTool {
 
-    private static final Logger log = LoggerFactory.getLogger(WebFetchTool.class);
     private static final int DEFAULT_TIMEOUT_SECONDS = 15;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -30,7 +27,6 @@ public class WebFetchTool {
             @ToolParam(description = "超时秒数（默认 15）", required = false) Integer timeoutSeconds
     ) {
         int timeout = (timeoutSeconds != null && timeoutSeconds > 0) ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
-        log.info("Fetching URL: {} (timeout={}s)", url, timeout);
 
         try {
             HttpRequest request = HttpRequest.newBuilder()

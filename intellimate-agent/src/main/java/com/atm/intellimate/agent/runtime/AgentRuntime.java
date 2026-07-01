@@ -61,21 +61,19 @@ public class AgentRuntime {
     public void cancelByWsSession(String wsSessionId) {
         org.reactivestreams.Subscription sub = activeWsRuns.remove(wsSessionId);
         if (sub != null) {
-            log.info("Cancelling agent run for wsSession: {}", wsSessionId);
             sub.cancel();
         }
     }
 
-    public void signalPlanPaused(Long planId) {
-        if (planId != null) {
-            pausedPlanIds.add(planId);
-            log.info("Plan {} signalled as paused/cancelled", planId);
+    public void signalPlanPaused(Long messageId) {
+        if (messageId != null) {
+            pausedPlanIds.add(messageId);
         }
     }
 
-    public void clearPlanPaused(Long planId) {
-        if (planId != null) {
-            pausedPlanIds.remove(planId);
+    public void clearPlanPaused(Long messageId) {
+        if (messageId != null) {
+            pausedPlanIds.remove(messageId);
         }
     }
 

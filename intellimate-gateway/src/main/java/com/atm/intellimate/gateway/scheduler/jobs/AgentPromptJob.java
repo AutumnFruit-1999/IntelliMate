@@ -93,10 +93,6 @@ public class AgentPromptJob implements ScheduledJob {
                 : Mono.just(rawPrompt);
 
         return promptMono.flatMap(renderedPrompt -> {
-            log.info("AgentPromptJob [{}]: dispatching to agent '{}' (template={}): {}",
-                    context.jobName(), agentName, isTemplate,
-                    renderedPrompt.length() > 80 ? renderedPrompt.substring(0, 80) + "..." : renderedPrompt);
-
             Mono<List<Message>> historyMono;
             if (enableMemoryRecall && memorySystem != null) {
                 historyMono = recallMemories(renderedPrompt, userId, agentName, maxRecallTokens);
@@ -119,7 +115,7 @@ public class AgentPromptJob implements ScheduledJob {
                                 resolved.skillsEnabled(),
                                 resolved.skillGroupsEnabled(),
                                 null,
-                                false, null, null, null,
+                                false, null, null,
                                 resolved.bridgeNode()
                         );
 
@@ -139,13 +135,9 @@ public class AgentPromptJob implements ScheduledJob {
                                         if (finalAnswer.isBlank() && !allText.toString().isBlank()) {
                                             finalAnswer = done.fullText();
                                         }
-                                        log.info("AgentPromptJob [{}]: agent '{}' Done, response length={}",
-                                                context.jobName(), agentName, finalAnswer.length());
                                         responseText.set(finalAnswer);
                                     }
                                 })
-                                .doOnComplete(() -> log.info("AgentPromptJob [{}]: dispatch flux completed for agent '{}'",
-                                        context.jobName(), agentName))
                                 .doOnError(e -> log.error("AgentPromptJob [{}]: dispatch flux error for agent '{}': {}",
                                         context.jobName(), agentName, e.getMessage()))
                                 .then(Mono.fromSupplier(responseText::get))
@@ -190,8 +182,6 @@ public class AgentPromptJob implements ScheduledJob {
                         sb.append("- ").append(chunk.content()).append("\n");
                     }
                     messages.add(new AssistantMessage(sb.toString()));
-                    log.info("AgentPromptJob: injected {} recalled memories ({} tokens) for cue",
-                            chunks.size(), chunks.stream().mapToInt(MemoryChunk::estimatedTokens).sum());
                     return messages;
                 })
                 .onErrorResume(e -> {

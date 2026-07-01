@@ -2,7 +2,7 @@ import { create } from "zustand";
 import {
   fetchMemoryConfig,
   updateMemoryConfig,
-  resetMemoryConfig,
+  deleteMemoryConfig,
   fetchMemoryStats,
   fetchLongTermMemories as fetchLongTermMemoriesApi,
   deleteLongTermMemory,
@@ -63,9 +63,9 @@ interface MemoryState {
 
   fetchConfig: () => Promise<void>;
   saveConfig: (updates: Record<string, string>) => Promise<void>;
-  resetConfig: () => Promise<void>;
+  deleteConfig: () => Promise<void>;
   fetchStats: (userId?: string) => Promise<void>;
-  fetchLongTermMemories: (userId?: string, type?: string) => Promise<void>;
+  fetchLongTermMemories: (userId?: string) => Promise<void>;
   deleteLongTermMemory: (id: number) => Promise<void>;
 }
 
@@ -117,13 +117,13 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     }
   },
 
-  resetConfig: async () => {
+  deleteConfig: async () => {
     try {
       const agentId = get().selectedAgentId;
-      await resetMemoryConfig(agentId);
+      await deleteMemoryConfig(agentId);
       await get().fetchConfig();
     } catch (e) {
-      console.error("Failed to reset memory config", e);
+      console.error("Failed to delete memory config", e);
       throw e;
     }
   },
@@ -138,10 +138,10 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     }
   },
 
-  fetchLongTermMemories: async (userId, type) => {
+  fetchLongTermMemories: async (userId) => {
     try {
       const agentId = get().selectedAgentId;
-      const memories = await fetchLongTermMemoriesApi(userId, type, agentId);
+      const memories = await fetchLongTermMemoriesApi(userId, undefined, agentId);
       set({ longTermMemories: memories });
     } catch (e) {
       console.error("Failed to fetch long-term memories", e);

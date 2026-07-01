@@ -1,8 +1,6 @@
 package com.atm.intellimate.agent.tools;
 
 import com.atm.intellimate.agent.skills.SkillContentProvider;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -11,8 +9,6 @@ import java.util.List;
 
 @Component
 public class GetSkillContentTool {
-
-    private static final Logger log = LoggerFactory.getLogger(GetSkillContentTool.class);
 
     private final SkillContentProvider skillContentProvider;
 
@@ -24,8 +20,6 @@ public class GetSkillContentTool {
     public String getSkillContent(
             @ToolParam(description = "要查找的技能名称（如 'code-reviewer'）") String skillName
     ) {
-        log.info("Getting skill content for: {}", skillName);
-
         if (skillName == null || skillName.isBlank()) {
             return "Error: skillName is required";
         }
@@ -47,7 +41,6 @@ public class GetSkillContentTool {
             if (name.equalsIgnoreCase(lowerInput)) {
                 String matched = skillContentProvider.readSkillContent(name);
                 if (matched != null) {
-                    log.info("Fuzzy matched '{}' -> '{}'", trimmed, name);
                     return resolveBaseDir(matched, name);
                 }
             }
@@ -57,7 +50,6 @@ public class GetSkillContentTool {
             if (name.toLowerCase().contains(lowerInput) || lowerInput.contains(name.toLowerCase())) {
                 String matched = skillContentProvider.readSkillContent(name);
                 if (matched != null) {
-                    log.info("Partial matched '{}' -> '{}'", trimmed, name);
                     return resolveBaseDir(matched, name);
                 }
             }

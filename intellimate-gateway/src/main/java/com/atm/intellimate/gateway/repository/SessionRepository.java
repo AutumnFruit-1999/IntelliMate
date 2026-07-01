@@ -12,9 +12,17 @@ public interface SessionRepository extends ReactiveCrudRepository<SessionEntity,
     Mono<SessionEntity> findByChannelIdAndContextTypeAndContextIdAndDeleted(
             String channelId, String contextType, String contextId, Integer deleted);
 
+    /**
+     * @deprecated Use {@link #findBySessionKeyAndAgent} instead. After V40 migration,
+     * multiple sessions can exist for the same (channel, contextType, contextId) with different agents.
+     */
+    @Deprecated
     default Mono<SessionEntity> findBySessionKey(String channelId, String contextType, String contextId) {
         return findByChannelIdAndContextTypeAndContextIdAndDeleted(channelId, contextType, contextId, 0);
     }
+
+    @Query("SELECT * FROM session WHERE channel_id = :channelId AND context_type = :contextType AND context_id = :contextId AND agent_name = :agentName AND deleted = 0 LIMIT 1")
+    Mono<SessionEntity> findBySessionKeyAndAgent(String channelId, String contextType, String contextId, String agentName);
 
     @Query("SELECT * FROM session WHERE agent_name = :agentName AND status = 'active' AND deleted = 0 AND channel_id IN ('unified', 'webchat') ORDER BY CASE channel_id WHEN 'unified' THEN 0 ELSE 1 END, last_active_at DESC LIMIT 1")
     Mono<SessionEntity> findActiveByAgentName(String agentName);

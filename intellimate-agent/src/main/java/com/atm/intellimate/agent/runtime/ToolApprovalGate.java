@@ -41,7 +41,6 @@ public class ToolApprovalGate {
     public Mono<ApprovalDecision> requestApproval(String toolCallId) {
         Sinks.One<ApprovalDecision> sink = Sinks.one();
         pendingApprovals.put(toolCallId, sink);
-        log.info("Approval requested for toolCallId={}", toolCallId);
         return sink.asMono();
     }
 
@@ -52,7 +51,6 @@ public class ToolApprovalGate {
     public void resolve(String toolCallId, boolean approved, String modifiedArguments) {
         Sinks.One<ApprovalDecision> sink = pendingApprovals.remove(toolCallId);
         if (sink != null) {
-            log.info("Approval resolved for toolCallId={}: approved={}", toolCallId, approved);
             sink.tryEmitValue(new ApprovalDecision(approved, modifiedArguments));
         } else {
             log.warn("No pending approval found for toolCallId={}", toolCallId);

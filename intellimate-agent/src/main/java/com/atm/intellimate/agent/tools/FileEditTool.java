@@ -1,8 +1,6 @@
 package com.atm.intellimate.agent.tools;
 
 import com.atm.intellimate.core.exception.ToolExecutionException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -13,16 +11,12 @@ import java.nio.file.Path;
 @Component
 public class FileEditTool {
 
-    private static final Logger log = LoggerFactory.getLogger(FileEditTool.class);
-
     @Tool(description = "通过精确匹配并替换字符串来编辑文件")
     public String editFile(
             @ToolParam(description = "文件的绝对或相对路径") String path,
             @ToolParam(description = "要查找并替换的精确字符串") String oldString,
             @ToolParam(description = "替换后的新字符串") String newString
     ) {
-        log.info("Editing file: {}", path);
-
         try {
             Path filePath = Path.of(path);
             if (!Files.exists(filePath)) {

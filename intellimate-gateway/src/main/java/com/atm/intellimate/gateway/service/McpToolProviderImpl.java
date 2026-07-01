@@ -59,8 +59,6 @@ public class McpToolProviderImpl implements McpToolProvider {
                     .subscribeOn(Schedulers.boundedElastic())
                     .block();
 
-            log.debug("MCP onApplicationReady: loading {} server(s) from repository", servers.size());
-
             for (McpServerEntity server : servers) {
                 try {
                     connectServerSync(server);
@@ -75,11 +73,6 @@ public class McpToolProviderImpl implements McpToolProvider {
             }
 
             toolsEngine.refresh();
-            int toolCount = getAllCallbacks().length;
-            log.debug("MCP onApplicationReady: initialized {} connected server(s), {} tool callback(s)",
-                    clients.size(), toolCount);
-            log.info("MCP tool provider initialized: {} server(s), {} tool(s)",
-                    clients.size(), toolCount);
         } catch (Exception e) {
             log.warn("Failed to initialize MCP tool provider: {}", e.getMessage());
         }
@@ -87,9 +80,6 @@ public class McpToolProviderImpl implements McpToolProvider {
 
     @Override
     public ToolCallback[] getAllCallbacks() {
-        log.debug("getAllCallbacks: mcpToolCallbacks size={}, server names={}",
-                mcpToolCallbacks.size(), mcpToolCallbacks.keySet());
-
         // 如果 Map 为空，可能是初始化未完成，尝试强制加载
         if (mcpToolCallbacks.isEmpty() && !clients.isEmpty()) {
             log.warn("mcpToolCallbacks is empty but clients is not, forcing reconnection...");
@@ -123,24 +113,16 @@ public class McpToolProviderImpl implements McpToolProvider {
     }
 
     public void connectServerSync(McpServerEntity server) {
-        try {
-            disconnectServer(server.getName());
+        disconnectServer(server.getName());
 
-            McpSyncClient client = createSyncClient(server);
-            client.initialize();
-            clients.put(server.getName(), client);
+        McpSyncClient client = createSyncClient(server);
+        client.initialize();
+        clients.put(server.getName(), client);
 
-            SyncMcpToolCallbackProvider provider = new SyncMcpToolCallbackProvider(List.of(client));
-            ToolCallback[] callbacks = provider.getToolCallbacks();
-            ToolCallback[] prefixed = prefixToolNames(server.getName(), callbacks);
-            mcpToolCallbacks.put(server.getName(), prefixed);
-
-
-            log.info("Connected MCP server '{}': {} tool(s) discovered", server.getName(), callbacks.length);
-        } catch (Exception e) {
-            log.debug("connectServerSync failed for server '{}': {}", server.getName(), e.getMessage(), e);
-            throw e;
-        }
+        SyncMcpToolCallbackProvider provider = new SyncMcpToolCallbackProvider(List.of(client));
+        ToolCallback[] callbacks = provider.getToolCallbacks();
+        ToolCallback[] prefixed = prefixToolNames(server.getName(), callbacks);
+        mcpToolCallbacks.put(server.getName(), prefixed);
     }
 
     public void disconnectServer(String serverName) {
@@ -171,7 +153,6 @@ public class McpToolProviderImpl implements McpToolProvider {
             try {
                 client.closeGracefully();
             } catch (Exception e) {
-                log.debug("Error closing test MCP client: {}", e.getMessage());
             }
         }
     }
@@ -185,8 +166,6 @@ public class McpToolProviderImpl implements McpToolProvider {
 
     private McpSyncClient createSyncClient(McpServerEntity server) {
         Duration requestTimeout = resolveRequestTimeout(server);
-        log.debug("Creating MCP client for '{}' with request timeout: {}s",
-                server.getName(), requestTimeout.toSeconds());
 
         return switch (server.getTransportType()) {
             case "SSE" -> {

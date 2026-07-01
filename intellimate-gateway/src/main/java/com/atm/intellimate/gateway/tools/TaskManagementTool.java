@@ -6,8 +6,6 @@ import com.atm.intellimate.gateway.repository.AgentTaskRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -19,7 +17,6 @@ import java.util.List;
 @Component
 public class TaskManagementTool {
 
-    private static final Logger log = LoggerFactory.getLogger(TaskManagementTool.class);
     private static final ObjectMapper om = new ObjectMapper();
 
     private final AgentTaskRepository taskRepo;
@@ -62,7 +59,6 @@ public class TaskManagementTool {
         task.setUpdatedAt(LocalDateTime.now());
 
         AgentTaskEntity saved = taskRepo.save(task).block();
-        log.info("Todo task created via chat: id={}, title='{}', agent={}", saved.getId(), title, agentId);
 
         return taskToJson("created", saved);
     }

@@ -22,8 +22,7 @@ public record ResolvedMemoryConfig(
         int archiveAfterDays,
         int minChunksForEpisodic,
         boolean vectorEnabled,
-        String embeddingModel,
-        int embeddingDimensions,
+        String embeddingDefinitionId,
         String retrievalStrategy,
         float vectorWeight,
         float keywordWeight,
@@ -34,7 +33,9 @@ public record ResolvedMemoryConfig(
         float episodicDecayLambda,
         float proceduralDecayLambda,
         float minFactImportance,
-        int maxMergedContentLength
+        int maxMergedContentLength,
+        float similarityThreshold,
+        float topicSimilarityThreshold
 ) {
 
     public static ResolvedMemoryConfig fromMap(Map<String, String> map) {
@@ -53,11 +54,10 @@ public record ResolvedMemoryConfig(
                 parseFloat(map, "long_term.decay_lambda"),
                 parseInt(map, "long_term.compaction_threshold"),
                 parseInt(map, "long_term.archive_after_days"),
-                parseIntOrDefault(map, "long_term.min_chunks_for_episodic", 4),
-                parseBooleanOrDefault(map, "vector.enabled", true),
-                getOrDefault(map, "embedding.model", "text-embedding-v3"),
-                parseIntOrDefault(map, "embedding.dimensions", 1024),
-                getOrDefault(map, "retrieval.strategy", "hybrid"),
+                parseInt(map, "long_term.min_chunks_for_episodic"),
+                parseBoolean(map, "vector.enabled"),
+                getOrEmpty(map, "embedding.definition_id"),
+                getOrDefault(map, "retrieval.strategy", "keyword_only"),
                 parseFloatOrDefault(map, "retrieval.vector_weight", 0.6f),
                 parseFloatOrDefault(map, "retrieval.keyword_weight", 0.4f),
                 parseFloatOrDefault(map, "scoring.semantic_weight", 1.2f),
@@ -66,8 +66,10 @@ public record ResolvedMemoryConfig(
                 parseFloatOrDefault(map, "scoring.semantic_decay_lambda", 0.03f),
                 parseFloatOrDefault(map, "scoring.episodic_decay_lambda", 0.10f),
                 parseFloatOrDefault(map, "scoring.procedural_decay_lambda", 0.05f),
-                parseFloatOrDefault(map, "long_term.min_fact_importance", 0.3f),
-                parseIntOrDefault(map, "long_term.max_merged_content_length", 1000)
+                parseFloat(map, "long_term.min_fact_importance"),
+                parseInt(map, "long_term.max_merged_content_length"),
+                parseFloatOrDefault(map, "vector.similarity_threshold", 0.35f),
+                parseFloatOrDefault(map, "consolidation.topic_similarity_threshold", 0.7f)
         );
     }
 
@@ -76,12 +78,6 @@ public record ResolvedMemoryConfig(
         if (val == null) {
             throw new IllegalArgumentException("Missing required memory config key: " + key);
         }
-        return val;
-    }
-
-    private static String getOrDefault(Map<String, String> map, String key, String defaultValue) {
-        String val = map.get(key);
-        if (val == null || val.isBlank()) return defaultValue;
         return val;
     }
 
@@ -110,14 +106,14 @@ public record ResolvedMemoryConfig(
         return Boolean.parseBoolean(val);
     }
 
-    private static int parseIntOrDefault(Map<String, String> map, String key, int defaultValue) {
+    private static String getOrEmpty(Map<String, String> map, String key) {
         String val = map.get(key);
-        if (val == null || val.isBlank()) return defaultValue;
-        try {
-            return Integer.parseInt(val);
-        } catch (NumberFormatException e) {
-            return defaultValue;
-        }
+        return val != null ? val : "";
+    }
+
+    private static String getOrDefault(Map<String, String> map, String key, String defaultValue) {
+        String val = map.get(key);
+        return (val != null && !val.isBlank()) ? val : defaultValue;
     }
 
     private static float parseFloatOrDefault(Map<String, String> map, String key, float defaultValue) {
@@ -128,11 +124,5 @@ public record ResolvedMemoryConfig(
         } catch (NumberFormatException e) {
             return defaultValue;
         }
-    }
-
-    private static boolean parseBooleanOrDefault(Map<String, String> map, String key, boolean defaultValue) {
-        String val = map.get(key);
-        if (val == null || val.isBlank()) return defaultValue;
-        return Boolean.parseBoolean(val);
     }
 }
