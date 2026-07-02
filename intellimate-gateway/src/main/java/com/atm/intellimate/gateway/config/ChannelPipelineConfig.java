@@ -7,9 +7,12 @@ import com.atm.intellimate.gateway.channel.ChannelBindingCodeService;
 import com.atm.intellimate.gateway.channel.ChannelIdentityService;
 import com.atm.intellimate.gateway.channel.ChannelMetrics;
 import com.atm.intellimate.gateway.channel.ChannelsManager;
+import com.atm.intellimate.gateway.channel.dingtalk.DingtalkStreamAdapter;
 import com.atm.intellimate.gateway.pipeline.MessagePipeline;
 import com.atm.intellimate.gateway.service.ChannelConfigService;
+import com.atm.intellimate.gateway.service.ChannelGroupService;
 import com.atm.intellimate.gateway.websocket.SessionRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +47,16 @@ public class ChannelPipelineConfig {
                                  ChannelBindingCodeService bindingCodeService,
                                  ChannelIdentityService identityService,
                                  ChannelConfigService channelConfigService,
-                                 SessionRegistry sessionRegistry) {
+                                 SessionRegistry sessionRegistry,
+                                 ChannelGroupService channelGroupService,
+                                 @Autowired(required = false) DingtalkStreamAdapter dingtalkStreamAdapter) {
+
+        if (dingtalkStreamAdapter != null) {
+            dingtalkStreamAdapter.onGroupDiscovered(info ->
+                    channelGroupService.recordGroup(info.channelId(), info.groupId(), info.groupName())
+                            .subscribe());
+        }
+
         channelsManager.setInboundHandler(envelope -> {
             String channelId = envelope.sessionKey().channelId();
             String contextType = envelope.sessionKey().contextType();
