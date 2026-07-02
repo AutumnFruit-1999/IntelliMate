@@ -9,13 +9,16 @@ import com.atm.intellimate.gateway.channel.ChannelMetrics;
 import com.atm.intellimate.gateway.channel.ChannelsManager;
 import com.atm.intellimate.gateway.pipeline.MessagePipeline;
 import com.atm.intellimate.gateway.service.ChannelConfigService;
+import com.atm.intellimate.gateway.websocket.SessionRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -40,14 +43,15 @@ public class ChannelPipelineConfig {
                                  ChannelMetrics channelMetrics,
                                  ChannelBindingCodeService bindingCodeService,
                                  ChannelIdentityService identityService,
-                                 ChannelConfigService channelConfigService) {
+                                 ChannelConfigService channelConfigService,
+                                 SessionRegistry sessionRegistry) {
         channelsManager.setInboundHandler(envelope -> {
             String channelId = envelope.sessionKey().channelId();
             String contextType = envelope.sessionKey().contextType();
             channelMetrics.recordMessageReceived(channelId, contextType);
             Timer.Sample sample = channelMetrics.startProcessingTimer();
 
-            Mono<String> replyMono = tryBindingCode(envelope, bindingCodeService, identityService)
+            Mono<String> replyMono = tryBindingCode(envelope, bindingCodeService, identityService, sessionRegistry)
                     .orElseGet(() -> resolveIdentityAndProcess(
                             envelope, identityService, channelConfigService, messagePipeline));
 
@@ -128,7 +132,8 @@ public class ChannelPipelineConfig {
     private static java.util.Optional<Mono<String>> tryBindingCode(
             InboundEnvelope envelope,
             ChannelBindingCodeService bindingCodeService,
-            ChannelIdentityService identityService) {
+            ChannelIdentityService identityService,
+            SessionRegistry sessionRegistry) {
         String text = envelope.text() != null ? envelope.text().trim() : "";
         String normalized = normalizeBindingInput(text);
         if (!BINDING_CODE_PATTERN.matcher(normalized).matches()) {
@@ -150,7 +155,22 @@ public class ChannelPipelineConfig {
                                             envelope.sessionKey().channelId(),
                                             envelope.senderId(),
                                             envelope.senderName())
-                                    .doOnSuccess(v -> bindingCodeService.consume(normalized))
+                                    .doOnSuccess(v -> {
+                                        bindingCodeService.consume(normalized);
+                                        identityService.listByUserId(entry.userId())
+                                                .filter(id -> "webchat".equals(id.getChannelId()))
+                                                .next()
+                                                .subscribe(webchatId -> {
+                                                    try {
+                                                        Long dbUserId = Long.parseLong(webchatId.getExternalId());
+                                                        sessionRegistry.pushToUser(dbUserId, "binding.success", Map.of(
+                                                                "channelId", envelope.sessionKey().channelId(),
+                                                                "externalName", envelope.senderName() != null ? envelope.senderName() : "",
+                                                                "boundAt", Instant.now().toString()
+                                                        ));
+                                                    } catch (NumberFormatException ignored) {}
+                                                });
+                                    })
                                     .thenReturn("绑定成功！你的账号已与 Web 端关联，后续消息将自动同步。");
                         }));
     }
