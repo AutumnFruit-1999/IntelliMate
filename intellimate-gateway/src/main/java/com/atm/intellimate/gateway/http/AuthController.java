@@ -92,13 +92,15 @@ public class AuthController {
     public Mono<Map<String, Object>> me(@RequestHeader(value = "Authorization", required = false) String authHeader) {
         String token = extractBearerToken(authHeader);
         return jwtService.validateToken(token)
-                .map(claims -> {
-                    Map<String, Object> result = new LinkedHashMap<>();
-                    result.put("userId", claims.userId());
-                    result.put("username", claims.username());
-                    return (Map<String, Object>) result;
-                })
-                .map(Mono::just)
+                .map(claims -> channelIdentityService
+                        .resolveUserId("webchat", String.valueOf(claims.userId()), null)
+                        .map(unifiedUserId -> {
+                            Map<String, Object> result = new LinkedHashMap<>();
+                            result.put("userId", claims.userId());
+                            result.put("username", claims.username());
+                            result.put("unifiedUserId", unifiedUserId);
+                            return result;
+                        }))
                 .orElse(Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "无效的 token")));
     }
 

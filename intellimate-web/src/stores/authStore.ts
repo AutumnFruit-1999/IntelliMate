@@ -83,7 +83,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ token, isAuthenticated: true });
     fetchMe()
       .then((me) => {
-        set({ userId: me.userId, username: me.username });
+        const updates: Partial<AuthState> = { userId: me.userId, username: me.username };
+        if (me.unifiedUserId) {
+          updates.unifiedUserId = me.unifiedUserId;
+          localStorage.setItem("unified_user_id", me.unifiedUserId);
+        }
+        set(updates);
       })
       .catch(() => {
         clearAuth(set);
