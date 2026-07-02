@@ -440,12 +440,14 @@ export function useWebSocket() {
     if (store.isWaiting) return;
 
     const agentName = useAgentStore.getState().activeAgent ?? "";
+    const unifiedUserId = localStorage.getItem("unified_user_id") ?? "";
 
     const req = createRequest("conversation.message", {
       text,
       channelId: "webchat",
       contextType: "dm",
       agentName,
+      unifiedUserId,
       ...(forcePlan ? { forcePlan: true } : {}),
       ...(regenerate ? { regenerate: true } : {}),
     });

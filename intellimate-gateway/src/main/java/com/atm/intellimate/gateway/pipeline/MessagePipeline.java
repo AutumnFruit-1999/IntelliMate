@@ -339,7 +339,19 @@ public class MessagePipeline {
         String webchatExternalId = authenticatedUserId != null
                 ? String.valueOf(authenticatedUserId) : WEBCHAT_DEFAULT_EXTERNAL_ID;
 
-        return channelIdentityService.resolveUserId("webchat", webchatExternalId, null)
+        String clientUnifiedUserId = (String) params.getOrDefault("unifiedUserId", "");
+
+        Mono<String> userIdMono = channelIdentityService.resolveUserId("webchat", webchatExternalId, null)
+                .flatMap(resolvedId -> {
+                    if (clientUnifiedUserId.isBlank() || clientUnifiedUserId.equals(resolvedId)) {
+                        return Mono.just(resolvedId);
+                    }
+                    return channelIdentityService.listByUserId(clientUnifiedUserId)
+                            .any(id -> "webchat".equals(id.getChannelId()))
+                            .map(valid -> valid ? clientUnifiedUserId : resolvedId);
+                });
+
+        return userIdMono
                 .flatMapMany(userId -> {
                     SessionKey sessionKey = new SessionKey("unified", "dm", userId);
                     return resolveSessionForAgent(sessionKey, finalAgentName)
