@@ -108,9 +108,20 @@ public class ChannelPipelineConfig {
                         effectiveEnvelope = envelope;
                     }
 
-                    return channelConfigService.getDefaultAgent(channelId)
+                    Mono<String> replyMono = channelConfigService.getDefaultAgent(channelId)
                             .flatMap(optAgent -> messagePipeline.processInbound(
                                     effectiveEnvelope, optAgent.orElse(null), channelId));
+
+                    if (DM_CONTEXT_TYPES.contains(contextType)
+                            && !"webchat".equals(channelId)
+                            && !"unified".equals(channelId)) {
+                        return replyMono.flatMap(reply ->
+                                identityService.listByUserId(userId)
+                                        .any(id -> "webchat".equals(id.getChannelId()))
+                                        .map(hasWebchat -> hasWebchat ? reply
+                                                : reply + "\n\n💡 如需将此账号与 Web 端关联以实现消息同步，请在 Web 端「渠道管理 → 跨渠道身份绑定」中生成绑定码，然后发送给我。"));
+                    }
+                    return replyMono;
                 });
     }
 
