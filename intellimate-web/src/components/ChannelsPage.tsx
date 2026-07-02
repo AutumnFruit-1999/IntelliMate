@@ -70,6 +70,30 @@ export default function ChannelsPage({ onBack }: ChannelsPageProps) {
 
   useEffect(() => { loadIdentities(); }, [loadIdentities]);
 
+  useEffect(() => {
+    if (codeExpiresIn <= 0 || !bindingCode) return;
+    const timer = setInterval(() => {
+      setCodeExpiresIn((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setBindingCode(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [bindingCode]);
+
+  useEffect(() => {
+    const handler = () => {
+      loadIdentities();
+      setBindingCode(null);
+    };
+    window.addEventListener("binding-success", handler);
+    return () => window.removeEventListener("binding-success", handler);
+  }, [loadIdentities]);
+
   const handleGenerateCode = async () => {
     if (!unifiedUserId) return;
     setBindingLoading(true);
@@ -160,9 +184,12 @@ export default function ChannelsPage({ onBack }: ChannelsPageProps) {
 
             <div className="flex gap-4 flex-wrap mb-4">
               <div className="flex-1 min-w-[260px]">
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                  步骤：生成绑定码 → 在钉钉/飞书中发送该绑定码 → 绑定完成
-                </p>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2 space-y-1">
+                  <p className="font-medium">绑定步骤：</p>
+                  <p>1. 点击「生成绑定码」获取 6 位数字码</p>
+                  <p>2. 在钉钉/飞书中找到机器人，直接发送该绑定码</p>
+                  <p>3. 收到「绑定成功」提示后，此页面自动更新</p>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleGenerateCode}
@@ -180,7 +207,9 @@ export default function ChannelsPage({ onBack }: ChannelsPageProps) {
                         {codeCopied ? <Check size={14} /> : <Copy size={14} />}
                       </button>
                       <span className="text-[10px] text-blue-400">
-                        {Math.floor(codeExpiresIn / 60)}分钟有效
+                        {codeExpiresIn > 60
+                          ? `${Math.floor(codeExpiresIn / 60)}分${codeExpiresIn % 60}秒`
+                          : `${codeExpiresIn}秒`}
                       </span>
                     </div>
                   )}
