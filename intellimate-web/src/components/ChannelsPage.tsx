@@ -8,6 +8,7 @@ import ChannelConfigModal from "./ChannelConfigModal";
 const CHANNEL_META: Record<string, { name: string; icon: string }> = {
   feishu: { name: "飞书", icon: "🔷" },
   dingtalk: { name: "钉钉", icon: "🔵" },
+  "dingtalk-stream": { name: "钉钉", icon: "🔵" },
   wechat: { name: "微信", icon: "🟢" },
   webchat: { name: "Web", icon: "🌐" },
 };
