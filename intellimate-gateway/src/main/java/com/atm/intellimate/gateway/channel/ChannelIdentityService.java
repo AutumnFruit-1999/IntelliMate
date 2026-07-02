@@ -61,12 +61,17 @@ public class ChannelIdentityService {
     }
 
     /**
-     * 检查某个外部身份是否已绑定到其他用户。
-     * 返回已绑定的 userId（如果存在），否则返回空字符串。
+     * 检查某个外部身份是否已被一个真实 Web 用户绑定。
+     * 只有当该 externalId 的 userId 同时关联了 webchat 身份时才视为"已绑定"。
+     * 自动创建的独立身份（首次互动时生成）不算"已绑定"，允许被覆盖。
      */
     public Mono<String> findBoundUserId(String channelId, String externalId) {
         return identityRepository.findByChannelIdAndExternalId(channelId, externalId)
-                .map(ChannelIdentityEntity::getUserId)
+                .flatMap(entity ->
+                        identityRepository.findByUserId(entity.getUserId())
+                                .any(id -> "webchat".equals(id.getChannelId()))
+                                .map(hasWebchat -> hasWebchat ? entity.getUserId() : "")
+                )
                 .defaultIfEmpty("");
     }
 
