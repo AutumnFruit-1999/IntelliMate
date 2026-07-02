@@ -119,17 +119,30 @@ public class ChannelPipelineConfig {
             ChannelBindingCodeService bindingCodeService,
             ChannelIdentityService identityService) {
         String text = envelope.text() != null ? envelope.text().trim() : "";
-        if (!BINDING_CODE_PATTERN.matcher(text).matches()) {
+        String normalized = normalizeBindingInput(text);
+        if (!BINDING_CODE_PATTERN.matcher(normalized).matches()) {
             return java.util.Optional.empty();
         }
-        return bindingCodeService.lookup(text)
+        return bindingCodeService.lookup(normalized)
                 .map(entry -> identityService.bindIdentity(
                                 entry.userId(),
                                 envelope.sessionKey().channelId(),
                                 envelope.senderId(),
                                 envelope.senderName())
-                        .doOnSuccess(v -> bindingCodeService.consume(text))
+                        .doOnSuccess(v -> bindingCodeService.consume(normalized))
                         .thenReturn("绑定成功"));
+    }
+
+    private static String normalizeBindingInput(String text) {
+        String s = text.strip();
+        if (s.startsWith("bind ") || s.startsWith("bind\t")) {
+            s = s.substring(5);
+        } else if (s.startsWith("绑定 ") || s.startsWith("绑定\t")) {
+            s = s.substring(3);
+        } else if (s.startsWith("绑定")) {
+            s = s.substring(2);
+        }
+        return s.replaceAll("\\s+", "").strip();
     }
 
     private static String classifyError(Throwable err) {
