@@ -7,15 +7,21 @@ import com.atm.intellimate.gateway.channel.ChannelBindingCodeService;
 import com.atm.intellimate.gateway.channel.ChannelIdentityService;
 import com.atm.intellimate.gateway.channel.ChannelMetrics;
 import com.atm.intellimate.gateway.channel.ChannelsManager;
+import com.atm.intellimate.gateway.channel.dingtalk.DingtalkStreamAdapter;
 import com.atm.intellimate.gateway.pipeline.MessagePipeline;
 import com.atm.intellimate.gateway.service.ChannelConfigService;
+import com.atm.intellimate.gateway.service.ChannelGroupService;
+import com.atm.intellimate.gateway.websocket.SessionRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -40,14 +46,24 @@ public class ChannelPipelineConfig {
                                  ChannelMetrics channelMetrics,
                                  ChannelBindingCodeService bindingCodeService,
                                  ChannelIdentityService identityService,
-                                 ChannelConfigService channelConfigService) {
+                                 ChannelConfigService channelConfigService,
+                                 SessionRegistry sessionRegistry,
+                                 ChannelGroupService channelGroupService,
+                                 @Autowired(required = false) DingtalkStreamAdapter dingtalkStreamAdapter) {
+
+        if (dingtalkStreamAdapter != null) {
+            dingtalkStreamAdapter.onGroupDiscovered(info ->
+                    channelGroupService.recordGroup(info.channelId(), info.groupId(), info.groupName())
+                            .subscribe());
+        }
+
         channelsManager.setInboundHandler(envelope -> {
             String channelId = envelope.sessionKey().channelId();
             String contextType = envelope.sessionKey().contextType();
             channelMetrics.recordMessageReceived(channelId, contextType);
             Timer.Sample sample = channelMetrics.startProcessingTimer();
 
-            Mono<String> replyMono = tryBindingCode(envelope, bindingCodeService, identityService)
+            Mono<String> replyMono = tryBindingCode(envelope, bindingCodeService, identityService, sessionRegistry)
                     .orElseGet(() -> resolveIdentityAndProcess(
                             envelope, identityService, channelConfigService, messagePipeline));
 
@@ -108,28 +124,79 @@ public class ChannelPipelineConfig {
                         effectiveEnvelope = envelope;
                     }
 
-                    return channelConfigService.getDefaultAgent(channelId)
+                    Mono<String> replyMono = channelConfigService.getDefaultAgent(channelId)
                             .flatMap(optAgent -> messagePipeline.processInbound(
                                     effectiveEnvelope, optAgent.orElse(null), channelId));
+
+                    if (DM_CONTEXT_TYPES.contains(contextType)
+                            && !"webchat".equals(channelId)
+                            && !"unified".equals(channelId)) {
+                        return replyMono.flatMap(reply ->
+                                identityService.listByUserId(userId)
+                                        .any(id -> "webchat".equals(id.getChannelId()))
+                                        .map(hasWebchat -> hasWebchat ? reply
+                                                : reply + "\n\n💡 如需将此账号与 Web 端关联以实现消息同步，请在 Web 端「渠道管理 → 跨渠道身份绑定」中生成绑定码，然后发送给我。"));
+                    }
+                    return replyMono;
                 });
     }
 
     private static java.util.Optional<Mono<String>> tryBindingCode(
             InboundEnvelope envelope,
             ChannelBindingCodeService bindingCodeService,
-            ChannelIdentityService identityService) {
+            ChannelIdentityService identityService,
+            SessionRegistry sessionRegistry) {
         String text = envelope.text() != null ? envelope.text().trim() : "";
-        if (!BINDING_CODE_PATTERN.matcher(text).matches()) {
+        String normalized = normalizeBindingInput(text);
+        if (!BINDING_CODE_PATTERN.matcher(normalized).matches()) {
             return java.util.Optional.empty();
         }
-        return bindingCodeService.lookup(text)
-                .map(entry -> identityService.bindIdentity(
-                                entry.userId(),
-                                envelope.sessionKey().channelId(),
-                                envelope.senderId(),
-                                envelope.senderName())
-                        .doOnSuccess(v -> bindingCodeService.consume(text))
-                        .thenReturn("绑定成功"));
+        return bindingCodeService.lookup(normalized)
+                .map(entry -> identityService.findBoundUserId(
+                                envelope.sessionKey().channelId(), envelope.senderId())
+                        .flatMap(existingUserId -> {
+                            if (!existingUserId.isEmpty() && !existingUserId.equals(entry.userId())) {
+                                return Mono.just("绑定失败：该账号已被其他 Web 用户绑定");
+                            }
+                            if (existingUserId.equals(entry.userId())) {
+                                bindingCodeService.consume(normalized);
+                                return Mono.just("已绑定，无需重复操作");
+                            }
+                            return identityService.bindIdentity(
+                                            entry.userId(),
+                                            envelope.sessionKey().channelId(),
+                                            envelope.senderId(),
+                                            envelope.senderName())
+                                    .doOnSuccess(v -> {
+                                        bindingCodeService.consume(normalized);
+                                        identityService.listByUserId(entry.userId())
+                                                .filter(id -> "webchat".equals(id.getChannelId()))
+                                                .next()
+                                                .subscribe(webchatId -> {
+                                                    try {
+                                                        Long dbUserId = Long.parseLong(webchatId.getExternalId());
+                                                        sessionRegistry.pushToUser(dbUserId, "binding.success", Map.of(
+                                                                "channelId", envelope.sessionKey().channelId(),
+                                                                "externalName", envelope.senderName() != null ? envelope.senderName() : "",
+                                                                "boundAt", Instant.now().toString()
+                                                        ));
+                                                    } catch (NumberFormatException ignored) {}
+                                                });
+                                    })
+                                    .thenReturn("绑定成功！你的账号已与 Web 端关联，后续消息将自动同步。");
+                        }));
+    }
+
+    private static String normalizeBindingInput(String text) {
+        String s = text.strip();
+        if (s.startsWith("bind ") || s.startsWith("bind\t")) {
+            s = s.substring(5);
+        } else if (s.startsWith("绑定 ") || s.startsWith("绑定\t")) {
+            s = s.substring(3);
+        } else if (s.startsWith("绑定")) {
+            s = s.substring(2);
+        }
+        return s.replaceAll("\\s+", "").strip();
     }
 
     private static String classifyError(Throwable err) {

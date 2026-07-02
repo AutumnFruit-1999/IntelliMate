@@ -79,3 +79,41 @@ export function listBoundIdentities(userId: string): Promise<ChannelIdentity[]> 
 export function unbindIdentity(identityId: number): Promise<void> {
   return apiFetch(`/api/channel-binding/identities/${identityId}`, { method: "DELETE" });
 }
+
+export interface ChannelGroup {
+  id: number;
+  channelId: string;
+  groupId: string;
+  groupName: string | null;
+  agentName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listChannelGroups(channelId: string): Promise<ChannelGroup[]> {
+  return apiFetch(`/api/channels/${encodeURIComponent(channelId)}/groups`);
+}
+
+export function bindGroupAgent(
+  channelId: string,
+  groupId: string,
+  agentName: string,
+): Promise<ChannelGroup> {
+  return apiFetch(
+    `/api/channels/${encodeURIComponent(channelId)}/groups/${encodeURIComponent(groupId)}/agent`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ agentName }),
+    },
+  );
+}
+
+export function unbindGroupAgent(
+  channelId: string,
+  groupId: string,
+): Promise<ChannelGroup> {
+  return apiFetch(
+    `/api/channels/${encodeURIComponent(channelId)}/groups/${encodeURIComponent(groupId)}/agent`,
+    { method: "DELETE" },
+  );
+}

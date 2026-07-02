@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS channel_group (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    channel_id VARCHAR(50) NOT NULL,
+    group_id VARCHAR(200) NOT NULL,
+    group_name VARCHAR(200),
+    agent_name VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_channel_group (channel_id, group_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

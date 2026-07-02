@@ -2,6 +2,7 @@ package com.atm.intellimate.gateway.service;
 
 import com.atm.intellimate.gateway.channel.ChannelsManager;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
+import com.atm.intellimate.gateway.repository.ChannelGroupRepository;
 import com.atm.intellimate.gateway.repository.ChannelIdentityRepository;
 import com.atm.intellimate.gateway.repository.SessionRepository;
 import com.atm.intellimate.gateway.session.SessionManager;
@@ -31,13 +32,14 @@ class ChatInjectionServiceTest {
     @Mock private ChannelsManager channelsManager;
     @Mock private ChannelConfigService channelConfigService;
     @Mock private ChannelIdentityRepository identityRepository;
+    @Mock private ChannelGroupRepository groupRepository;
 
     private ChatInjectionService service;
 
     @BeforeEach
     void setUp() {
         service = new ChatInjectionService(sessionRegistry, sessionManager, sessionRepository,
-                channelsManager, channelConfigService, identityRepository);
+                channelsManager, channelConfigService, identityRepository, groupRepository);
     }
 
     @Test

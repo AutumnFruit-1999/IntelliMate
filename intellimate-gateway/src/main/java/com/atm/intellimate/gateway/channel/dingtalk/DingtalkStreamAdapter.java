@@ -51,9 +51,16 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
     private volatile WebClient webClient;
     private volatile String accessToken;
     private volatile long tokenExpiresAtEpochMs;
+    private volatile Consumer<GroupInfo> groupInfoHandler;
+
+    public record GroupInfo(String channelId, String groupId, String groupName) {}
 
     public DingtalkStreamAdapter(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+    }
+
+    public void onGroupDiscovered(Consumer<GroupInfo> handler) {
+        this.groupInfoHandler = handler;
     }
 
     @Override
@@ -235,6 +242,11 @@ public class DingtalkStreamAdapter implements ChannelAdapter {
             String chatType = message.getConversationType();
             String contextType = "1".equals(chatType) ? "dm" : "group";
             String contextId = "1".equals(chatType) ? senderId : message.getConversationId();
+
+            if ("group".equals(contextType) && groupInfoHandler != null) {
+                String conversationTitle = message.getConversationTitle();
+                groupInfoHandler.accept(new GroupInfo(CHANNEL_ID, contextId, conversationTitle));
+            }
 
             InboundEnvelope envelope = new InboundEnvelope(
                     new SessionKey(CHANNEL_ID, contextType, contextId),

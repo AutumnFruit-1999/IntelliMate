@@ -26,6 +26,6 @@ export function registerApi(
   });
 }
 
-export function fetchMe(): Promise<{ userId: number; username: string }> {
+export function fetchMe(): Promise<{ userId: number; username: string; unifiedUserId?: string }> {
   return apiFetch("/api/auth/me");
 }

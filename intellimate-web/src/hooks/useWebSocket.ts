@@ -138,6 +138,17 @@ export function useWebSocket() {
             store.addSyncMessage(role, content, sourceChannel);
             break;
           }
+          case "binding.success": {
+            const channelId = event.payload.channelId as string;
+            const externalName = event.payload.externalName as string;
+            const boundAt = event.payload.boundAt as string;
+            window.dispatchEvent(
+              new CustomEvent("binding-success", {
+                detail: { channelId, externalName, boundAt },
+              }),
+            );
+            break;
+          }
           case "agent.turn_start": {
             const turnReqId = event.payload.requestId as string;
             resetRequestTimeout(turnReqId);
