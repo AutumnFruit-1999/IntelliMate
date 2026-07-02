@@ -60,6 +60,16 @@ public class ChannelIdentityService {
                 .then();
     }
 
+    /**
+     * 检查某个外部身份是否已绑定到其他用户。
+     * 返回已绑定的 userId（如果存在），否则返回空字符串。
+     */
+    public Mono<String> findBoundUserId(String channelId, String externalId) {
+        return identityRepository.findByChannelIdAndExternalId(channelId, externalId)
+                .map(ChannelIdentityEntity::getUserId)
+                .defaultIfEmpty("");
+    }
+
     public Flux<ChannelIdentityEntity> listByUserId(String userId) {
         return identityRepository.findByUserId(userId);
     }

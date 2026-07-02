@@ -124,13 +124,24 @@ public class ChannelPipelineConfig {
             return java.util.Optional.empty();
         }
         return bindingCodeService.lookup(normalized)
-                .map(entry -> identityService.bindIdentity(
-                                entry.userId(),
-                                envelope.sessionKey().channelId(),
-                                envelope.senderId(),
-                                envelope.senderName())
-                        .doOnSuccess(v -> bindingCodeService.consume(normalized))
-                        .thenReturn("绑定成功"));
+                .map(entry -> identityService.findBoundUserId(
+                                envelope.sessionKey().channelId(), envelope.senderId())
+                        .flatMap(existingUserId -> {
+                            if (!existingUserId.isEmpty() && !existingUserId.equals(entry.userId())) {
+                                return Mono.just("绑定失败：该账号已被其他 Web 用户绑定");
+                            }
+                            if (existingUserId.equals(entry.userId())) {
+                                bindingCodeService.consume(normalized);
+                                return Mono.just("已绑定，无需重复操作");
+                            }
+                            return identityService.bindIdentity(
+                                            entry.userId(),
+                                            envelope.sessionKey().channelId(),
+                                            envelope.senderId(),
+                                            envelope.senderName())
+                                    .doOnSuccess(v -> bindingCodeService.consume(normalized))
+                                    .thenReturn("绑定成功！你的账号已与 Web 端关联，后续消息将自动同步。");
+                        }));
     }
 
     private static String normalizeBindingInput(String text) {
