@@ -124,22 +124,27 @@ public class ChatInjectionService {
     }
 
     private Mono<Integer> pushToGroups(String agentName, String content) {
-        return groupRepository.findByAgentName(agentName)
-                .flatMap(group -> {
-                    var adapter = channelsManager.getAdapter(group.getChannelId());
-                    if (adapter == null || !adapter.isConnected()) {
-                        return Mono.just(0);
-                    }
-                    SessionKey key = new SessionKey(group.getChannelId(), "group", group.getGroupId());
-                    OutboundMessage outbound = new OutboundMessage(key, content, Collections.emptyList(), null);
-                    return channelsManager.send(outbound)
-                            .thenReturn(1)
-                            .onErrorResume(e -> {
-                                log.warn("Failed to push proactive message to group={} channel={}: {}",
-                                        group.getGroupId(), group.getChannelId(), e.getMessage());
-                                return Mono.just(0);
-                            });
+        return channelConfigService.listChannels()
+                .filter(ch -> {
+                    Object agent = ch.config() != null ? ch.config().get("defaultAgent") : null;
+                    return agentName.equals(agent);
                 })
+                .filter(ch -> {
+                    var adapter = channelsManager.getAdapter(ch.channelId());
+                    return adapter != null && adapter.isConnected();
+                })
+                .flatMap(ch -> groupRepository.findByChannelId(ch.channelId())
+                        .flatMap(group -> {
+                            SessionKey key = new SessionKey(ch.channelId(), "group", group.getGroupId());
+                            OutboundMessage outbound = new OutboundMessage(key, content, Collections.emptyList(), null);
+                            return channelsManager.send(outbound)
+                                    .thenReturn(1)
+                                    .onErrorResume(e -> {
+                                        log.warn("Failed to push proactive message to group={} channel={}: {}",
+                                                group.getGroupId(), ch.channelId(), e.getMessage());
+                                        return Mono.just(0);
+                                    });
+                        }))
                 .reduce(0, Integer::sum);
     }
 

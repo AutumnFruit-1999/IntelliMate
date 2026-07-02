@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { X, Copy, Check, Loader2 } from "lucide-react";
 import { useChannelStore } from "../stores/channelStore";
 import { useAgentStore } from "../stores/agentStore";
-import { fetchChannel, listChannelGroups, bindGroupAgent, unbindGroupAgent, type ChannelGroup } from "../lib/channelApi";
+import { fetchChannel, listChannelGroups, type ChannelGroup } from "../lib/channelApi";
 import { apiUrl } from "../lib/httpClient";
 
 interface ChannelConfigModalProps {
@@ -205,55 +205,27 @@ export default function ChannelConfigModal({ channelId, onClose }: ChannelConfig
                   <p className="text-xs mt-1">将机器人加入群聊并 @机器人 后，群聊会自动出现在此处</p>
                 </div>
               ) : (
-                groups.map((group) => (
-                  <div
-                    key={group.id}
-                    className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
-                        {group.groupName || group.groupId}
-                      </p>
-                      <p className="text-[11px] text-slate-400 truncate">{group.groupId}</p>
+                <>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                    以下群聊使用渠道配置的默认 Agent 进行主动推送，如需更改请在「配置」Tab 中修改默认 Agent。
+                  </p>
+                  {groups.map((group) => (
+                    <div
+                      key={group.id}
+                      className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
+                          {group.groupName || group.groupId}
+                        </p>
+                        <p className="text-[11px] text-slate-400 truncate">{group.groupId}</p>
+                      </div>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 ml-3">
+                        {config.defaultAgent || "未设置 Agent"}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-2 ml-3">
-                      {group.agentName ? (
-                        <>
-                          <span className="text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full">
-                            {group.agentName}
-                          </span>
-                          <button
-                            onClick={async () => {
-                              await unbindGroupAgent(channelId!, group.groupId);
-                              loadGroups();
-                            }}
-                            className="text-xs text-red-500 hover:text-red-700"
-                          >
-                            解绑
-                          </button>
-                        </>
-                      ) : (
-                        <select
-                          className="text-xs border border-slate-300 dark:border-slate-600 rounded px-2 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                          defaultValue=""
-                          onChange={async (e) => {
-                            if (e.target.value) {
-                              await bindGroupAgent(channelId!, group.groupId, e.target.value);
-                              loadGroups();
-                            }
-                          }}
-                        >
-                          <option value="" disabled>
-                            绑定 Agent...
-                          </option>
-                          {agents.map((a) => (
-                            <option key={a.name} value={a.name}>{a.name}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  </div>
-                ))
+                  ))}
+                </>
               )}
             </div>
           ) : fetching ? (
