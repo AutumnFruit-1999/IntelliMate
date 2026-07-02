@@ -6,6 +6,7 @@ import com.atm.intellimate.gateway.channel.ChannelsManager;
 import com.atm.intellimate.gateway.dto.ChannelInfoDto;
 import com.atm.intellimate.gateway.entity.ChannelIdentityEntity;
 import com.atm.intellimate.gateway.entity.TranscriptMessageEntity;
+import com.atm.intellimate.gateway.repository.ChannelGroupRepository;
 import com.atm.intellimate.gateway.repository.ChannelIdentityRepository;
 import com.atm.intellimate.gateway.repository.SessionRepository;
 import com.atm.intellimate.gateway.session.SessionManager;
@@ -32,19 +33,22 @@ public class ChatInjectionService {
     private final ChannelsManager channelsManager;
     private final ChannelConfigService channelConfigService;
     private final ChannelIdentityRepository identityRepository;
+    private final ChannelGroupRepository groupRepository;
 
     public ChatInjectionService(SessionRegistry sessionRegistry,
                                 SessionManager sessionManager,
                                 SessionRepository sessionRepository,
                                 ChannelsManager channelsManager,
                                 ChannelConfigService channelConfigService,
-                                ChannelIdentityRepository identityRepository) {
+                                ChannelIdentityRepository identityRepository,
+                                ChannelGroupRepository groupRepository) {
         this.sessionRegistry = sessionRegistry;
         this.sessionManager = sessionManager;
         this.sessionRepository = sessionRepository;
         this.channelsManager = channelsManager;
         this.channelConfigService = channelConfigService;
         this.identityRepository = identityRepository;
+        this.groupRepository = groupRepository;
     }
 
     public Mono<Integer> injectAgentMessage(String agentName, String content, ProactiveSource source) {
@@ -81,13 +85,14 @@ public class ChatInjectionService {
         });
 
         Mono<Integer> channelMono = pushToExternalChannels(agentName, content);
+        Mono<Integer> groupMono = pushToGroups(agentName, content);
 
         return persistMono
-                .then(Mono.zip(wsMono, channelMono))
+                .then(Mono.zip(wsMono, channelMono, groupMono))
                 .map(tuple -> {
-                    int total = tuple.getT1() + tuple.getT2();
+                    int total = tuple.getT1() + tuple.getT2() + tuple.getT3();
                     if (total == 0) {
-                        log.warn("Proactive message for agent '{}' not delivered: no connected sessions/channels", agentName);
+                        log.warn("Proactive message for agent '{}' not delivered: no connected sessions/channels/groups", agentName);
                     }
                     return total;
                 });
@@ -115,6 +120,26 @@ public class ChatInjectionService {
                                         return Mono.just(0);
                                     });
                         }))
+                .reduce(0, Integer::sum);
+    }
+
+    private Mono<Integer> pushToGroups(String agentName, String content) {
+        return groupRepository.findByAgentName(agentName)
+                .flatMap(group -> {
+                    var adapter = channelsManager.getAdapter(group.getChannelId());
+                    if (adapter == null || !adapter.isConnected()) {
+                        return Mono.just(0);
+                    }
+                    SessionKey key = new SessionKey(group.getChannelId(), "group", group.getGroupId());
+                    OutboundMessage outbound = new OutboundMessage(key, content, Collections.emptyList(), null);
+                    return channelsManager.send(outbound)
+                            .thenReturn(1)
+                            .onErrorResume(e -> {
+                                log.warn("Failed to push proactive message to group={} channel={}: {}",
+                                        group.getGroupId(), group.getChannelId(), e.getMessage());
+                                return Mono.just(0);
+                            });
+                })
                 .reduce(0, Integer::sum);
     }
 
