@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { X, Copy, Check, Loader2 } from "lucide-react";
 import { useChannelStore } from "../stores/channelStore";
 import { useAgentStore } from "../stores/agentStore";
-import { fetchChannel } from "../lib/channelApi";
+import { fetchChannel, listChannelGroups, bindGroupAgent, unbindGroupAgent, type ChannelGroup } from "../lib/channelApi";
 import { apiUrl } from "../lib/httpClient";
 
 interface ChannelConfigModalProps {
@@ -53,6 +53,9 @@ export default function ChannelConfigModal({ channelId, onClose }: ChannelConfig
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<"config" | "groups">("config");
+  const [groups, setGroups] = useState<ChannelGroup[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
 
   useEffect(() => {
     if (isEdit && channelId) {
@@ -74,6 +77,25 @@ export default function ChannelConfigModal({ channelId, onClose }: ChannelConfig
       setConfig({});
     }
   }, [channelId, isEdit]);
+
+  const loadGroups = useCallback(async () => {
+    if (!channelId) return;
+    setGroupsLoading(true);
+    try {
+      const data = await listChannelGroups(channelId);
+      setGroups(data);
+    } catch {
+      /* silent */
+    } finally {
+      setGroupsLoading(false);
+    }
+  }, [channelId]);
+
+  useEffect(() => {
+    if (activeTab === "groups" && channelId) {
+      loadGroups();
+    }
+  }, [activeTab, channelId, loadGroups]);
 
   const webhookUrl = selectedType ? apiUrl(`/webhook/${selectedType}`) : "";
 
@@ -146,7 +168,95 @@ export default function ChannelConfigModal({ channelId, onClose }: ChannelConfig
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {fetching ? (
+          {isEdit && (
+            <div className="flex border-b border-slate-200 dark:border-slate-700 mb-4">
+              <button
+                onClick={() => setActiveTab("config")}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === "config"
+                    ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                配置
+              </button>
+              <button
+                onClick={() => setActiveTab("groups")}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === "groups"
+                    ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                群聊
+              </button>
+            </div>
+          )}
+
+          {activeTab === "groups" && isEdit ? (
+            <div className="space-y-3">
+              {groupsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 size={20} className="animate-spin text-slate-400" />
+                </div>
+              ) : groups.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-sm">
+                  <p>暂无群聊记录</p>
+                  <p className="text-xs mt-1">将机器人加入群聊并 @机器人 后，群聊会自动出现在此处</p>
+                </div>
+              ) : (
+                groups.map((group) => (
+                  <div
+                    key={group.id}
+                    className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
+                        {group.groupName || group.groupId}
+                      </p>
+                      <p className="text-[11px] text-slate-400 truncate">{group.groupId}</p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-3">
+                      {group.agentName ? (
+                        <>
+                          <span className="text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full">
+                            {group.agentName}
+                          </span>
+                          <button
+                            onClick={async () => {
+                              await unbindGroupAgent(channelId!, group.groupId);
+                              loadGroups();
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700"
+                          >
+                            解绑
+                          </button>
+                        </>
+                      ) : (
+                        <select
+                          className="text-xs border border-slate-300 dark:border-slate-600 rounded px-2 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                          defaultValue=""
+                          onChange={async (e) => {
+                            if (e.target.value) {
+                              await bindGroupAgent(channelId!, group.groupId, e.target.value);
+                              loadGroups();
+                            }
+                          }}
+                        >
+                          <option value="" disabled>
+                            绑定 Agent...
+                          </option>
+                          {agents.map((a) => (
+                            <option key={a.name} value={a.name}>{a.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : fetching ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 size={24} className="animate-spin text-slate-400" />
             </div>
