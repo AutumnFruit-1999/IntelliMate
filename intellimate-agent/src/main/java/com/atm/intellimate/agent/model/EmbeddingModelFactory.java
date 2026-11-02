@@ -1,8 +1,5 @@
 package com.atm.intellimate.agent.model;
 
-import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
-import com.alibaba.cloud.ai.dashscope.embedding.DashScopeEmbeddingModel;
-import com.alibaba.cloud.ai.dashscope.embedding.DashScopeEmbeddingOptions;
 import org.springframework.ai.document.MetadataMode;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
@@ -15,33 +12,23 @@ import java.net.URI;
 @Component
 public class EmbeddingModelFactory {
 
+    private static final String DASHSCOPE_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+
     public EmbeddingModel create(ProviderConfig config, String modelId, int dimensions) {
         return switch (config.type()) {
-            case DASHSCOPE -> createDashScope(config, modelId, dimensions);
-            case OPENAI_COMPATIBLE -> createOpenAi(config, modelId, dimensions);
+            case DASHSCOPE, OPENAI_COMPATIBLE -> createOpenAi(config, modelId, dimensions);
             case ANTHROPIC, DEEPSEEK ->
                     throw new UnsupportedOperationException(
                             "Provider type " + config.type() + " does not support embedding models");
         };
     }
 
-    private EmbeddingModel createDashScope(ProviderConfig config, String modelId, int dimensions) {
-        DashScopeApi.Builder apiBuilder = DashScopeApi.builder().apiKey(config.apiKey());
-        if (config.baseUrl() != null && !config.baseUrl().isBlank()) {
-            apiBuilder.baseUrl(config.baseUrl());
-        }
-        DashScopeEmbeddingOptions options = DashScopeEmbeddingOptions.builder()
-                .withModel(modelId)
-                .withDimensions(dimensions)
-                .build();
-        return new DashScopeEmbeddingModel(apiBuilder.build(), MetadataMode.EMBED, options);
-    }
-
     private EmbeddingModel createOpenAi(ProviderConfig config, String modelId, int dimensions) {
         OpenAiApi.Builder apiBuilder = OpenAiApi.builder().apiKey(config.apiKey());
-        if (config.baseUrl() != null && !config.baseUrl().isBlank()) {
-            apiBuilder.baseUrl(config.baseUrl());
-            if (hasVersionPath(config.baseUrl())) {
+        String baseUrl = resolveBaseUrl(config);
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            apiBuilder.baseUrl(baseUrl);
+            if (hasVersionPath(baseUrl)) {
                 apiBuilder.embeddingsPath("/embeddings");
             }
         }
@@ -50,6 +37,16 @@ public class EmbeddingModelFactory {
                 .dimensions(dimensions)
                 .build();
         return new OpenAiEmbeddingModel(apiBuilder.build(), MetadataMode.EMBED, options);
+    }
+
+    private String resolveBaseUrl(ProviderConfig config) {
+        if (config.baseUrl() != null && !config.baseUrl().isBlank()) {
+            return config.baseUrl();
+        }
+        if (config.type() == ProviderType.DASHSCOPE) {
+            return DASHSCOPE_COMPATIBLE_BASE_URL;
+        }
+        return null;
     }
 
     private boolean hasVersionPath(String baseUrl) {

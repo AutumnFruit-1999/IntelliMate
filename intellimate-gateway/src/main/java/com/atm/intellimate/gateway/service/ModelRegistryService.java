@@ -43,8 +43,8 @@ public class ModelRegistryService {
 
     private volatile List<ProviderConfig> cachedProviderConfigs = List.of();
 
-    @Value("${spring.ai.dashscope.api-key:}")
-    private String dashScopeApiKeyFromYml;
+    @Value("${DASHSCOPE_API_KEY:}")
+    private String dashScopeApiKeyFromEnv;
 
     public ModelRegistryService(ModelProviderRepository providerRepo,
                                 ModelDefinitionRepository definitionRepo,
@@ -77,13 +77,13 @@ public class ModelRegistryService {
      * Auto-migrate DashScope API Key from application.yml to DB on first start.
      */
     private Mono<Void> migrateApiKeyIfNeeded() {
-        if (dashScopeApiKeyFromYml == null || dashScopeApiKeyFromYml.isBlank()) {
+        if (dashScopeApiKeyFromEnv == null || dashScopeApiKeyFromEnv.isBlank()) {
             return Mono.empty();
         }
         return providerRepo.findByName("阿里 DashScope")
                 .flatMap(provider -> {
                     if (PLACEHOLDER.equals(provider.getApiKeyEncrypted())) {
-                        provider.setApiKeyEncrypted(cryptoService.encrypt(dashScopeApiKeyFromYml));
+                        provider.setApiKeyEncrypted(cryptoService.encrypt(dashScopeApiKeyFromEnv));
                         return providerRepo.save(provider).then();
                     }
                     return Mono.empty();
