@@ -12,7 +12,7 @@
 
     <artifactId>intellimate-agent</artifactId>
     <name>intellimate-agent</name>
-    <description>Agent runtime, tool engine, and LLM integration via Spring AI Alibaba</description>
+    <description>Agent runtime, tool engine, and LLM integration via Spring AI</description>
 
     <dependencies>
         <dependency>
@@ -22,10 +22,6 @@
         <dependency>
             <groupId>com.atm</groupId>
             <artifactId>intellimate-memory</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>

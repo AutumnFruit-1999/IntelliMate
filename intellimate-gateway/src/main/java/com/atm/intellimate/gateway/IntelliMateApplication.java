@@ -1,11 +1,5 @@
 package com.atm.intellimate.gateway;
 
-import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAgentAutoConfiguration;
-import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeEmbeddingAutoConfiguration;
-import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeImageAutoConfiguration;
-import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeRerankAutoConfiguration;
-import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioSpeechAutoConfiguration;
-import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAudioTranscriptionAutoConfiguration;
 import com.atm.intellimate.core.config.IntelliMateProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -15,12 +9,6 @@ import org.springframework.data.r2dbc.repository.config.EnableR2dbcRepositories;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(exclude = {
-        DashScopeAgentAutoConfiguration.class,
-        DashScopeEmbeddingAutoConfiguration.class,
-        DashScopeImageAutoConfiguration.class,
-        DashScopeRerankAutoConfiguration.class,
-        DashScopeAudioSpeechAutoConfiguration.class,
-        DashScopeAudioTranscriptionAutoConfiguration.class,
         org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration.class,
         org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration.class,
         org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration.class,

@@ -27,11 +27,6 @@ spring:
     out-of-order: true
 
   ai:
-    dashscope:
-      api-key: ${DASHSCOPE_API_KEY:sk-8b71fb8815884080b52bd3b670b3b599}
-      chat:
-        options:
-          model: ${INTELLIMATE_AGENT_MODEL:qwen-plus}
     vectorstore:
       qdrant:
         host: ${QDRANT_HOST:localhost}

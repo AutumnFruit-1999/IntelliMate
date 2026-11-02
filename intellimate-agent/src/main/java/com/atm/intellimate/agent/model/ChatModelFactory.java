@@ -1,7 +1,5 @@
 package com.atm.intellimate.agent.model;
 
-import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.reactivestreams.Publisher;
@@ -31,33 +29,23 @@ public class ChatModelFactory {
 
     private static final Logger log = LoggerFactory.getLogger(ChatModelFactory.class);
 
+    private static final String DASHSCOPE_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+
     public ChatModel create(ProviderConfig config) {
         return switch (config.type()) {
-            case DASHSCOPE -> createDashScope(config);
-            case OPENAI_COMPATIBLE -> createOpenAiCompatible(config);
+            case DASHSCOPE, OPENAI_COMPATIBLE -> createOpenAiCompatible(config);
             case ANTHROPIC -> createAnthropic(config);
             case DEEPSEEK -> createDeepSeek(config);
         };
     }
 
-    private ChatModel createDashScope(ProviderConfig config) {
-        DashScopeApi.Builder apiBuilder = DashScopeApi.builder()
-                .apiKey(config.apiKey());
-        if (config.baseUrl() != null && !config.baseUrl().isBlank()) {
-            apiBuilder.baseUrl(config.baseUrl());
-        }
-        DashScopeApi api = apiBuilder.build();
-        return DashScopeChatModel.builder()
-                .dashScopeApi(api)
-                .build();
-    }
-
     private ChatModel createOpenAiCompatible(ProviderConfig config) {
         OpenAiApi.Builder apiBuilder = OpenAiApi.builder()
                 .apiKey(config.apiKey());
-        if (config.baseUrl() != null && !config.baseUrl().isBlank()) {
-            apiBuilder.baseUrl(config.baseUrl());
-            if (hasVersionPath(config.baseUrl())) {
+        String baseUrl = resolveBaseUrl(config);
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            apiBuilder.baseUrl(baseUrl);
+            if (hasVersionPath(baseUrl)) {
                 apiBuilder.completionsPath("/chat/completions");
                 apiBuilder.embeddingsPath("/embeddings");
             }
@@ -66,6 +54,16 @@ public class ChatModelFactory {
         return OpenAiChatModel.builder()
                 .openAiApi(api)
                 .build();
+    }
+
+    private String resolveBaseUrl(ProviderConfig config) {
+        if (config.baseUrl() != null && !config.baseUrl().isBlank()) {
+            return config.baseUrl();
+        }
+        if (config.type() == ProviderType.DASHSCOPE) {
+            return DASHSCOPE_COMPATIBLE_BASE_URL;
+        }
+        return null;
     }
 
     /**
